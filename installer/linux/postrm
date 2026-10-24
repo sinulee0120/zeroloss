@@ -1,0 +1,18 @@
+#!/bin/sh
+# ZeroLoss agent: after the files are gone (4.3-1). Only empty folders are removed;
+# purge also removes the user data and, if the package made it, the account.
+set -e
+R="${DPKG_ROOT:-}"
+case "$1" in
+    remove|purge)
+        rmdir "$R/opt/zeroloss/modules" 2>/dev/null || true
+        rmdir "$R/opt/zeroloss" 2>/dev/null || true
+        ;;
+esac
+if [ "$1" = "purge" ]; then
+    if [ -f "$R/var/lib/zeroloss/.account-created" ]; then
+        deluser --system zeroloss >/dev/null 2>&1 || true
+    fi
+    rm -rf "$R/var/lib/zeroloss"
+fi
+exit 0

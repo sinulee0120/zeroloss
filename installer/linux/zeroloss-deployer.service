@@ -1,0 +1,14 @@
+[Unit]
+Description=ZeroLoss Deployer (install, update, watch the node; TCP 10991)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/zeroloss/zeroloss.conf
+ExecStart=/opt/zeroloss/deployer/zeroloss-deployer --data ${ZL_DATA} --modules /opt/zeroloss/modules --port ${ZL_DEPLOYER_PORT} --agent-port ${ZL_NODE_PORT} --service systemd:zeroloss-agent.service --data-owner zeroloss
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

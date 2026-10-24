@@ -1,0 +1,105 @@
+{
+ "schema_version": 1,
+ "source": "docs/03-features.md F22 (representative human actions); action_id format docs/14-autonomy.md 1",
+ "actions": {
+  "human.tablet.allow_usb_debugging": {
+   "what": "Allow USB debugging on the tablet",
+   "how": "On the tablet screen, tap Allow in the USB debugging message (tick Always allow from this computer).",
+   "repeat": "once",
+   "opened_by": {"ZL-INS-019": true}
+  },
+  "human.tablet.allow_install": {
+   "what": "Allow the app install on the tablet",
+   "how": "On the tablet screen, tap Install or Allow in the message that asks about installing the ZeroLoss app.",
+   "repeat": "once",
+   "opened_by": {"ZL-INS-018": true}
+  },
+  "human.agent.run_windows_installer": {
+   "what": "Run the ZeroLoss installer on the Windows PC",
+   "how": "On that PC, open the ZeroLoss installer and accept the defaults; the Controller finds the PC by itself.",
+   "repeat": "once",
+   "opened_by": {}
+  },
+  "human.agent.enter_ssh_account": {
+   "what": "Enter an SSH account for the Linux PC",
+   "how": "Type a user name and password that can use sudo on that PC.",
+   "repeat": "once",
+   "opened_by": {"ZL-INS-007": true, "ZL-INS-008": true}
+  },
+  "human.wifi.enter_password": {
+   "what": "Connect the device to the test Wi-Fi",
+   "how": "On the device, pick the test Wi-Fi shown and enter its password.",
+   "repeat": "once",
+   "opened_by": {"ZL-TAB-014": true, "ZL-RCV-023": true}
+  },
+  "human.pc.choose_wan_nic": {
+   "what": "Choose the network card that goes to the router WAN",
+   "how": "More than one wired card on this PC is up without an address. Press the button of the card whose cable goes to the router WAN port.",
+   "repeat": "once",
+   "opened_by": {"ZL-DSC-006": true}
+  },
+  "human.pc.fix_test_route": {
+   "what": "Stop the test network card from taking this PC's default route",
+   "how": "Press Fix. ZeroLoss sets that card to take no default route and no DNS, so the internet stays on the other card.",
+   "repeat": "once",
+   "opened_by": {"ZL-NET-019": true}
+  },
+  "human.cable.move_sender_to_wan": {
+   "what": "Move the sender PC cable to the router WAN port",
+   "how": "Unplug the sender PC from the router LAN port and plug it into the WAN port. The tool notices by itself.",
+   "repeat": "once",
+   "opened_by": {"ZL-SND-022": true}
+  },
+  "human.os.check_auto_login": {
+   "what": "Log in on the receiver PC (and turn on auto login)",
+   "how": "Log in to the desktop of that PC; for unattended tests turn on automatic login in the OS settings.",
+   "repeat": "once",
+   "opened_by": {"ZL-RCV-010": true}
+  },
+  "human.pc.power_cycle": {
+   "what": "Press Reset All",
+   "how": "Press Reset All: ZeroLoss on that PC is started or restarted by itself. Only if its row still says not answering after that: check the PC is on and its cable is in, then restart the PC (hold the power button if it does not respond).",
+   "repeat": "every",
+   "grace_s": 60,
+   "opened_by": {"ZL-DSC-014": true, "ZL-SYS-006": false}
+  },
+  "human.cable.check": {
+   "what": "Check the cable and port",
+   "how": "Look at the network cable between that PC and the router; reseat it, or replace the cable or port.",
+   "repeat": "every",
+   "grace_s": 15,
+   "opened_by": {"ZL-NET-011": true, "ZL-NET-013": true, "ZL-NET-015": true, "ZL-SND-009": true}
+  },
+  "human.wifi.check": {
+   "what": "Check the router's Wi-Fi",
+   "how": "That PC lost the router's Wi-Fi and has not come back. Check that the router's Wi-Fi is on and the PC is in range; it reconnects by itself.",
+   "repeat": "every",
+   "grace_s": 15,
+   "opened_by": {}
+  },
+  "human.pc.add_wan_route": {
+   "what": "Let this PC reach the WAN-side PC",
+   "how": "Press Add the route and answer Yes in the Windows question. ZeroLoss sends the router WAN side (10.0.0.0/24) through the router of this PC's test card. It is gone after a restart.",
+   "repeat": "every",
+   "opened_by": {"ZL-NET-023": true}
+  },
+  "human.pc.consider_sender_wifi_off": {
+   "what": "Consider turning off the sender PC's Wi-Fi",
+   "how": "The sender PC has Wi-Fi on that the test does not use. A Wi-Fi driver that resets can hold up sending, and the losses then look like the router's. Turn it off on that PC if you want to, then press Done. ZeroLoss does not turn it off.",
+   "repeat": "every",
+   "opened_by": {"ZL-NET-025": false}
+  },
+  "human.card.put_back": {
+   "what": "Put a card setting back by hand",
+   "how": "The test changed a card setting and could not put it back. Do what Why says, then press Fixed, check again (or Continue anyway, or Stop the test).",
+   "repeat": "every",
+   "opened_by": {"ZL-NET-024": false}
+  },
+  "human.router.change_setting": {
+   "what": "Change a router setting for this test",
+   "how": "In the router's own settings page, make the change shown, then press Done (ZeroLoss never logs in to the router).",
+   "repeat": "every",
+   "opened_by": {}
+  }
+ }
+}

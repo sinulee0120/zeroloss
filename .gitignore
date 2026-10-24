@@ -1,0 +1,29 @@
+# Build and runtime output
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# Tool depot lives outside the repo (docs/15-tools.md)
+ZeroLossDepot/
+# Test results and reports
+Reports/
+*.pcap
+*.ts
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# Local secrets
+*.key
+*.pem
+.env
+.hypothesis/
+
+# Claude memory is per PC and may hold personal/work notes: never commit it
+docs/claude-memory/

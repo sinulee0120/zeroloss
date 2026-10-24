@@ -1,0 +1,171 @@
+<title>ZeroLoss Agent Screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Same design values as the Controller (docs/11-ui.md 1.11). Agent windows are view-only (F20). */
+:root{
+  --ground:#DCE1E7; --panel:#FFFFFF; --line:#D3D9E0; --line-strong:#B9C1CB; --window:#F5F7F9;
+  --ink:#18212C; --muted:#56606E; --faint:#6E7887; --accent:#27487F;
+  --ok:#1E7A45; --ok-bg:#E3F3E9; --warn:#8A5A00; --warn-bg:#FFF2CC; --bad:#B42318; --bad-bg:#FDE6E4; --none:#7C8695; --none-bg:#ECEFF2;
+  color-scheme:light;
+}
+html,body{background:var(--ground);color:var(--ink)}
+body{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:13px;padding-inline:16px;padding-block:16px 40px}
+*{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.page{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.demo{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:12px;color:var(--muted)}
+.demo b{color:var(--ink)}
+.demo .seg{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.demo button{border:1px dashed var(--line-strong);background:transparent;border-radius:4px;padding:4px 8px;color:var(--ink);font-size:12px}
+.demo button[aria-pressed="true"]{background:var(--ink);color:#fff;border-style:solid;border-color:var(--ink)}
+.stage{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;align-items:start}
+.desk{background:linear-gradient(160deg,#2B3440,#1B222B);border-radius:10px;padding:12px;min-height:330px;position:relative;overflow:hidden}
+.desk .cap{color:#C8D0DA;font-size:12px;margin-bottom:8px}
+.video{position:absolute;inset:36px 12px 12px 12px;border-radius:6px;background:repeating-linear-gradient(90deg,#3B4A5C 0 40px,#34424F 40px 80px);display:grid;place-items:center;color:#D6DEE8;font-size:12px}
+.video.off{background:#222A33}
+/* the small status window */
+.sw{position:absolute;right:20px;bottom:20px;width:260px;background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.35);font-size:12px;overflow:hidden;z-index:2}
+.sw .tb{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--window);border-bottom:1px solid var(--line)}
+.sw .tb b{font-size:12px}
+.sw .tb .sp{flex:1}
+.sw .tb button{border:none;background:none;color:var(--muted);padding:0 4px}
+.sw .bd{padding:8px 10px;display:grid;gap:4px}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.row span{color:var(--muted)}
+.big{display:flex;gap:12px}
+.big div{flex:1;border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.big span{display:block;color:var(--muted);font-size:11px}
+.big b{font-size:20px;font-weight:600}
+.big b small{font-size:11px;font-weight:400;color:var(--muted);margin-left:2px}
+.ico{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:700;flex:none}
+.i-ok{background:var(--ok-bg);color:var(--ok)} .i-warn{background:var(--warn-bg);color:var(--warn)} .i-bad{background:var(--bad-bg);color:var(--bad)} .i-none{background:var(--none-bg);color:var(--none)}
+.msg{border-radius:6px;padding:6px 8px;font-size:12px}
+.msg.bad{background:var(--bad-bg);color:var(--bad)} .msg.warn{background:var(--warn-bg);color:var(--warn)}
+.details{border-top:1px solid var(--line);max-height:110px;overflow:auto}
+.details table{width:100%;border-collapse:collapse;font-size:11px}
+.details th,.details td{padding:2px 6px;text-align:right;border-bottom:1px solid #EEF1F4}
+.details th{position:sticky;top:0;background:var(--window);color:var(--muted);font-weight:500}
+.details td:first-child,.details th:first-child{text-align:left}
+.tog{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--ink)}
+.mini{position:absolute;right:20px;bottom:20px;background:var(--panel);border:1px solid var(--line-strong);border-radius:999px;padding:4px 10px;font-size:12px;display:flex;gap:6px;align-items:center;box-shadow:0 6px 14px rgba(0,0,0,.35);z-index:2}
+.mini button{border:none;background:none;color:var(--accent);padding:0}
+/* tablet */
+.tabwrap{display:grid;place-items:center;padding:12px;background:#12171D;border-radius:10px;min-height:330px}
+.tablet{background:#0B0E12;border-radius:18px;padding:10px;box-shadow:0 0 0 2px #333}
+.tablet .scr{position:relative;background:#000;border-radius:10px;overflow:hidden;width:420px;height:262px}
+.tablet.port .scr{width:220px;height:352px}
+.tablet .vid{position:absolute;inset:0;background:repeating-linear-gradient(90deg,#3B4A5C 0 40px,#34424F 40px 80px);display:grid;place-items:center;color:#D6DEE8;font-size:12px;text-align:center;padding:8px}
+.tablet .vid.off{background:#15191E}
+.tablet .ov{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.94);border-radius:8px;padding:6px 8px;font-size:12px;display:grid;gap:3px;min-width:170px;max-width:calc(100% - 16px)}
+.tablet .ov .row b{font-weight:600}
+.tablet .ovmin{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.94);border-radius:999px;padding:3px 8px;font-size:12px;display:flex;gap:6px;align-items:center}
+.tablet button{border:none;background:none;color:var(--accent);padding:0;font-size:12px}
+.note{color:var(--muted);font-size:12px;line-height:1.6}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:8px;padding:10px 16px;font-size:12px;z-index:9;max-width:calc(100% - 32px)}
+@media (max-width:480px){.tablet .scr{width:280px;height:175px}.tablet.port .scr{width:180px;height:290px}}
+</style>
+
+<div class="page">
+  <div class="demo" role="group" aria-label="Mockup controls">
+    <b>Mockup controls</b> (not part of the app)
+    <span class="seg" id="dmTest"><span>Test:</span>
+      <button type="button" data-test="idle">Idle</button><button type="button" data-test="tablet">Tablet test</button><button type="button" data-test="pc">PC receiver test</button></span>
+    <span class="seg"><span>Inject:</span>
+      <button type="button" id="dmCtl">Controller lost</button><button type="button" id="dmSnd">Sender process crash</button><button type="button" id="dmJit">Tablet-2 jitter spike</button><button type="button" id="dmWifi">Tablet-2 wrong Wi-Fi</button><button type="button" id="dmClear">Clear faults</button></span>
+    <span class="seg"><span>Tablet:</span><button type="button" id="dmRot">Rotate</button></span>
+  </div>
+
+  <div class="stage">
+    <section aria-label="Sender PC">
+      <div class="desk"><div class="cap">Sender PC desktop (Ubuntu) · SENDER-01</div>
+        <div class="video off">Desktop</div>
+        <div id="sender"></div>
+      </div>
+    </section>
+    <section aria-label="Receiver PC">
+      <div class="desk"><div class="cap">Receiver PC desktop · RECV-01</div>
+        <div class="video" id="rxVideo">Player</div>
+        <div id="receiver"></div>
+      </div>
+    </section>
+    <section aria-label="Tablet">
+      <div class="tabwrap"><div class="tablet" id="tablet"><div class="scr"><div class="vid" id="tabVid"></div><div id="tabOv"></div></div></div></div>
+    </section>
+  </div>
+
+  <p class="note">View-only status windows (docs/03-features.md F20). They show only "is it running, is it normal". All control happens on the Controller. Small windows stay in the corner, never cover the video center, and can be minimized to a pill. Values are simulated; time runs every second.</p>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const S={test:"idle",ctlLost:false,sndCrash:false,jit:false,wifi:false,rot:false,sMin:false,rMin:false,rDet:false,tMin:false,t:0,rows:[]};
+const put=(el,h)=>{if(el.__h!==h){el.innerHTML=h;el.__h=h;}}; /* update only when changed: no flicker, clicks are not lost to a re-render */
+const ico=k=>({ok:["i-ok","✔"],warn:["i-warn","⚠"],bad:["i-bad","✖"],none:["i-none","○"]}[k]);
+function senderState(){ if(S.test==="idle") return "none"; if(S.sndCrash||S.ctlLost) return "bad"; return "ok"; }
+function rxState(){ if(S.test==="idle") return "none"; if(S.ctlLost) return "bad"; if(S.test==="tablet"&&(S.wifi)) return "warn"; return "ok"; }
+function tabState(){ if(S.test!=="tablet") return "none"; if(S.ctlLost) return "bad"; if(S.wifi) return "bad"; if(S.jit) return "warn"; return "ok"; }
+
+function render(){
+  document.querySelectorAll("#dmTest button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.test===S.test));
+  // sender
+  const ss=senderState(), si=ico(ss), sending=S.test!=="idle"&&!S.sndCrash&&!S.ctlLost;
+  put($("sender"),S.sMin?`<div class="mini"><span class="ico ${si[0]}">${si[1]}</span>ZeroLoss Sender · ${sending?"Sending 3 ch":S.test==="idle"?"Idle":"Stopped"}<button type="button" id="sOpen" aria-label="Open sender status">▢</button></div>`:
+  `<div class="sw" role="status" aria-label="Sender status"><div class="tb"><span class="ico ${si[0]}">${si[1]}</span><b>ZeroLoss Sender</b><span class="sp"></span><button type="button" id="sMin" aria-label="Minimize">–</button></div><div class="bd">
+    <div class="row"><span>State</span><b>${S.test==="idle"?"Idle":S.sndCrash?"Error":S.ctlLost?"Stopped safely":"Sending 3 channels"}</b></div>
+    <div class="row num"><span>Video quality</span><b>UHD · 3840×2160 · 35 Mbps</b></div>
+    ${[1,2,3].map(c=>`<div class="row num"><span>CH${c} 239.1.1.${c}</span><span>${sending?"35.0 Mbps":"—"} <span class="ico ${sending?"i-ok":S.test==="idle"?"i-none":"i-bad"}">${sending?"✔":S.test==="idle"?"○":"✖"}</span></span></div>`).join("")}
+    <div class="row"><span>Controller</span><b style="color:${S.ctlLost?"var(--bad)":"inherit"}">${S.ctlLost?"Lost 12 s":"Connected"}</b></div>
+    <div class="row num"><span>My IP</span><b>10.0.0.1 (WAN)</b></div>
+    ${S.sndCrash?`<div class="msg bad">✖ Sending process stopped. Restarted once; the Controller will stop the test if it fails again. (ZL-SND-005)</div>`:""}
+    ${S.ctlLost?`<div class="msg bad">✖ No contact with the Controller for 10 s. Sending stopped so no traffic is left running. (F11)</div>`:""}
+  </div></div>`);
+  // receiver
+  const rs=rxState(), ri=ico(rs), relay=S.test==="tablet", rxing=S.test==="pc"&&!S.ctlLost;
+  $("rxVideo").className="video"+(rxing?"":" off"); $("rxVideo").textContent=rxing?"▶ Player: CH2 · UHD · 3840×2160 (mpv)":relay?"(not receiving video in tablet test)":"Player idle";
+  const detRows=S.rows.slice(-8).reverse().map(r=>`<tr><td class="num">${r.t}</td><td class="num">${r.j}</td><td class="num">0</td><td class="num">35.0</td></tr>`).join("")||`<tr><td colspan="4" style="text-align:left;color:var(--faint)">No data yet.</td></tr>`;
+  put($("receiver"),S.rMin?`<div class="mini"><span class="ico ${ri[0]}">${ri[1]}</span>ZeroLoss Receiver · ${relay?"Relaying 3 tablets":rxing?"Receiving CH2":"Idle"}<button type="button" id="rOpen" aria-label="Open receiver status">▢</button></div>`:
+  `<div class="sw" role="status" aria-label="Receiver status"><div class="tb"><span class="ico ${ri[0]}">${ri[1]}</span><b>ZeroLoss Receiver</b><span class="sp"></span><button type="button" id="rMin" aria-label="Minimize">–</button></div><div class="bd">
+    ${relay?`<div class="row"><span>State</span><b>${S.ctlLost?"Stopped safely":"Relaying 3 tablets (USB)"}</b></div>
+      ${[1,2,3].map(n=>{const bad=n===2&&S.wifi;return `<div class="row"><span>Tablet-${n}</span><span>${bad?"Wrong Wi-Fi":"USB ✔ · app ✔"} <span class="ico ${bad?"i-warn":"i-ok"}">${bad?"⚠":"✔"}</span></span></div>`;}).join("")}`
+    : rxing?`<div class="row"><span>State</span><b>Receiving CH2 (wired)</b></div><div class="row num"><span>Video quality</span><b>UHD · 3840×2160</b></div>
+      <div class="big num"><div><span>Jitter</span><b>${(1.8+(S.t%5)/10).toFixed(1)}<small>ms</small></b></div><div><span>Loss</span><b>0</b></div></div>
+      <div class="row num"><span>Bitrate</span><b>35.0 Mbps</b></div><div class="row"><span>Player</span><b>▶ Playing ✔</b></div>`
+    : `<div class="row"><span>State</span><b>${S.ctlLost?"Stopped safely":"Idle"}</b></div>`}
+    <div class="row"><span>Controller</span><b style="color:${S.ctlLost?"var(--bad)":"inherit"}">${S.ctlLost?"Lost 12 s":"Connected"}</b></div>
+    ${S.ctlLost?`<div class="msg bad">✖ No contact with the Controller. Measuring stopped and files were closed safely. (F11)</div>`:""}
+    ${rxing?`<button type="button" class="tog" id="rDet" aria-expanded="${S.rDet}">${S.rDet?"Details ▴":"Details ▾"}</button>`:""}
+  </div>${rxing&&S.rDet?`<div class="details"><table><thead><tr><th>Elapsed</th><th>Jitter ms</th><th>Loss</th><th>Mbps</th></tr></thead><tbody>${detRows}</tbody></table></div>`:""}</div>`);
+  // tablet
+  const ts=tabState(), ti=ico(ts), playing=S.test==="tablet"&&!S.ctlLost&&!S.wifi;
+  $("tablet").className="tablet"+(S.rot?" port":"");
+  $("tabVid").className="vid"+(playing?"":" off");
+  $("tabVid").textContent=playing?"▶ CH2 · UHD · 3840×2160":S.test!=="tablet"?"ZeroLoss is ready. Waiting for the Controller.":S.wifi?"Connected to the wrong Wi-Fi (Office_5G), not the router under test. ZeroLoss will reconnect over USB.":"Stopped safely.";
+  put($("tabOv"),S.test!=="tablet"&&!S.tMin?`<div class="ovmin"><span class="ico i-none">○</span>Tablet-2 · Idle</div>`:
+    S.tMin?`<div class="ovmin"><span class="ico ${ti[0]}">${ti[1]}</span>CH2 · ${playing?"Loss 0":"—"}<button type="button" id="tOpen" aria-label="Expand status">▾</button></div>`:
+    `<div class="ov" role="status" aria-label="Tablet status"><div class="row"><span><span class="ico ${ti[0]}">${ti[1]}</span> <b>Tablet-2 · CH2</b></span><button type="button" id="tMin" aria-label="Collapse status">▴</button></div>
+      <div class="row num"><span>Jitter</span><b>${playing?(S.jit?"61.4":(1.9+(S.t%4)/10).toFixed(1))+" ms":"—"}</b></div>
+      <div class="row num"><span>Loss</span><b>${playing?"0":"—"}</b></div>
+      <div class="row num"><span>Video quality</span><b>UHD · 3840×2160</b></div>
+      <div class="row"><span>Wi-Fi</span><b>${S.wifi?"Office_5G ✖":"TestRouter_5G · −51 dBm"}</b></div>
+      ${S.jit&&playing?`<div class="msg warn">⚠ Jitter above 50 ms (limit 150 ms). No loss.</div>`:""}
+    </div>`);
+}
+function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2000);}
+document.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.test){S.test=b.dataset.test;S.rows=[];render();return;}
+  const id=b.id;
+  if(id==="dmCtl")S.ctlLost=true; else if(id==="dmSnd")S.sndCrash=true; else if(id==="dmJit")S.jit=!S.jit; else if(id==="dmWifi")S.wifi=!S.wifi;
+  else if(id==="dmClear"){S.ctlLost=S.sndCrash=S.jit=S.wifi=false;toast("Faults cleared (as after Reset all on the Controller).");}
+  else if(id==="dmRot")S.rot=!S.rot;
+  else if(id==="sMin")S.sMin=true; else if(id==="sOpen")S.sMin=false; else if(id==="rMin")S.rMin=true; else if(id==="rOpen")S.rMin=false;
+  else if(id==="rDet")S.rDet=!S.rDet; else if(id==="tMin")S.tMin=true; else if(id==="tOpen")S.tMin=false;
+  else return;
+  render();});
+setInterval(()=>{S.t++; if(S.test==="pc"&&!S.ctlLost){const h=Math.floor(S.t/3600),m=Math.floor(S.t/60)%60,s=S.t%60;S.rows.push({t:`${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`,j:(1.8+(S.t%5)/10).toFixed(1)}); if(S.rows.length>1000)S.rows.shift();} render();},1000);
+S.test="tablet"; render();
+})();
+</script>

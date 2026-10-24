@@ -1,0 +1,951 @@
+{
+ "schema_version": 1,
+ "source": "docs/09-exceptions.md (one entry per code, English screen text, 11-ui 1.7)",
+ "codes": {
+  "ZL-CTL-001": {
+   "what": "ZeroLoss is already open",
+   "why": "A second window was refused.",
+   "fix": "Use the window that is already open."
+  },
+  "ZL-CTL-002": {
+   "what": "The test keeps running in the background",
+   "why": "The window was closed; the test runs in the service.",
+   "fix": "Reopen ZeroLoss to see it."
+  },
+  "ZL-CTL-003": {
+   "what": "Controller service restarted unexpectedly",
+   "why": "The service stopped (crash or forced restart) during a test.",
+   "fix": "Nothing needed: devices were stopped and a recovery report was made. Check the report."
+  },
+  "ZL-CTL-004": {
+   "what": "Controller PC sleep or update restart",
+   "why": "Sleep or an update restart would stop the service.",
+   "fix": "Nothing needed during a test: they are blocked and restored after."
+  },
+  "ZL-CTL-005": {
+   "what": "Screen may stop responding",
+   "why": "A heavy task was about to run on the screen thread.",
+   "fix": "Send the logs (this is a ZeroLoss fault)."
+  },
+  "ZL-CTL-006": {
+   "what": "Results web port 10993 in use",
+   "why": "Another program uses port 10993; tests still work.",
+   "fix": "Nothing to do for the test. ZeroLoss opens the page by itself as soon as the port is free (it tries every 30 s); close the other program to free it sooner."
+  },
+  "ZL-CTL-007": {
+   "what": "Report could not be made",
+   "why": "Raw data is kept.",
+   "fix": "Press Retry report."
+  },
+  "ZL-CTL-008": {
+   "what": "No controller — stopped safely",
+   "why": "An agent lost its Controller and stopped sending and receiving.",
+   "fix": "Start the Controller again; stop leftovers from the agent's window if needed."
+  },
+  "ZL-CTL-009": {
+   "what": "Display restarted — test not affected",
+   "why": "The screen app ended or hung and was started again.",
+   "fix": "Nothing to do."
+  },
+  "ZL-DSC-001": {
+   "what": "No agent found",
+   "why": "No ZeroLoss node answered the scan.",
+   "fix": "Check cables, power and the firewall, or add the device by IP."
+  },
+  "ZL-DSC-002": {
+   "what": "Two agents have the same name",
+   "why": "Two PCs use the same device name.",
+   "fix": "Pick the right one by its IP address, then rename the other."
+  },
+  "ZL-DSC-003": {
+   "what": "Agent is paired with another Controller",
+   "why": "This agent already works for a different Controller.",
+   "fix": "Take over the agent only if the other Controller is no longer used."
+  },
+  "ZL-DSC-004": {
+   "what": "Device IP changed",
+   "why": "The device got a new address (DHCP renewal).",
+   "fix": "Nothing to do: the same device was found again by its ID."
+  },
+  "ZL-DSC-005": {
+   "what": "Controller IP changed",
+   "why": "This PC got a new address.",
+   "fix": "Nothing to do: the agents' allowed address was updated."
+  },
+  "ZL-DSC-006": {
+   "what": "Unclear which network card faces the router",
+   "why": "The PC has more than one network card.",
+   "fix": "Pick the card connected to the router under test."
+  },
+  "ZL-DSC-007": {
+   "what": "Router mode differs from the one chosen",
+   "why": "The NAT check found another mode than the one set.",
+   "fix": "Check the router's mode, or change the setting to match."
+  },
+  "ZL-DSC-008": {
+   "what": "Firewall blocks the control port",
+   "why": "The OS firewall rule for ZeroLoss is missing.",
+   "fix": "Press Repair to restore the firewall rule."
+  },
+  "ZL-DSC-009": {
+   "what": "Device clocks differ by more than 2 s",
+   "why": "A device's clock is far from the Controller's.",
+   "fix": "Nothing needed for results (times are corrected); set the clock if you want exact local times."
+  },
+  "ZL-DSC-010": {
+   "what": "Sender PC address not found",
+   "why": "The automatic address check failed.",
+   "fix": "Enter the sender PC's IP by hand (shown under My IP on that PC)."
+  },
+  "ZL-DSC-011": {
+   "what": "An old command was refused",
+   "why": "It was sent before a reset or restart.",
+   "fix": "Nothing to do: send the command again if still needed."
+  },
+  "ZL-DSC-012": {
+   "what": "Request rejected",
+   "why": "The request was not valid JSON or missed a required field.",
+   "fix": "Check the details, then send a corrected request."
+  },
+  "ZL-DSC-013": {
+   "what": "Protocol versions differ",
+   "why": "One device was updated and another was not.",
+   "fix": "Update the device shown to the same build."
+  },
+  "ZL-DSC-014": {
+   "what": "Cannot reach a device",
+   "why": "The connection was refused, timed out or dropped.",
+   "fix": "Check that the PC is on, the cable is in and the ZeroLoss service is running."
+  },
+  "ZL-DSC-016": {
+   "what": "Another PC answers at a device's address",
+   "why": "The address saved for this device belongs to a different PC (another device ID answers there).",
+   "fix": "Pick or type the address this PC shows under My IP in its row (IP)."
+  },
+  "ZL-DSC-015": {
+   "what": "The Controller's test network card carries its default route",
+   "why": "Not used: this case is reported as NET-019, which also offers the fix.",
+   "fix": "See NET-019."
+  },
+  "ZL-INS-001": {
+   "what": "Installer needs administrator rights",
+   "why": "The installer changes services, firewall rules and program folders.",
+   "fix": "Run the installer as administrator (Windows) or with sudo (Linux)."
+  },
+  "ZL-INS-002": {
+   "what": "Not enough disk space to install",
+   "why": "The install needs more free space than this PC has.",
+   "fix": "Free up disk space, then run the installer again."
+  },
+  "ZL-INS-003": {
+   "what": "A ZeroLoss port is already in use",
+   "why": "Another program uses port 10991, 10992 or 10993.",
+   "fix": "Close the program shown, or change it to another port, then install again."
+  },
+  "ZL-INS-004": {
+   "what": "Antivirus blocked a ZeroLoss file",
+   "why": "Security software often flags packed programs by mistake.",
+   "fix": "Add the ZeroLoss folder to the antivirus exceptions, then install again."
+  },
+  "ZL-INS-005": {
+   "what": "This OS or CPU is not supported",
+   "why": "ZeroLoss runs on the listed Windows and Linux versions on x86-64.",
+   "fix": "Use a PC from the supported list."
+  },
+  "ZL-INS-006": {
+   "what": "Package damaged",
+   "why": "A file is missing or its checksum does not match.",
+   "fix": "Download the package again."
+  },
+  "ZL-INS-007": {
+   "what": "SSH login failed",
+   "why": "The user name or password was not accepted.",
+   "fix": "Check the account and password, then try again."
+  },
+  "ZL-INS-008": {
+   "what": "SSH root login is blocked",
+   "why": "The Linux PC does not allow password login as root.",
+   "fix": "Use an account that can run sudo."
+  },
+  "ZL-INS-009": {
+   "what": "SSH host key changed",
+   "why": "The Linux PC answers with a different key than before (reinstalled, or another PC).",
+   "fix": "Check that it is the right PC, then confirm the new key."
+  },
+  "ZL-INS-010": {
+   "what": "sudo asks for a password in a terminal only",
+   "why": "The Linux PC requires a terminal for the sudo password.",
+   "fix": "ZeroLoss retries by passing the password; if it still fails, allow sudo for this account."
+  },
+  "ZL-INS-011": {
+   "what": "Linux package manager is busy",
+   "why": "Automatic updates are using apt right now.",
+   "fix": "Wait; ZeroLoss retries every 30 s for up to 10 min. Press Cancel to stop waiting."
+  },
+  "ZL-INS-012": {
+   "what": "No offline package for this OS version",
+   "why": "The offline bundle has no tools for this Linux or Windows version.",
+   "fix": "Get the bundle shown for this OS version, or allow an online install."
+  },
+  "ZL-INS-013": {
+   "what": "Upgrade was interrupted",
+   "why": "The PC lost power or was shut down during the upgrade.",
+   "fix": "Nothing to do: the previous version was restored. Run the upgrade again when ready."
+  },
+  "ZL-INS-014": {
+   "what": "Installer service does not answer",
+   "why": "The deployer on port 10991 did not respond after 3 tries.",
+   "fix": "Windows: reinstall on that PC. Linux: run the SSH repair install."
+  },
+  "ZL-INS-015": {
+   "what": "Devices run different builds",
+   "why": "Parts of the system were updated separately.",
+   "fix": "Update the devices listed, then start the test."
+  },
+  "ZL-INS-016": {
+   "what": "Tablet app signature differs",
+   "why": "An older app with another signature is installed.",
+   "fix": "Remove the old app first (its data will be deleted), then install again."
+  },
+  "ZL-INS-017": {
+   "what": "Tablet storage is full",
+   "why": "The app needs more free space on the tablet.",
+   "fix": "Free up space on the tablet, then install again."
+  },
+  "ZL-INS-018": {
+   "what": "Tablet asks to allow the install",
+   "why": "Some tablets show a confirmation before installing apps.",
+   "fix": "Tap Allow on the tablet within 2 minutes."
+  },
+  "ZL-INS-019": {
+   "what": "USB debugging is not allowed",
+   "why": "The tablet has not trusted this PC yet.",
+   "fix": "Tap Allow USB debugging on the tablet."
+  },
+  "ZL-INS-020": {
+   "what": "A file is in use and cannot be removed",
+   "why": "A running program still holds the file.",
+   "fix": "ZeroLoss retries after stopping it; if it stays, restart the PC to finish removal."
+  },
+  "ZL-INS-021": {
+   "what": "Items left after removal",
+   "why": "Some installed items could not be removed.",
+   "fix": "Remove the listed items by hand, as shown."
+  },
+  "ZL-INS-022": {
+   "what": "Cannot install during a test",
+   "why": "Installing now would change the devices under test.",
+   "fix": "Stop the test first."
+  },
+  "ZL-INS-023": {
+   "what": "Install was cancelled",
+   "why": "The install stopped before it finished.",
+   "fix": "Nothing to do: what was installed so far was removed. Run the installer again when ready."
+  },
+  "ZL-INS-024": {
+   "what": "A module cannot be used",
+   "why": "Its module.json is missing or broken, it needs another Core version, or it failed to load.",
+   "fix": "Update or reinstall that module in Modules."
+  },
+  "ZL-INS-025": {
+   "what": "Settings or database format cannot be used",
+   "why": "The file was written by another build (newer, or conversion failed).",
+   "fix": "Update ZeroLoss to the build shown; the previous copy was kept."
+  },
+  "ZL-INS-026": {
+   "what": "A newer build is already installed",
+   "why": "The package is older than what the device has; downgrades are refused.",
+   "fix": "Send the same or a newer build."
+  },
+  "ZL-INS-027": {
+   "what": "Another install is in progress",
+   "why": "The device installs one package at a time.",
+   "fix": "Wait until it finishes, then try again."
+  },
+  "ZL-INS-028": {
+   "what": "Install failed on the device",
+   "why": "The package manager (dpkg/apt) reported an error.",
+   "fix": "Read the last line shown, fix the cause on that PC, then install again."
+  },
+  "ZL-INS-029": {
+   "what": "A tool this test needs is not installed",
+   "why": "The device does not have a program the test uses (for example tsp or VLC).",
+   "fix": "Install the tool on that PC, then press Start again."
+  },
+  "ZL-NET-001": {
+   "what": "Router reboot suspected",
+   "why": "All receivers and the link dropped at the same time.",
+   "fix": "Check the router's uptime and log for that time."
+  },
+  "ZL-NET-002": {
+   "what": "Router WAN address changed",
+   "why": "The router got a new WAN IP.",
+   "fix": "Nothing to do: the sender's allowed range was updated."
+  },
+  "ZL-NET-003": {
+   "what": "Nothing received",
+   "why": "No packets arrived for the TV channel.",
+   "fix": "Check the router's IGMP / multicast settings and the TTL."
+  },
+  "ZL-NET-004": {
+   "what": "IGMP membership timeout suspected",
+   "why": "Loss started about 125, 260 or 270 s after joining.",
+   "fix": "Check the router's IGMP querier and snooping settings."
+  },
+  "ZL-NET-005": {
+   "what": "Leave not processed",
+   "why": "The previous TV channel kept coming after leaving.",
+   "fix": "Check the router's IGMP leave / fast-leave setting."
+  },
+  "ZL-NET-006": {
+   "what": "Multicast flooding",
+   "why": "A TV channel that was not asked for arrives.",
+   "fix": "Check IGMP snooping on the router."
+  },
+  "ZL-NET-007": {
+   "what": "Duplicate packets",
+   "why": "Some packets arrived twice.",
+   "fix": "Check the router and cabling for loops; they are counted apart."
+  },
+  "ZL-NET-008": {
+   "what": "Packets out of order",
+   "why": "Packets arrived in another order.",
+   "fix": "Nothing needed if fixed within the window; late ones count as loss."
+  },
+  "ZL-NET-009": {
+   "what": "Sender restarted (new stream)",
+   "why": "The stream source or sequence changed.",
+   "fix": "Nothing to do: counted as a new stream, not as loss."
+  },
+  "ZL-NET-010": {
+   "what": "Fragmented packets",
+   "why": "IP fragments arrived.",
+   "fix": "Check the MTU on the path; ZeroLoss packets should never need fragments."
+  },
+  "ZL-NET-011": {
+   "what": "Receiver network link down",
+   "why": "The receiver PC's link to the router LAN went down.",
+   "fix": "Check the LAN cable and port."
+  },
+  "ZL-NET-012": {
+   "what": "Link too slow for this test",
+   "why": "The link speed is below the needed rate × 1.1, or half duplex.",
+   "fix": "Check or replace the cable and port."
+  },
+  "ZL-NET-013": {
+   "what": "Link dropped below the needed speed",
+   "why": "The link renegotiated to a lower speed during the test.",
+   "fix": "Check or replace the cable and port."
+  },
+  "ZL-NET-014": {
+   "what": "Link slower than usual",
+   "why": "Still enough for this test, but slower than usual — often a cable or port problem.",
+   "fix": "Check or replace the cable and port."
+  },
+  "ZL-NET-015": {
+   "what": "Link went down",
+   "why": "The network link dropped and came back.",
+   "fix": "Check the cable and port (for Wi-Fi: the router's Wi-Fi and the distance). Nothing to do if it is back up."
+  },
+  "ZL-NET-016": {
+   "what": "Wi-Fi changed",
+   "why": "The router moved its Wi-Fi channel or width (automatic Wi-Fi channel selection, radar/DFS or band steering).",
+   "fix": "To compare, fix the router's Wi-Fi channel and width, then test again."
+  },
+  "ZL-NET-022": {
+   "what": "The test may not go through the router under test",
+   "why": "The plan names no test network card for this PC, and the Controller reaches it over Wi-Fi (or cannot tell the card), so the video may go around the router.",
+   "fix": "Register the PC by its test network address (receivers: the router LAN; the sender: the router WAN side), or put nics in the plan. The report says the result is not through the router and a PASS shows as INCOMPLETE."
+  },
+  "ZL-SND-025": {
+   "what": "The sender PC sent behind real time",
+   "why": "The even-spacing sender on the sender PC could not send on time (another program or a driver held the PC), so the stream left it late.",
+   "fix": "Close what else runs on the sender PC; if its Wi-Fi driver logs resets, turn its Wi-Fi off during tests. Losses then are the sender's, not the router's."
+  },
+  "ZL-NET-025": {
+   "what": "The sender PC has Wi-Fi on that the test does not use",
+   "why": "A Wi-Fi driver on the sender PC that resets can hold up the sending for seconds (2026-10-22: ath9k reset storms, the stream reached the receiver 4.8 s late).",
+   "fix": "Turn that Wi-Fi off on the sender PC during tests if you want to. ZeroLoss only advises; the test goes on."
+  },
+  "ZL-NET-024": {
+   "what": "A card setting the test changed was not put back",
+   "why": "After its cases the test sets each card back as it was (speed, duplex, Wi-Fi network), and this one did not come back.",
+   "fix": "Put it back by hand (Auto speed, or its Wi-Fi network), or unplug and plug its cable, then press Fixed, check again in Action Required."
+  },
+  "ZL-NET-023": {
+   "what": "Cannot route to the sender PC on the router WAN side",
+   "why": "This PC's test card has no gateway from the router, or the route could not be added or taken away.",
+   "fix": "Check that this PC's test card is plugged into the router and got an address. Nothing is changed in the PC's saved settings."
+  },
+  "ZL-NET-021": {
+   "what": "A test network card of the plan is not on that PC",
+   "why": "The plan sends or receives on an address that none of the PC's network cards has, so the test send would fail for another reason.",
+   "fix": "Check that PC's test card address (on the sender: did the ISP role put 10.0.0.1 on it), or fix nics in the plan."
+  },
+  "ZL-NET-020": {
+   "what": "Baseline test needs the sender and receivers on one switch without the router",
+   "why": "A device is reached through a NAT (the router's WAN address), so the router is still between the sender and the receivers.",
+   "fix": "Take the router out and plug the sender PC and the receivers into one switch, or set Test network (S-54) to Through the router."
+  },
+  "ZL-NET-019": {
+   "what": "The test network card carries this PC's default route",
+   "why": "The internet of this PC goes into the test network instead of its internet card.",
+   "fix": "Press Fix in Action Required: the card stops taking the default route and DNS."
+  },
+  "ZL-NET-018": {
+   "what": "A test PC is also connected outside the test network",
+   "why": "The Controller reaches it over Wi-Fi or around the router, or it has an address on another Wi-Fi.",
+   "fix": "Nothing to do: keep that network on (it may be the PC's internet). The test video still goes through the router on the test card. Never turn the Wi-Fi off or forget the network."
+  },
+  "ZL-NET-017": {
+   "what": "Moved to another access point",
+   "why": "The wireless receiver roamed to another BSSID.",
+   "fix": "Pin the receiver to one access point, or turn roaming off, to compare."
+  },
+  "ZL-RCV-001": {
+   "what": "Receive buffer smaller than asked",
+   "why": "The OS limits the socket buffer size.",
+   "fix": "On Linux, set net.core.rmem_max as the installer does, then start again."
+  },
+  "ZL-RCV-002": {
+   "what": "Receiver dropped packets itself",
+   "why": "The receiving PC could not keep up; this is not the router's fault.",
+   "fix": "Close other programs on the receiver PC."
+  },
+  "ZL-RCV-003": {
+   "what": "Player stopped unexpectedly",
+   "why": "The player process ended; measuring goes on.",
+   "fix": "Nothing needed: it restarts (up to 3 times an hour)."
+  },
+  "ZL-RCV-004": {
+   "what": "Player is part of the test",
+   "why": "The player window was closed.",
+   "fix": "Leave the player window open during the test."
+  },
+  "ZL-RCV-005": {
+   "what": "This PC cannot decode UHD HEVC fast enough",
+   "why": "Hardware decoding is missing or too slow.",
+   "fix": "Use HD, or a receiver PC with HEVC hardware decoding."
+  },
+  "ZL-RCV-006": {
+   "what": "Screen lock or sleep on the receiver PC",
+   "why": "Power saving can stop playback.",
+   "fix": "Turn off screen lock and sleep for the test."
+  },
+  "ZL-RCV-007": {
+   "what": "Windows update restart pending",
+   "why": "An update may restart the PC during the test.",
+   "fix": "Pause updates for the test time."
+  },
+  "ZL-RCV-008": {
+   "what": "Disk almost full on the receiver PC",
+   "why": "Records need space; below 200 MB the test stops safely.",
+   "fix": "Free up disk space."
+  },
+  "ZL-RCV-009": {
+   "what": "Cannot write the record file",
+   "why": "The disk or folder refused the write.",
+   "fix": "Check the disk and folder permissions."
+  },
+  "ZL-RCV-010": {
+   "what": "Agent Desktop is not running on the receiver PC",
+   "why": "The player needs a logged-in desktop; a test with PC playback on cannot start without it.",
+   "fix": "Log in on the receiver PC (turn on auto login for unattended tests), or turn PC playback off (S-49)."
+  },
+  "ZL-RCV-011": {
+   "what": "Receiver PC Wi-Fi dropped",
+   "why": "The wireless link was lost and came back.",
+   "fix": "Check the Wi-Fi signal and the router."
+  },
+  "ZL-RCV-012": {
+   "what": "Analyzer uses more CPU than planned",
+   "why": "Measuring takes more than its share of this PC.",
+   "fix": "Close other programs, or use a faster receiver PC."
+  },
+  "ZL-RCV-013": {
+   "what": "External capture tool running — it can load this PC",
+   "why": "A capture or analysis program not started by ZeroLoss is running.",
+   "fix": "Close it during the test, or accept the marked time range."
+  },
+  "ZL-RCV-014": {
+   "what": "Packet capture incomplete",
+   "why": "The capture dropped packets or ran out of disk; the test goes on.",
+   "fix": "Free up disk space or lower the capture size."
+  },
+  "ZL-RCV-015": {
+   "what": "Receiver PC may be too slow for playback",
+   "why": "Decoding test or CPU headroom is below what this video quality needs; measuring is not affected, only the picture may stutter.",
+   "fix": "Use the recommended settings (playback off, small window or HD)."
+  },
+  "ZL-RCV-016": {
+   "what": "Receiver PC CPU busy — measurement protected",
+   "why": "The CPU was over 90% for more than 10 s; measuring was given priority.",
+   "fix": "Close other programs; playback problems now are receiver-side."
+  },
+  "ZL-RCV-017": {
+   "what": "Cannot join the TV channel",
+   "why": "The group address, network card or permission is wrong.",
+   "fix": "Check the receive network card and the TV channel address."
+  },
+  "ZL-RCV-018": {
+   "what": "Receiver stopped unexpectedly",
+   "why": "An internal error stopped measuring; data so far is saved.",
+   "fix": "Send the logs (Export diagnostics)."
+  },
+  "ZL-RCV-019": {
+   "what": "Player did not start",
+   "why": "No first picture within 10 s.",
+   "fix": "Check that the player is installed and that the PC shows a desktop, then press Retry."
+  },
+  "ZL-RCV-020": {
+   "what": "Player is not playing",
+   "why": "The player shows no new frames; measuring goes on.",
+   "fix": "Nothing needed first: it is restarted. If it keeps happening, check the receiver PC."
+  },
+  "ZL-RCV-021": {
+   "what": "Evidence capture reduced to protect playback",
+   "why": "Capturing made playback or measuring worse.",
+   "fix": "Nothing needed: capture was reduced automatically."
+  },
+  "ZL-RCV-022": {
+   "what": "Stream format differs from the setting",
+   "why": "The stream is MPEG-TS over UDP, but Transport (S-10) is RTP, or the other way round.",
+   "fix": "Set the sender to RTP, or change Transport (S-10)."
+  },
+  "ZL-RCV-023": {
+   "what": "The receiver PC is not on the test Wi-Fi",
+   "why": "It could not connect to the test Wi-Fi (no Wi-Fi name set, wrong password, network not found or no address).",
+   "fix": "Set the test Wi-Fi (zeroloss wifi set) or connect the PC by hand, then press Start again."
+  },
+  "ZL-RCV-024": {
+   "what": "Cannot send the prime for the player",
+   "why": "The prime for the player must be sent from the player's port with a raw socket, which needs the CAP_NET_RAW right.",
+   "fix": "Run the node as the installed service (it has the right), or turn PC playback off (S-49)."
+  },
+  "ZL-RPT-001": {
+   "what": "Report folder may not work",
+   "why": "The folder is on OneDrive, a network drive, or the service cannot write there.",
+   "fix": "Use the local folder C:\\ZeroLoss\\Reports."
+  },
+  "ZL-RPT-002": {
+   "what": "Non-English characters in a path",
+   "why": "User names and folders may contain any language.",
+   "fix": "Nothing to do: handled."
+  },
+  "ZL-RPT-003": {
+   "what": "Path too long for Windows",
+   "why": "Windows limits paths to 260 characters.",
+   "fix": "Nothing to do: the folder name was shortened."
+  },
+  "ZL-RPT-004": {
+   "what": "Part of a record file is damaged",
+   "why": "Only the readable part is used; the rest shows grey.",
+   "fix": "Check the disk of the device shown."
+  },
+  "ZL-RPT-005": {
+   "what": "Data missing from a device",
+   "why": "Some device data was not collected yet (the device did not answer or the file could not be read).",
+   "fix": "When the device is back, run 'zeroloss records --run <run>' to fetch the rest."
+  },
+  "ZL-RPT-006": {
+   "what": "Report is very large",
+   "why": "Long tests make big reports.",
+   "fix": "Nothing to do: hourly data files are used."
+  },
+  "ZL-RPT-007": {
+   "what": "No default browser",
+   "why": "The report could not be opened in a browser.",
+   "fix": "Open the report folder instead and open report.html."
+  },
+  "ZL-RPT-008": {
+   "what": "No report for this run",
+   "why": "The run ID is wrong, the run is not finished, or the report was deleted.",
+   "fix": "Check the run ID, or run 'zeroloss status' to see if it is still running."
+  },
+  "ZL-RUN-001": {
+   "what": "RTP timestamp wrapped around",
+   "why": "The 32-bit timestamp restarts about every 13.25 h.",
+   "fix": "Nothing to do: handled."
+  },
+  "ZL-RUN-002": {
+   "what": "RTP sequence wrapped around",
+   "why": "The 16-bit sequence number restarts.",
+   "fix": "Nothing to do: handled."
+  },
+  "ZL-RUN-003": {
+   "what": "PCR wrapped around",
+   "why": "The 33-bit clock restarts about every 26.5 h.",
+   "fix": "Nothing to do: handled, not an error."
+  },
+  "ZL-RUN-004": {
+   "what": "Counter size",
+   "why": "Long tests need 64-bit counters.",
+   "fix": "Nothing to do."
+  },
+  "ZL-RUN-005": {
+   "what": "The test spans several days",
+   "why": "Times are kept in UTC and elapsed time.",
+   "fix": "Nothing to do."
+  },
+  "ZL-RUN-006": {
+   "what": "Very short test",
+   "why": "The test is shorter than one 5-min box.",
+   "fix": "Nothing to do: it is one partial box, judged with the minimum-data rule."
+  },
+  "ZL-RUN-007": {
+   "what": "Settings are locked during the test",
+   "why": "Changing them would mix results.",
+   "fix": "Stop the test first (TV channel change and Snapshot still work)."
+  },
+  "ZL-RUN-008": {
+   "what": "Planned end and Stop at the same time",
+   "why": "Only the one handled first counts.",
+   "fix": "Nothing to do."
+  },
+  "ZL-RUN-009": {
+   "what": "Start failed: warm-up not done",
+   "why": "No stable stream arrived in time (no packets, no PAT/PMT, loss or no picture).",
+   "fix": "Check the Problems list for the receiver's reason, then start again."
+  },
+  "ZL-RUN-010": {
+   "what": "Normal start-up effects",
+   "why": "Joining mid-stream, waiting for the first PAT and early jitter are not errors.",
+   "fix": "Nothing to do."
+  },
+  "ZL-RUN-011": {
+   "what": "Stream end during stopping",
+   "why": "Stopping the sender after the receivers is expected.",
+   "fix": "Nothing to do."
+  },
+  "ZL-RUN-012": {
+   "what": "Command not possible now",
+   "why": "It does not fit the current test state.",
+   "fix": "Wait for the state shown, then try again."
+  },
+  "ZL-RUN-013": {
+   "what": "Not available in this build",
+   "why": "The feature comes in a later build.",
+   "fix": "Use the settings this build supports."
+  },
+  "ZL-RUN-014": {
+   "what": "A plan value is outside the allowed range",
+   "why": "The value does not fit the settings table.",
+   "fix": "Change the value shown to an allowed one."
+  },
+  "ZL-SND-001": {
+   "what": "Source file missing — using generated video",
+   "why": "The video file is missing, damaged or cannot be read.",
+   "fix": "Check the file on the sender PC; the test goes on with generated video."
+  },
+  "ZL-SND-002": {
+   "what": "Source video codec not supported",
+   "why": "The file uses a codec the prepared-file mode cannot send.",
+   "fix": "Press Convert to make a supported copy."
+  },
+  "ZL-SND-003": {
+   "what": "Source file bitrate is too high",
+   "why": "The file needs more than the set bitrate.",
+   "fix": "Convert the file again at the set bitrate."
+  },
+  "ZL-SND-004": {
+   "what": "Break at the file loop point",
+   "why": "Counters and clocks jump back where the file repeats.",
+   "fix": "Nothing to do: ZeroLoss joins the loop seamlessly. Report it if it keeps showing."
+  },
+  "ZL-SND-005": {
+   "what": "Sending program stopped",
+   "why": "The sending process ended unexpectedly.",
+   "fix": "ZeroLoss restarted it once; if it stops again the test stops. Check the sender PC's log."
+  },
+  "ZL-SND-006": {
+   "what": "Live encoding is too slow",
+   "why": "This PC cannot encode in real time at this video quality.",
+   "fix": "Switch to a prepared file."
+  },
+  "ZL-SND-007": {
+   "what": "Sender PC CPU is busy",
+   "why": "High CPU load can make sending uneven.",
+   "fix": "Close other programs on the sender PC."
+  },
+  "ZL-SND-008": {
+   "what": "Sending is bursty",
+   "why": "Packets leave the sender unevenly.",
+   "fix": "Check the sender PC's load; the event is recorded."
+  },
+  "ZL-SND-009": {
+   "what": "Sender network cable?",
+   "why": "The sender PC's link to the router WAN went down.",
+   "fix": "Check the WAN cable and port; the test stops if it is not back in 30 s."
+  },
+  "ZL-SND-010": {
+   "what": "Sender address is not in the router WAN network",
+   "why": "The sender PC's IP does not match the router WAN range.",
+   "fix": "Set the sender PC's IP in the WAN range shown, or use built-in DHCP."
+  },
+  "ZL-SND-011": {
+   "what": "Router WAN does not ask for an address",
+   "why": "Built-in DHCP got no request from the router.",
+   "fix": "Is the router WAN set to DHCP? Check the WAN cable."
+  },
+  "ZL-SND-012": {
+   "what": "Another DHCP service found",
+   "why": "A second address service answers on the WAN side.",
+   "fix": "Remove the other DHCP service from the test network."
+  },
+  "ZL-SND-013": {
+   "what": "IP address conflict on the WAN side",
+   "why": "Another device uses the same address.",
+   "fix": "Remove the device with the MAC shown, or change the address."
+  },
+  "ZL-SND-014": {
+   "what": "Sender network settings not restored",
+   "why": "ZeroLoss could not put the network card back as it was.",
+   "fix": "Restore the settings by hand as shown."
+  },
+  "ZL-SND-015": {
+   "what": "Always-on broadcast stopped: no Controller",
+   "why": "Sending without a Controller would leave traffic nobody watches.",
+   "fix": "Reconnect the Controller, then start the broadcast again."
+  },
+  "ZL-SND-016": {
+   "what": "Sending stopped for a moment",
+   "why": "Nothing was sent for at least 1 s, or the sender card dropped packets.",
+   "fix": "Check the sender PC (CPU, disk, other programs)."
+  },
+  "ZL-SND-017": {
+   "what": "Sending is slower than set",
+   "why": "The rate was more than 1% low, or gaps of 50 ms or more.",
+   "fix": "Check the sender PC's load and link."
+  },
+  "ZL-SND-018": {
+   "what": "Sender service hangs",
+   "why": "The sender service is alive but does not answer.",
+   "fix": "ZeroLoss restarts it; check the sender PC if it happens again."
+  },
+  "ZL-SND-019": {
+   "what": "Sending did not reach the set rate",
+   "why": "The sender did not hold the rate within ±1% for 3 s after start.",
+   "fix": "Check the sender PC and its link, then start again."
+  },
+  "ZL-SND-020": {
+   "what": "Could not prepare a TV channel video",
+   "why": "ffmpeg failed, made no progress for 60 s, the file failed its check, or the disk is too full.",
+   "fix": "Check the sender PC (free disk space, ffmpeg), then start again."
+  },
+  "ZL-SND-021": {
+   "what": "No prime from the receiver",
+   "why": "In primed mode the sender sends only where the receiver's prime comes from; none came, it stopped, or its address changed (router NAT restarted or expired).",
+   "fix": "Check the receiver PC and that the router is in NAT mode; the flow restarts by itself when primes come back."
+  },
+  "ZL-SND-024": {
+   "what": "Another device holds 10.0.0.100 on the sender PC's ISP card",
+   "why": "The device that has the router WAN address still answers on that card, so the device now asking gets no address (two devices must never share it).",
+   "fix": "Connect only one device to the sender PC's ISP card: the router WAN port, or the receiver PC for a baseline run. The address moves by itself within 10 s after the other device is gone."
+  },
+  "ZL-SND-023": {
+   "what": "The sender PC's router WAN address was taken off by another program",
+   "why": "Another program on the sender PC (often the card's own NetworkManager profile retrying DHCP) removed 10.0.0.1, so the router WAN could not reach the sender PC.",
+   "fix": "Stop that program from managing the card: nmcli connection modify '<profile on the card>' connection.autoconnect no. Then turn the ISP role on again."
+  },
+  "ZL-SND-022": {
+   "what": "The sender PC is not on the router WAN port yet",
+   "why": "No PC answers from the router WAN side, or the sender PC's wired card still has a router LAN address.",
+   "fix": "Move the sender PC cable from a router LAN port to the WAN port."
+  },
+  "ZL-SYS-001": {
+   "what": "Memory is low",
+   "why": "The PC shown is running out of memory.",
+   "fix": "Close the programs listed on that PC."
+  },
+  "ZL-SYS-002": {
+   "what": "ZeroLoss memory keeps growing",
+   "why": "ZeroLoss uses more memory over time than it should.",
+   "fix": "Send the logs (this is a ZeroLoss fault)."
+  },
+  "ZL-SYS-003": {
+   "what": "PC CPU is busy",
+   "why": "The whole PC is overloaded.",
+   "fix": "Close the programs listed."
+  },
+  "ZL-SYS-004": {
+   "what": "Not enough resources to start",
+   "why": "Memory, disk or CPU is below what the test needs.",
+   "fix": "Free the resources shown, then start again."
+  },
+  "ZL-SYS-005": {
+   "what": "Could not pause updates or sleep",
+   "why": "Updates or sleep may restart or stop a PC during the test.",
+   "fix": "Pause updates and turn off sleep on the PC shown (How to fix)."
+  },
+  "ZL-SYS-006": {
+   "what": "A program did not stop",
+   "why": "It kept running after the forced stop.",
+   "fix": "Restart the PC shown."
+  },
+  "ZL-SYS-007": {
+   "what": "Leftover process stopped",
+   "why": "A program from an earlier run was still running.",
+   "fix": "Nothing to do: it was stopped."
+  },
+  "ZL-SYS-008": {
+   "what": "Internal error — please send logs",
+   "why": "A part of ZeroLoss that handles events failed; the rest goes on.",
+   "fix": "Send the logs (Export diagnostics)."
+  },
+  "ZL-SYS-009": {
+   "what": "Service was not answering and was restarted",
+   "why": "The node service did not answer for 10 s; the Deployer restarted it.",
+   "fix": "If it happens again, press Export diagnostics and send the file."
+  },
+  "ZL-SYS-010": {
+   "what": "Storage low",
+   "why": "Less than 20% or 50 GB is free where this PC keeps its results. Nothing is deleted by itself.",
+   "fix": "Press Storage and delete old runs or only their raw data."
+  },
+  "ZL-SYS-012": {
+   "what": "The PC's automatic time sync was not held during the test, or not turned back on",
+   "why": "A clock corrected during a test (NTP) moves arrival times, which can look like delay variation.",
+   "fix": "By hand on that Linux PC: before the test sudo timedatectl set-ntp false, after it sudo timedatectl set-ntp true. The test goes on either way."
+  },
+  "ZL-SYS-011": {
+   "what": "A settings file could not be read",
+   "why": "The file was damaged (power loss or disk error). It was kept aside and ZeroLoss started without it.",
+   "fix": "Add the devices again (Find devices or 'zeroloss discover'); send the kept file if it happens again."
+  },
+  "ZL-TAB-001": {
+   "what": "Tablet USB disconnected",
+   "why": "The cable came out or the port reset; the tablet keeps measuring and saving.",
+   "fix": "Plug the USB cable back in; data is collected when it reconnects."
+  },
+  "ZL-TAB-002": {
+   "what": "adb restarted or another adb is running",
+   "why": "Another program started a different adb.",
+   "fix": "Close the program shown; ZeroLoss reconnects with its own adb."
+  },
+  "ZL-TAB-003": {
+   "what": "Tablet app was closed by the system",
+   "why": "Android stopped the app in the background.",
+   "fix": "Nothing needed: it is restarted. Exclude the app from battery optimization."
+  },
+  "ZL-TAB-004": {
+   "what": "Tablet app crashed",
+   "why": "The app ended unexpectedly; its log was collected.",
+   "fix": "Send the logs (Export diagnostics)."
+  },
+  "ZL-TAB-005": {
+   "what": "Tablet Wi-Fi disconnected",
+   "why": "The tablet left the test Wi-Fi or joined another network.",
+   "fix": "Connect the tablet to the test Wi-Fi shown."
+  },
+  "ZL-TAB-006": {
+   "what": "Tablet Wi-Fi address changed",
+   "why": "The tablet got a new IP (DHCP renewal).",
+   "fix": "Nothing to do: the tablet joined again."
+  },
+  "ZL-TAB-007": {
+   "what": "Tablet battery low or hot",
+   "why": "Low battery or heat slows the tablet down.",
+   "fix": "Connect the charger and keep the tablet cool."
+  },
+  "ZL-TAB-008": {
+   "what": "A system popup covers the player",
+   "why": "An update or other notice came to the front.",
+   "fix": "Nothing needed: the app is brought back. Turn off such notices for the test."
+  },
+  "ZL-TAB-009": {
+   "what": "Tablet screen rotated or resized",
+   "why": "The screen layout changed; playing and measuring go on.",
+   "fix": "Nothing to do."
+  },
+  "ZL-TAB-010": {
+   "what": "Tablet restarted",
+   "why": "A restarted tablet does not resume the old test.",
+   "fix": "Start a new test when ready."
+  },
+  "ZL-TAB-011": {
+   "what": "Tablet storage almost full",
+   "why": "Records need space; the test stops safely when it runs out.",
+   "fix": "Free up space on the tablet."
+  },
+  "ZL-TAB-012": {
+   "what": "Other Wi-Fi traffic on the tablet",
+   "why": "Apps other than ZeroLoss use the Wi-Fi.",
+   "fix": "Close or turn off the app shown."
+  },
+  "ZL-TAB-013": {
+   "what": "Tablet Wi-Fi lock was released",
+   "why": "Android released the multicast or low-latency lock.",
+   "fix": "Nothing needed: it was taken again."
+  },
+  "ZL-TAB-014": {
+   "what": "Tablet not on the test Wi-Fi",
+   "why": "Automatic connection failed (password, SSID, Android version or device policy).",
+   "fix": "Connect the tablet to the test Wi-Fi by hand; ZeroLoss sees it and goes on."
+  },
+  "ZL-TAB-015": {
+   "what": "Player did not start on the tablet",
+   "why": "No first picture while the app is measuring.",
+   "fix": "Unlock the tablet and bring the ZeroLoss app to the front, then press Retry."
+  },
+  "ZL-TAB-016": {
+   "what": "Tablet player is not playing",
+   "why": "The screen is off or covered, or the player stopped; measuring goes on.",
+   "fix": "Turn the screen on and keep the ZeroLoss app in front."
+  },
+  "ZL-TIM-001": {
+   "what": "PC clock changed during the test",
+   "why": "Intervals use a steady clock and are not affected.",
+   "fix": "Nothing to do."
+  },
+  "ZL-TIM-002": {
+   "what": "Time zone or daylight saving",
+   "why": "Times are stored in UTC.",
+   "fix": "Nothing to do."
+  },
+  "ZL-USR-001": {
+   "what": "Button pressed many times",
+   "why": "Repeated clicks are handled once.",
+   "fix": "Nothing to do."
+  },
+  "ZL-USR-002": {
+   "what": "Input not valid",
+   "why": "The value has the wrong format or is out of range.",
+   "fix": "Enter a value as shown in the help."
+  },
+  "ZL-USR-003": {
+   "what": "Cable unplugged during the test",
+   "why": "A link went down.",
+   "fix": "Plug the cable back in."
+  },
+  "ZL-USR-004": {
+   "what": "Router settings changed during the test",
+   "why": "Changing the router mid-test mixes results.",
+   "fix": "Note the change; test again for a clean result."
+  },
+  "ZL-USR-005": {
+   "what": "PC switched off during install",
+   "why": "The install did not finish.",
+   "fix": "Run the installer again; it cleans up first."
+  },
+  "ZL-USR-006": {
+   "what": "Start cancelled while videos were being made",
+   "why": "Cancel was pressed during video preparation.",
+   "fix": "Press Start again; videos already made are kept."
+  },
+  "ZL-USR-007": {
+   "what": "Stopped on this PC",
+   "why": "Someone stopped the test on that PC itself (zeroloss agent stop).",
+   "fix": "Start the test again from the Controller when the PC is ready."
+  },
+  "ZL-TAB-017": {
+   "what": "A tablet could not be handled",
+   "why": "An adb command for this tablet failed (install, start or stop the app, or the forward to it); adb's own words are shown.",
+   "fix": "Do what the line says for this tablet (allow USB debugging, plug its cable in again, or Update PCs), then press the button again. Other tablets are not touched."
+  },
+  "ZL-TAB-018": {
+   "what": "A tablet scans for Wi-Fi by itself on a timer",
+   "why": "An app on the tablet (e.g. Samsung Context Engine) makes the Wi-Fi leave the channel for seconds every 30 minutes; the live stream meanwhile is lost. The router is not the cause.",
+   "fix": "The tool pauses that app during the test and puts it back after. If it could not, the test goes on; Reset All tries to put it back again."
+  }
+ }
+}

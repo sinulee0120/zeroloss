@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "note": "List of external tools. Files live in the depot (C:\\ZeroLossDepot), not in git. Versions for pinned tools are fixed in P0. See docs/15-tools.md",
+  "tools": [
+    {"id": "adb", "purpose": "tablet install/control/relay", "policy": "latest", "platforms": ["windows", "linux"], "source": "official:google-platform-tools", "license": "Apache-2.0", "deploy_to": ["receiver"], "verify": ["adb version"], "pinned_version": null},
+    {"id": "ffmpeg", "purpose": "analysis, prepare mode, freeze/black/block/silence detectors", "policy": "pinned", "platforms": ["windows", "linux"], "source": "official:ffmpeg-builds", "license": "GPL-3.0", "deploy_to": ["sender", "receiver", "controller"], "verify": ["ffmpeg -version | contains libx264", "ffmpeg -version | contains libx265", "ffmpeg -filters | contains freezedetect", "ffmpeg -filters | contains blockdetect"], "pinned_version": "TBD-in-P0"},
+    {"id": "tsduck", "purpose": "CBR RTP/TS sending, continuity/PCR fix, IAT cross-check", "policy": "pinned", "platforms": ["windows", "linux"], "source": "official:tsduck-github-releases", "license": "BSD-2-Clause", "deploy_to": ["sender", "receiver"], "verify": ["tsp --version"], "pinned_version": "3.45-4798"},
+    {"id": "mpv", "purpose": "PC player option (S-26)", "policy": "pinned", "platforms": ["windows", "linux"], "source": "official:mpv-io-builds", "license": "GPL-2.0-or-later", "deploy_to": ["receiver"], "verify": ["mpv --version"], "pinned_version": "TBD-in-P0"},
+    {"id": "vlc", "purpose": "PC player default (S-26)", "policy": "pinned", "platforms": ["windows", "linux"], "source": "official:videolan", "license": "GPL-2.0-or-later", "deploy_to": ["receiver"], "verify": ["vlc --version"], "pinned_version": "3.0.23"},
+    {"id": "linux-net-tools", "purpose": "iproute2 (tc/netem), ethtool, iw", "policy": "pinned", "platforms": ["linux"], "source": "official:ubuntu-archive", "license": "GPL-2.0", "deploy_to": ["sender", "receiver"], "verify": ["tc -V", "ethtool --version"], "pinned_version": "distro"},
+    {"id": "tcpdump", "purpose": "diagnostics: IGMP/M2U capture", "policy": "pinned", "platforms": ["linux"], "source": "official:ubuntu-archive", "license": "BSD-3-Clause", "deploy_to": ["on-demand"], "verify": ["tcpdump --version"], "pinned_version": "distro"},
+    {"id": "iperf3", "purpose": "throughput test (phase 2 module)", "policy": "pinned", "platforms": ["windows", "linux"], "source": "official:esnet", "license": "BSD-3-Clause", "deploy_to": ["phase2"], "verify": ["iperf3 --version"], "pinned_version": "TBD-phase2"}
+  ],
+  "build_toolchain": ["python-3.12", "pyinstaller", "pyside6", "pytest", "pytest-qt", "hypothesis", "mypy", "ruff", "mutmut", "playwright", "inno-setup", "jdk", "android-sdk", "gradle", "git", "gh"]
+}

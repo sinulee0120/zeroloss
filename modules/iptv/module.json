@@ -1,0 +1,13 @@
+{
+  "id": "iptv",
+  "name": "IPTV streaming",
+  "protocol_version": 1,
+  "core_api_min": 1,
+  "core_api_max": 1,
+  "entry": "modules.iptv.module:create",
+  "run_entry": "modules.iptv.run:create",
+  "desktop_entry": "modules.iptv.desktop:create",
+  "roles": ["sender", "receiver"],
+  "tools": {"sender": ["ffmpeg", "ffprobe", "tsp"], "receiver": ["mpv", "vlc", "ffmpeg", "adb"]},
+  "media_import": {"from": "Videos", "into": "media", "ext": ["mp4", "mkv", "mov", "m4v", "ts"]}
+}

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Refuse the commit unless format, lint, types and the fast tests pass.
+# Install once per clone: git config core.hooksPath tools/githooks
+set -e
+export PATH="$HOME/.local/bin:$PATH"
+cd "$(git rev-parse --show-toplevel)"
+uv run ruff format --check . -q || { echo "pre-commit: run 'uv run ruff format .'"; exit 1; }
+uv run ruff check . -q
+uv run mypy --platform linux  # the Agents run on Linux; Windows-only paths are guarded by sys.platform
+FAST="tests/test_spec_consistency.py tests/test_layering.py tests/test_data_formats.py"
+# tests/core and tests/blocks drive Linux sockets, signals and /proc: they run on Linux only
+# (the Windows Controller PC checks the specs; the Linux PCs run everything)
+if [ "$(uname -s)" = Linux ]; then
+    FAST="$FAST tests/core tests/blocks"
+else
+    echo "pre-commit: Linux-only tests skipped (tests/core, tests/blocks): not run here, not passed"
+fi
+uv run pytest -q -x -m "not hardware and not gui" $FAST

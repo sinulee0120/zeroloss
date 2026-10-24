@@ -1,0 +1,490 @@
+{
+ "schema_version": 1,
+ "settings": {
+  "S-01": {
+   "value": "IPTV test",
+   "doc": "IPTV test",
+   "ui": {
+    "label": "Test type",
+    "where": "main",
+    "kind": "choice",
+    "choices": [
+     "IPTV test"
+    ],
+    "lock": true,
+    "help": "Which test to run. IPTV test: pick the receivers in the device rows, a PC and up to three tablets on its USB, on the same or different TV channels.",
+    "available": true
+   }
+  },
+  "S-02": {
+   "value": "발견된 전부",
+   "doc": "발견된 전부",
+   "ui": {
+    "label": "Devices",
+    "where": "main",
+    "kind": "devices",
+    "lock": true,
+    "help": "The PCs and tablets in this test, found by themselves. Tick the ones to use.",
+    "available": true
+   }
+  },
+  "S-03": {
+   "value": "UHD",
+   "doc": "UHD · 3840×2160 · 35 Mbps",
+   "ui": {
+    "label": "Video quality",
+    "where": "main",
+    "kind": "choice",
+    "choices": [
+     "UHD",
+     "HD"
+    ],
+    "lock": true,
+    "help": "Video quality the sender sends. Example: UHD · 3840×2160 · 35 Mbps.",
+    "available": true
+   }
+  },
+  "S-04": {
+   "value": "서로 다른 채널 자동 배정",
+   "doc": "서로 다른 채널 자동 배정",
+   "ui": {
+    "label": "Channel per device",
+    "where": "main",
+    "kind": "channels",
+    "lock": false,
+    "help": "The TV channel each receiver watches. Default: a different channel each (CH1, CH2, CH3).",
+    "available": true
+   }
+  },
+  "S-05": {
+   "value": 3600,
+   "doc": "1 h",
+   "ui": {
+    "label": "Duration",
+    "where": "main",
+    "kind": "duration",
+    "min": 10,
+    "max": 720000,
+    "unit": "s",
+    "lock": true,
+    "help": "How long to measure. Example: 100h. The test ends by itself after it.",
+    "available": true
+   }
+  },
+  "S-06": {
+   "value": true,
+   "doc": "On",
+   "ui": {
+    "label": "Send quality reports",
+    "where": "main",
+    "kind": "bool",
+    "lock": true,
+    "help": "Receivers send 1-second values while testing.",
+    "available": "Always on in this build (Off comes later)"
+   }
+  },
+  "S-10": {
+   "value": "RTP / MPEG-TS",
+   "doc": "RTP / MPEG-TS",
+   "ui": {
+    "label": "Transport",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "RTP / MPEG-TS",
+     "MPEG-TS / UDP"
+    ],
+    "lock": true,
+    "help": "How the video is carried. Default RTP / MPEG-TS (most IPTV services).",
+    "available": true,
+    "unavailable_choices": {
+     "MPEG-TS / UDP": "comes in a later build"
+    },
+    "group": "Sending"
+   }
+  },
+  "S-11": {
+   "value": {
+    "UHD": 35,
+    "HD": 10
+   },
+   "doc": "UHD 35 / HD 10 Mbps",
+   "ui": {
+    "label": "Bitrate",
+    "where": "adv",
+    "kind": "per_quality_int",
+    "ranges": {
+     "UHD": [
+      30,
+      40
+     ],
+     "HD": [
+      8,
+      20
+     ]
+    },
+    "unit": "Mbps",
+    "lock": true,
+    "help": "Video bitrate of the chosen quality. Example: UHD 35 Mbps. Higher loads the router more.",
+    "available": true,
+    "group": "Sending"
+   }
+  },
+  "S-12": {
+   "value": "Prepared file",
+   "doc": "Prepared file",
+   "ui": {
+    "label": "Sender mode",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Prepared file",
+     "Live encode"
+    ],
+    "lock": true,
+    "help": "Send prepared files (default, light on the PC) or encode live.",
+    "available": true,
+    "unavailable_choices": {
+     "Live encode": "comes in a later build"
+    },
+    "group": "Sending"
+   }
+  },
+  "S-13": {
+   "value": "Test-linked",
+   "doc": "Test-linked",
+   "ui": {
+    "label": "Broadcast",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Test-linked",
+     "Always-on"
+    ],
+    "lock": true,
+    "help": "Send only during a test (default), or all the time: Always-on keeps the TV channels on air after Stop, like an ISP. Stop it with Stop broadcast.",
+    "available": true,
+    "group": "Sending"
+   }
+  },
+  "S-14": {
+   "value": {
+    "groups": [
+     "239.1.1.1",
+     "239.1.1.2",
+     "239.1.1.3"
+    ],
+    "port": 5004
+   },
+   "doc": "239.1.1.1~3 : 5004",
+   "ui": {
+    "label": "Multicast groups · port",
+    "where": "adv",
+    "kind": "groups",
+    "lock": true,
+    "help": "Channel addresses and port. Default 239.1.1.1~3 : 5004. Change only when your network needs it.",
+    "available": "Set in the plan file in this build",
+    "group": "Network"
+   }
+  },
+  "S-15": {
+   "value": 16,
+   "doc": "16",
+   "ui": {
+    "label": "TTL",
+    "where": "adv",
+    "kind": "int",
+    "min": 8,
+    "max": 64,
+    "lock": true,
+    "help": "Hops a video packet may pass. Default 16. Lower values may be dropped by the router in NAT mode.",
+    "available": true,
+    "group": "Network"
+   }
+  },
+  "S-16": {
+   "value": 0,
+   "doc": "0",
+   "ui": {
+    "label": "DSCP",
+    "where": "adv",
+    "kind": "int",
+    "min": 0,
+    "max": 63,
+    "lock": true,
+    "help": "Priority mark on video packets. Default 0.",
+    "available": "comes in a later build",
+    "group": "Network"
+   }
+  },
+  "S-18": {
+   "value": "Auto",
+   "doc": "Auto",
+   "ui": {
+    "label": "Hole-punch mode (no-IGMP firmware)",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Auto",
+     "Off",
+     "On"
+    ],
+    "lock": true,
+    "help": "Primed unicast for development/SDK routers without IGMP. Auto finds out by itself.",
+    "available": true,
+    "group": "Network"
+   }
+  },
+  "S-21": {
+   "value": "Manual",
+   "doc": "Manual",
+   "ui": {
+    "label": "Channel change",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Manual",
+     "Every 5 min",
+     "Every 10 min",
+     "Every 30 min",
+     "Every 60 min"
+    ],
+    "lock": true,
+    "help": "Change TV channels by itself every N minutes (CH1 -> CH2 -> CH3 -> CH1). All three channels are sent. Any N from 1 to 120 works from the CLI.",
+    "available": true,
+    "group": "Receiving"
+   }
+  },
+  "S-22": {
+   "value": "On (10 s)",
+   "doc": "On (10 s)",
+   "ui": {
+    "label": "Stagger channel changes",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "On (10 s)",
+     "Off"
+    ],
+    "lock": true,
+    "help": "Change receivers one after another, 10 s apart (Off: all at once). 5 to 60 s works from the CLI.",
+    "available": true,
+    "group": "Receiving"
+   }
+  },
+  "S-23": {
+   "value": 50,
+   "doc": "50 ms",
+   "ui": {
+    "label": "Jitter warning level",
+    "where": "adv",
+    "kind": "int",
+    "min": 10,
+    "max": 149,
+    "unit": "ms",
+    "lock": true,
+    "help": "Jitter above this turns a box yellow. Default 50 ms. The fail limit (150 ms) never changes.",
+    "available": true,
+    "group": "Receiving"
+   }
+  },
+  "S-24": {
+   "value": 1000,
+   "doc": "1,000 ms",
+   "ui": {
+    "label": "Reorder window",
+    "where": "adv",
+    "kind": "int",
+    "min": 100,
+    "max": 3000,
+    "unit": "ms",
+    "lock": true,
+    "help": "Out-of-order packets sorted within this time are not errors. Default 1,000 ms.",
+    "available": "Fixed at 1,000 ms in this build",
+    "group": "Receiving"
+   }
+  },
+  "S-25": {
+   "value": 1000,
+   "doc": "1,000 ms",
+   "ui": {
+    "label": "Player buffer",
+    "where": "adv",
+    "kind": "int",
+    "min": 300,
+    "max": 5000,
+    "unit": "ms",
+    "lock": true,
+    "help": "How much video the player keeps ahead. Default 1,000 ms.",
+    "available": true,
+    "group": "Playback & capture"
+   }
+  },
+  "S-26": {
+   "value": "mpv",
+   "doc": "mpv",
+   "ui": {
+    "label": "PC player",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "VLC",
+     "mpv"
+    ],
+    "lock": true,
+    "help": "The player on the receiver PC. Default mpv (hardware decoding; VLC 3 decodes UHD HEVC in software and can fall behind).",
+    "available": true,
+    "group": "Playback & capture"
+   }
+  },
+  "S-27": {
+   "value": 16777216,
+   "doc": "16 MB",
+   "ui": {
+    "label": "Receive buffer size",
+    "where": "adv",
+    "kind": "int",
+    "min": 4,
+    "max": 64,
+    "unit": "MB",
+    "scale": 1048576,
+    "lock": true,
+    "help": "Socket buffer of the receiver. Default 16 MB.",
+    "available": "Fixed at 16 MB in this build",
+    "group": "Receiving"
+   }
+  },
+  "S-28": {
+   "value": 15,
+   "doc": "15 s",
+   "ui": {
+    "label": "Start-up wait (warm-up max)",
+    "where": "adv",
+    "kind": "int",
+    "min": 5,
+    "max": 60,
+    "unit": "s",
+    "lock": true,
+    "help": "Longest wait for a steady stream before measuring. Default 15 s.",
+    "available": true,
+    "group": "Receiving"
+   }
+  },
+  "S-29": {
+   "value": "Off",
+   "doc": "Off",
+   "ui": {
+    "label": "Packet capture",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "Headers only",
+     "Full"
+    ],
+    "lock": true,
+    "help": "Keep a packet capture of the test.",
+    "available": "comes in a later build",
+    "group": "Playback & capture"
+   }
+  },
+  "S-30": {
+   "value": "On",
+   "doc": "**On**",
+   "ui": {
+    "label": "Evidence capture",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "On"
+    ],
+    "lock": true,
+    "help": "Also keep a picture of each trouble second: the video this PC received, rendered from 1 s before to 3 s after (4 frames a second). The packets of each trouble (a pcap, 10 s before to 5 s after) are always kept. On by default (2026-10-10): engineers believe what they see.",
+    "available": true,
+    "group": "Playback & capture"
+   }
+  },
+  "S-47": {
+   "value": 5.0,
+   "doc": "5 s",
+   "ui": {
+    "label": "Channel change success timeout",
+    "where": "adv",
+    "kind": "float",
+    "min": 0.5,
+    "max": 30,
+    "step": 0.1,
+    "unit": "s",
+    "lock": true,
+    "help": "Longest time a channel change may take to count as a success.",
+    "available": true,
+    "group": "Receiving"
+   }
+  },
+  "S-48": {
+   "value": "Generated",
+   "doc": "Generated",
+   "ui": {
+    "label": "Source video",
+    "where": "main",
+    "kind": "sources",
+    "lock": true,
+    "help": "Video to send on each TV channel: Generated (default) or a movie from the sender PC's Videos folder. Example: CH1 = movie.mp4.",
+    "available": true
+   }
+  },
+  "S-55": {
+   "value": "10 min",
+   "doc": "10 min",
+   "ui": {
+    "label": "Source length",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "10 min",
+     "Whole movie"
+    ],
+    "lock": true,
+    "help": "How much of a picked movie is made for sending, once, then reused: its first 10 minutes (fast, small, loops every 10 min) or the whole movie (hours to make, several GB).",
+    "available": true,
+    "group": "Sending"
+   }
+  },
+  "S-49": {
+   "value": "On",
+   "doc": "On",
+   "ui": {
+    "label": "PC playback (PC receiver only)",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "On",
+     "Off"
+    ],
+    "lock": true,
+    "help": "Play the video on the receiver PC. Off = analyze only (playback NOT RUN).",
+    "available": true,
+    "group": "Playback & capture"
+   }
+  },
+  "S-50": {
+   "value": "Medium (1280×720)",
+   "doc": "Medium (1280×720)",
+   "ui": {
+    "label": "Player window size (PC receiver only)",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Small (640×360)",
+     "Medium (1280×720)",
+     "Full screen"
+    ],
+    "lock": false,
+    "help": "Size of the player window. Hardly changes the decoding load.",
+    "available": true,
+    "group": "Playback & capture"
+   }
+  }
+ }
+}

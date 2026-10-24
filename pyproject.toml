@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zeroloss"
+description = "Remote, unattended verification platform. First module: IPTV multicast quality."
+requires-python = ">=3.12,<3.13"
+dynamic = ["version"]
+dependencies = [
+    "asyncssh>=2.24.0",
+    "pyside6>=6.7",
+]
+
+[project.scripts]
+zeroloss = "controller.cli:main"
+zeroloss-desktop = "controller.ui.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "pyinstaller>=6.22.3",
+]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.setuptools.packages.find]
+include = ["core*", "controller*", "agent*", "modules*", "tools*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs", "android"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Screen text uses real typographic signs (× in Video resolution, 11-ui 1.7-1)
+"controller/ui/texts.py" = ["RUF001"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["core", "controller", "agent", "modules", "tools", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+markers = [
+    "hardware: needs real devices (router, tablets)",
+    "gui: needs a display",
+]

@@ -1,0 +1,234 @@
+{
+ "schema_version": 1,
+ "settings": {
+  "S-17": {
+   "value": "Built-in DHCP",
+   "doc": "Built-in DHCP",
+   "ui": {
+    "label": "Router WAN IP",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Built-in DHCP",
+     "Static IP"
+    ],
+    "lock": true,
+    "help": "How the router WAN gets its address: from the sender PC like an ISP (default) or set on the router.",
+    "available": "Turn the sender's ISP role on with 'zeroloss devices wan' in this build",
+    "group": "Network"
+   }
+  },
+  "S-20": {
+   "value": "Wired",
+   "doc": "Wired",
+   "ui": {
+    "label": "Receiver PC network",
+    "where": "setup",
+    "kind": "choice",
+    "choices": [
+     "Wired",
+     "Wireless"
+    ],
+    "lock": true,
+    "help": "Does the receiver PC get the video over its cable or its Wi-Fi?",
+    "available": true
+   }
+  },
+  "S-40": {
+   "value": "Stop all + report",
+   "doc": "Stop all + report",
+   "ui": {
+    "label": "On device lost",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Stop all + report",
+     "Try to recover",
+     "Shut down all"
+    ],
+    "lock": true,
+    "help": "What to do when a device stops answering.",
+    "available": "Stop all + report in this build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-41": {
+   "value": 60,
+   "doc": "60 s",
+   "ui": {
+    "label": "Recover wait",
+    "where": "adv",
+    "kind": "int",
+    "min": 10,
+    "max": 600,
+    "unit": "s",
+    "lock": true,
+    "help": "How long to wait for a device to come back.",
+    "available": "comes in a later build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-42": {
+   "value": {
+    "suspect_s": 3,
+    "lost_s": 10
+   },
+   "doc": "3 s / 10 s",
+   "ui": {
+    "label": "Heartbeat suspect / lost",
+    "where": "adv",
+    "kind": "pair",
+    "lock": true,
+    "help": "Seconds without an answer before a device is suspect / lost. Default 3 s / 10 s.",
+    "available": "Fixed at 3 s / 10 s in this build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-56": {
+   "value": "Keep running to the planned end",
+   "doc": "Keep running to the planned end",
+   "ui": {
+    "label": "Without the Controller",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Keep running to the planned end",
+     "Stop after 10 s"
+    ],
+    "lock": true,
+    "help": "When the Controller PC stops answering (asleep, network down), the PCs in the test go on sending and measuring until the planned end, and the Controller takes the test up again when it is back. Or they stop after 10 s, as before.",
+    "available": true,
+    "group": "Network"
+   }
+  },
+  "S-43": {
+   "value": "C:\\ZeroLoss\\Reports (Linux: `~/ZeroLoss/Reports`)",
+   "doc": "C:\\ZeroLoss\\Reports (Linux: `~/ZeroLoss/Reports`)",
+   "ui": {
+    "label": "Report location",
+    "where": "adv",
+    "kind": "text",
+    "lock": true,
+    "help": "Folder for reports on the Controller PC.",
+    "available": "Set when the Controller is installed in this build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-44": {
+   "value": "Same subnet",
+   "doc": "Same subnet",
+   "ui": {
+    "label": "Results web access",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "This PC only",
+     "Same subnet"
+    ],
+    "lock": false,
+    "help": "Who may open the results web page.",
+    "available": "comes in a later build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-45": {
+   "value": "Off",
+   "doc": "Off",
+   "ui": {
+    "label": "Request signing (pairing key)",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "On"
+    ],
+    "lock": true,
+    "help": "Sign every request with a pairing key.",
+    "available": "comes in a later build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-46": {
+   "value": "Weekly",
+   "doc": "Weekly",
+   "ui": {
+    "label": "Tool update check",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "Daily",
+     "Weekly"
+    ],
+    "lock": false,
+    "help": "How often to look for new tool versions.",
+    "available": "comes in a later build",
+    "group": "Faults & operation"
+   }
+  },
+  "S-51": {
+   "value": "비어 있음(자동 연결 안 함)",
+   "doc": "비어 있음(자동 연결 안 함)",
+   "ui": {
+    "label": "Test Wi-Fi (SSID · security · password)",
+    "where": "adv",
+    "kind": "wifi",
+    "lock": true,
+    "help": "The router Wi-Fi tablets and Wi-Fi PCs join by themselves.",
+    "available": "Set with 'zeroloss wifi set' in this build",
+    "group": "Screen & Wi-Fi"
+   }
+  },
+  "S-52": {
+   "value": "Off",
+   "doc": "Off",
+   "ui": {
+    "label": "Problem sound",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Off",
+     "On"
+    ],
+    "lock": false,
+    "help": "Play a short sound when a new problem appears.",
+    "available": true,
+    "group": "Screen & Wi-Fi"
+   }
+  },
+  "S-53": {
+   "value": "On",
+   "doc": "On",
+   "ui": {
+    "label": "Always on top",
+    "where": "desktop",
+    "kind": "choice",
+    "choices": [
+     "On",
+     "Off"
+    ],
+    "lock": false,
+    "help": "Keep the Agent Desktop status window above other windows on this PC.",
+    "available": true
+   }
+  },
+  "S-54": {
+   "value": "Through the router",
+   "doc": "Through the router",
+   "ui": {
+    "label": "Test network",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Through the router",
+     "Baseline (no router)"
+    ],
+    "lock": true,
+    "help": "Baseline: the sender and receivers on one switch without the router, to prove a receiver and its player lose nothing. Each report then shows the receiver's last baseline.",
+    "available": true,
+    "group": "Network"
+   }
+  }
+ }
+}

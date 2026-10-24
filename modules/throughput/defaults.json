@@ -1,0 +1,149 @@
+{
+ "schema_version": 1,
+ "settings": {
+  "S-57": {
+   "value": 10,
+   "doc": "10 s",
+   "ui": {
+    "label": "Wait before and after each PC",
+    "where": "adv",
+    "kind": "int",
+    "min": 0,
+    "max": 300,
+    "unit": "s",
+    "lock": true,
+    "help": "Time for the link to settle before a PC's first case and after its last. Example: 10 s.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-58": {
+   "value": 30,
+   "doc": "30 s",
+   "ui": {
+    "label": "Measure time per direction",
+    "where": "adv",
+    "kind": "int",
+    "min": 5,
+    "max": 600,
+    "unit": "s",
+    "lock": true,
+    "help": "How long iperf3 measures send, then receive, in each case. Example: 30 s.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-59": {
+   "value": 90,
+   "doc": "90 %",
+   "ui": {
+    "label": "Pass threshold (wired)",
+    "where": "adv",
+    "kind": "int",
+    "min": 1,
+    "max": 100,
+    "unit": "%",
+    "lock": true,
+    "help": "A wired case passes when send and receive each reach this share of the link speed the card actually got (1000 Mbps link: 900 Mbps). Wi-Fi shows values only.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-60": {
+   "value": "TCP",
+   "doc": "TCP",
+   "ui": {
+    "label": "Protocol",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "TCP",
+     "UDP"
+    ],
+    "lock": true,
+    "help": "TCP measures what a download gets. UDP sends at 95 % of the link speed and reports loss and jitter.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-61": {
+   "value": 1,
+   "doc": "1",
+   "ui": {
+    "label": "Parallel connections",
+    "where": "adv",
+    "kind": "int",
+    "min": 1,
+    "max": 16,
+    "lock": true,
+    "help": "iperf3 connections at once (-P). 1 is how one download behaves; more can fill fast links.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-62": {
+   "value": "Every supported",
+   "doc": "Every supported",
+   "ui": {
+    "label": "Link speeds",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "Every supported",
+     "As it is"
+    ],
+    "lock": true,
+    "help": "Every supported: each cable is measured at every speed and duplex its card supports (and the WAN-side card's, with the first cable), then put back. As it is: only the link as it came up.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-63": {
+   "value": "LAN→WAN, then WAN→LAN",
+   "doc": "LAN→WAN, then WAN→LAN",
+   "ui": {
+    "label": "Directions",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "LAN→WAN, then WAN→LAN",
+     "LAN→WAN only",
+     "WAN→LAN only"
+    ],
+    "lock": true,
+    "help": "LAN→WAN: the LAN-side PC sends to the WAN-side PC (iperf3, upload). WAN→LAN: the WAN-side PC sends to the LAN-side PC (iperf3 -R, download). Both: two separate runs, LAN→WAN first, never at the same time.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-64": {
+   "value": 95,
+   "doc": "95 %",
+   "ui": {
+    "label": "UDP rate",
+    "where": "adv",
+    "kind": "int",
+    "min": 1,
+    "max": 100,
+    "unit": "%",
+    "lock": true,
+    "help": "UDP only: iperf3 -b at this share of the link speed the card got (1000 Mbps link, 95 %: -b 950M). TCP takes what the path gives.",
+    "available": true,
+    "group": "Throughput"
+   }
+  },
+  "S-65": {
+   "value": {},
+   "doc": "none (the person picks)",
+   "ui": {
+    "label": "Cards to test",
+    "where": "devices",
+    "kind": "cards",
+    "lock": true,
+    "help": "Tick in Devices each card to measure: a wired card on the router LAN side, or a Wi-Fi card with the router's open Wi-Fi picked for 2.4 / 5 / 6 GHz (from that card's scan). Nothing is ticked for you.",
+    "available": true,
+    "group": "Throughput"
+   }
+  }
+ }
+}

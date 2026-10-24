@@ -1,0 +1,290 @@
+<title>ZeroLoss Test Report Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Same design values as the Controller (docs/11-ui.md 1.11). Single light palette on purpose. */
+:root{
+  --ground:#EEF1F4; --panel:#FFFFFF; --line:#D3D9E0; --line-strong:#B9C1CB;
+  --ink:#18212C; --muted:#56606E; --faint:#6E7887; --accent:#27487F; --accent-soft:#E6ECF6;
+  --ok:#1E7A45; --ok-bg:#E3F3E9; --warn:#8A5A00; --warn-bg:#FFF2CC; --bad:#B42318; --bad-bg:#FDE6E4;
+  --tool:#6A3E9E; --tool-bg:#EFE7F8; --none:#7C8695; --none-bg:#ECEFF2;
+  --c-ok:#5FB883; --c-warn:#F2C14E; --c-bad:#D8483B; --c-tool:#9A6FCB; --c-none:#C9CFD6;
+  color-scheme:light;
+}
+html,body{background:var(--ground);color:var(--ink)}
+body{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.45;padding-inline:16px;padding-block:24px 48px}
+*{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+button,select,input{font:inherit}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.page{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;min-width:0}
+h1{margin:0;font-size:20px;font-weight:600;text-wrap:balance}
+h2{margin:0 0 12px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h2 .sp{flex:1}
+.sub{color:var(--faint);font-size:12px}
+.ico{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:12px;font-weight:700;flex:none}
+.i-ok{background:var(--ok-bg);color:var(--ok)} .i-warn{background:var(--warn-bg);color:var(--warn)} .i-bad{background:var(--bad-bg);color:var(--bad)} .i-tool{background:var(--tool-bg);color:var(--tool)} .i-none{background:var(--none-bg);color:var(--none)}
+
+/* header */
+.top{display:grid;grid-template-columns:auto 1fr auto;gap:16px 24px;align-items:start}
+@media (max-width:760px){.top{grid-template-columns:1fr}}
+.verdict{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;background:var(--bad-bg);border:1px solid #F2B8B2}
+.verdict b{font-size:28px;letter-spacing:.5px;color:var(--bad)}
+.verdict .ico{width:36px;height:36px;font-size:18px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 24px}
+.meta div span{display:block;font-size:12px;color:var(--muted)}
+.meta div b{font-weight:500}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line-strong);background:var(--panel);color:var(--ink);border-radius:6px;padding:6px 14px;min-height:32px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.reason{margin-top:12px;font-size:14px}
+.reason b{color:var(--bad)}
+
+/* key values */
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.dev{border:1px solid var(--line);border-radius:8px;padding:12px 16px;display:grid;gap:8px}
+.dev .hd{display:flex;align-items:center;gap:8px;font-weight:600}
+.dev .hd .sub{font-weight:400;margin-left:auto}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv div span{display:block;font-size:12px;color:var(--muted)}
+.kv div b{font-size:24px;font-weight:600}
+.kv div b small{font-size:12px;font-weight:400;color:var(--muted);margin-left:2px}
+.bars{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--none-bg)}
+.bars i{display:block;height:100%}
+
+/* range + grid */
+.range{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:12px}
+.range label{color:var(--muted);font-size:12px}
+.range select{border:1px solid var(--line-strong);border-radius:6px;padding:5px 8px;min-height:32px;background:var(--panel);color:var(--ink)}
+.chip{border:1px solid var(--line-strong);background:var(--panel);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--ink)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.banner{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;background:var(--accent-soft);border:1px solid #B7C6E3;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px}
+.banner b{font-weight:600}
+.gridscroll{overflow-x:auto;padding-bottom:4px}
+.grid{display:grid;grid-template-columns:78px 1fr;gap:6px 8px;align-items:center;min-width:560px}
+.grid .lab{font-size:12px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.grid .lab input{accent-color:var(--accent)}
+.cells{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(1px,1fr);gap:1px;height:22px;user-select:none}
+.cells.hid{pointer-events:none}
+.cells.hid span{opacity:.12}
+.cells span{border-radius:1px;cursor:pointer}
+.cells span.sel{outline:2px solid var(--ink);outline-offset:-1px}
+.cells span.dim{opacity:.18}
+.cells span.sel{opacity:1}
+.k-ok{background:var(--c-ok)} .k-warn{background:var(--c-warn)} .k-bad{background:var(--c-bad)} .k-tool{background:var(--c-tool)} .k-none{background:var(--c-none)}
+.axis{grid-column:2;display:flex;justify-content:space-between;font-size:11px;color:var(--faint)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:12px;height:12px;border-radius:2px;display:inline-block}
+.rsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}
+.rsum div{border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.rsum span{display:block;font-size:12px;color:var(--muted)}
+.rsum b{font-size:18px;font-weight:600}
+
+/* 1 s chart */
+.chartbox{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px}
+.chartbox .hd{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.chartbox svg{width:100%;height:auto;display:block}
+.chartbox svg text{font-family:inherit;font-size:11px;fill:var(--muted)}
+
+/* analysis + tables */
+.an{display:grid;gap:10px}
+.an .item{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;border:1px solid var(--line);border-radius:8px;padding:12px}
+.an .item b{display:block}
+.an .item .ev{font-size:12px;color:var(--muted);margin-top:2px}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500;background:#F7F9FB}
+td.r,th.r{text-align:right}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+dl.kvl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:0;font-size:12px}
+dl.kvl dt{color:var(--muted)} dl.kvl dd{margin:0}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:8px;padding:10px 16px;font-size:12px;z-index:9;max-width:calc(100% - 32px)}
+.note{color:var(--muted);font-size:12px;max-width:1180px;margin:0 auto}
+</style>
+
+<div class="page">
+  <section class="card" aria-label="Result">
+    <div class="top">
+      <div class="verdict"><span class="ico i-bad" aria-hidden="true">✖</span><div><b>FAIL</b><div class="sub">Overall result</div></div></div>
+      <div>
+        <h1>Tablet test · 3 tablets · 24 h</h1>
+        <div class="sub num">Run R20260923-143201 · 2026-09-23 14:32 → 2026-09-24 14:32 (UTC+9) · ZeroLoss 20260923.1432</div>
+        <p class="reason"><b>Tablet-2 lost 1,184 packets</b> in 3 five-minute periods (08h 40m – 08h 55m). Loss started 260 s after a channel join, which matches an IGMP membership timeout. <button class="btn" type="button" data-p="red" data-jump="1" style="margin-left:4px;border-color:var(--bad);color:var(--bad)">Show where it failed ▾</button></p>
+      </div>
+      <div class="acts"><button class="btn" type="button" data-t="CSV of the selected range exported (mockup).">Export CSV</button><button class="btn" type="button" data-t="PDF of the selected range exported (mockup).">Export PDF</button><button class="btn" type="button" data-t="Link copied: …/report.html#range (mockup).">Copy link</button></div>
+    </div>
+    <div class="meta" style="margin-top:16px">
+      <div><span>Planned / actual</span><b class="num">24h 00m / 24h 00m (100%)</b></div>
+      <div><span>Router (DUT) model · firmware</span><b>AX3000-EVB · FW 1.2.3-rc4</b></div>
+      <div><span>Router mode</span><b>NAT (detected = selected)</b></div>
+      <div><span>M2U</span><b>active (checked on PC wireless)</b></div>
+      <div><span>Video quality</span><b class="num">UHD · 3840×2160 · 35 Mbps</b></div>
+      <div><span>Video format</span><b class="num">HEVC · 30 fps · 3 channels · RTP/MPEG-TS</b></div>
+      <div><span>Reports during test</span><b>On</b></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="hKeys">
+    <h2 id="hKeys">Key values per device <span class="sp"></span><span class="sub" style="text-transform:none;letter-spacing:0" id="keysScope">Whole test</span></h2>
+    <div class="keys" id="keys"></div>
+  </section>
+
+  <section class="card" aria-labelledby="hGrid">
+    <h2 id="hGrid">5-minute results</h2>
+    <div class="range">
+      <label for="rFrom">From</label><select id="rFrom"></select>
+      <label for="rTo">To</label><select id="rTo"></select>
+      <span style="display:flex;gap:6px;flex-wrap:wrap" id="presets">
+        <button class="chip" type="button" data-p="all" aria-pressed="true">All</button>
+        <button class="chip" type="button" data-p="first">First 1h</button>
+        <button class="chip" type="button" data-p="last">Last 1h</button>
+        <button class="chip" type="button" data-p="red" style="border-color:var(--bad);color:var(--bad)">✖ Around first red</button>
+        <span style="width:1px;background:var(--line);margin:0 4px"></span><button class="chip" type="button" id="redOnly" aria-pressed="false" title="Highlight only red boxes. Numbers still cover the whole selected range.">Highlight red only</button>
+      </span>
+    </div>
+    <div class="banner" id="banner"></div>
+    <div class="gridscroll"><div class="grid" id="grid"></div></div>
+    <div class="legend">
+      <span><i class="k-ok"></i>✔ No problem</span><span><i class="k-warn"></i>⚠ Warning</span><span><i class="k-bad"></i>✖ Loss or jitter over limit (router)</span><span><i class="k-tool"></i>◆ Tool / receiver issue</span><span><i class="k-none"></i>○ No data</span>
+      <span style="margin-left:auto">Drag across boxes to select a range · click a box for 1-second detail</span>
+    </div>
+    <div class="rsum" id="rsum"></div>
+    <div class="chartbox" id="chart" hidden></div>
+  </section>
+
+  <section class="card" aria-labelledby="hAn">
+    <h2 id="hAn">Why it happened (first analysis)</h2>
+    <div class="an">
+      <div class="item"><span class="ico i-bad">✖</span><div><b>Router: IGMP membership timeout suspected (Tablet-2)</b><div class="ev">Loss began 260 s after the last join and stopped at the next join. No loss on the wired path. Rule R-02 · RFC 2236 / RFC 4605.</div></div></div>
+      <div class="item"><span class="ico i-tool">◆</span><div><b>Receiver side, not router: Tablet-3 dropped packets itself (15h 10m)</b><div class="ev">Host drops 412 = packet loss 412 in the same period. Battery 14 %, temperature 44 °C. Not counted against the router. Rule R-07.</div></div></div>
+      <div class="item"><span class="ico i-warn">⚠</span><div><b>Wi-Fi signal dips (Tablet-1, 4 periods)</b><div class="ev">Jitter up to 68 ms when RSSI fell to −72 dBm. No loss. Below the 150 ms limit.</div></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="hProb">
+    <h2 id="hProb">Problems and human actions during the test</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Elapsed</th><th>Device</th><th>Code</th><th>What happened</th><th>Handled by</th></tr></thead>
+      <tbody>
+        <tr><td class="num">00h 00m 14s</td><td>Tablet-1..3</td><td>—</td><td>Start-up: first packet 0.4 s, first picture 1.8 s after join (not judged)</td><td>auto</td></tr>
+        <tr><td class="num">08h 40m 12s</td><td>Tablet-2</td><td>ZL-NET-004</td><td>Loss after join, IGMP timeout suspected</td><td>recorded</td></tr>
+        <tr><td class="num">15h 10m 03s</td><td>Tablet-3</td><td>ZL-RCV-002</td><td>Host drops (receiver buffer full)</td><td>recorded · purple</td></tr>
+        <tr><td class="num">15h 25m 00s</td><td>Tablet-3</td><td>ZL-TAB-001</td><td>USB relay lost for 5 min (grey box). Tablet kept measuring; data recovered only partly</td><td>auto reconnect ✔ 15h 30m</td></tr>
+        <tr><td class="num">15h 22m 40s</td><td>Tablet-3</td><td>ZL-TAB-007</td><td>Battery low (14 %)</td><td>human: plugged in charger ✔ 15h 31m</td></tr>
+      </tbody></table></div>
+  </section>
+
+  <div class="two">
+    <section class="card" aria-labelledby="hPlay">
+      <h2 id="hPlay">Playback vs packets</h2>
+      <dl class="kvl">
+        <dt>Playback issues with packet problems</dt><dd class="num">3 (router side, expected)</dd>
+        <dt>Playback issues without packet problems</dt><dd class="num">0 ✔ (no receiver-side playback faults)</dd>
+        <dt>Packet problems hidden by the player</dt><dd class="num">0</dd>
+        <dt>Last baseline test (no router)</dt><dd>2026-09-20 · Tablet-1..3 · 24 h · 0 loss ✔</dd>
+      </dl>
+    </section>
+    <section class="card" aria-labelledby="hMeth">
+      <h2 id="hMeth">How it was measured</h2>
+      <dl class="kvl">
+        <dt>Loss</dt><dd>RTP sequence (RFC 3550 A.3), reorder window 1,000 ms</dd>
+        <dt>Jitter</dt><dd>RFC 3550 interarrival, limit 150 ms, warning 50 ms</dd>
+        <dt>Stream checks</dt><dd>ETSI TR 101 290 priority 1 + PCR</dd>
+        <dt>Sender</dt><dd>TSDuck, 7 TS/packet, TTL 16, 239.1.1.1–3:5004</dd>
+        <dt>Clock alignment</dt><dd>Controller-based, max error 3 ms</dd>
+        <dt>Versions</dt><dd>Controller/Agents 20260923.1432 · App 20260923.1432 · adb 36.0.0</dd>
+      </dl>
+    </section>
+  </div>
+</div>
+<p class="note">Mockup only: numbers are sample data. This page is the offline report file (report.html) the Controller saves; it opens without internet.</p>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const N=288, DEV=[{id:"Tablet-1",ch:"CH1"},{id:"Tablet-2",ch:"CH2"},{id:"Tablet-3",ch:"CH3"}];
+// deterministic sample data
+function rnd(i,s){const x=Math.sin(i*12.9898+s*78.233)*43758.5453;return x-Math.floor(x);}
+const data={};
+DEV.forEach((d,di)=>{data[d.id]=[];for(let i=0;i<N;i++){let k="ok",loss=0,jmax=+(2+rnd(i,di)*3).toFixed(1),hd=0;
+  if(d.id==="Tablet-1"&&[40,41,150,212].includes(i)){k="warn";jmax=+(52+rnd(i,9)*16).toFixed(1);}
+  if(d.id==="Tablet-2"&&i>=104&&i<=106){k="bad";loss=[380,512,292][i-104];jmax=+(18+rnd(i,3)*9).toFixed(1);}
+  if(d.id==="Tablet-3"&&i===182){k="tool";loss=412;hd=412;}
+  if(d.id==="Tablet-3"&&i===185){k="none";}
+  data[d.id].push({k,loss,jmax,hd});}});
+const S={from:0,to:N-1,show:{"Tablet-1":true,"Tablet-2":true,"Tablet-3":true},sel:null,preset:"all",redOnly:false,drag:null};
+const t5=i=>{const m=i*5;return `${String(Math.floor(m/60)).padStart(2,"0")}h ${String(m%60).padStart(2,"0")}m`;};
+["rFrom","rTo"].forEach(id=>{$(id).innerHTML=Array.from({length:N},(_,i)=>`<option value="${i}">${t5(i+(id==="rTo"?1:0))}</option>`).join("");});
+
+function inRange(i){return i>=S.from&&i<=S.to;}
+function lit(i,dev){return inRange(i)&&S.show[dev]&&(!S.redOnly||data[dev][i].k==="bad");}
+/* One view state. Rule: a control changes only its own part; the 1-second detail stays open unless its box leaves the view, and then we say why. */
+function keepSel(){if(!S.sel)return; if(!inRange(S.sel.i)){S.sel=null;toast("1-second detail closed: that box is outside the selected range.");}
+  else if(!S.show[S.sel.dev]){S.sel=null;toast("1-second detail closed: "+"that device is hidden.");}}
+function render(){
+  $("rFrom").value=S.from;$("rTo").value=S.to;
+  document.querySelectorAll("#presets .chip[data-p]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.p===S.preset));
+  $("redOnly").setAttribute("aria-pressed",S.redOnly);
+  const whole=S.from===0&&S.to===N-1;
+  $("banner").innerHTML=`<span>Showing <b class="num">${t5(S.from)} – ${t5(S.to+1)}</b> of 24h${S.preset==="custom"?" (custom range)":""}${S.redOnly?" · red boxes highlighted":""}</span><span>Devices: <b>${DEV.filter(d=>S.show[d.id]).map(d=>d.id).join(", ")||"none"}</b></span><span>Overall result: <b style="color:var(--bad)">FAIL</b> (unchanged by the range)</span>`;
+  $("keysScope").textContent=whole?"Whole test":`Selected range ${t5(S.from)} – ${t5(S.to+1)}`;
+  // grid
+  let g="";
+  DEV.forEach(d=>{g+=`<div class="lab"><input type="checkbox" id="sh-${d.id}" ${S.show[d.id]?"checked":""} data-dev="${d.id}"><label for="sh-${d.id}">${d.id}</label></div><div class="cells${S.show[d.id]?"":" hid"}" data-row="${d.id}" ${S.show[d.id]?"":'title="Hidden. Tick the box to show."'}>${data[d.id].map((c,i)=>`<span class="k-${c.k}${lit(i,d.id)?"":" dim"}${S.sel&&S.sel.dev===d.id&&S.sel.i===i?" sel":""}" data-i="${i}" data-dev="${d.id}" title="${d.id} · ${t5(i)}–${t5(i+1)} · ${{ok:"No problem",warn:"Warning",bad:"Loss "+c.loss,tool:"Receiver issue",none:"No data"}[c.k]} · jitter max ${c.jmax} ms"></span>`).join("")}</div>`;});
+  g+=`<div></div><div class="axis num"><span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>24h</span></div>`;
+  $("grid").innerHTML=g;
+  // key values + range summary
+  let keys="",tot={loss:0,cells:0,red:0,purple:0,jmax:0};
+  DEV.forEach(d=>{if(!S.show[d.id])return;let loss=0,jmax=0,cnt={ok:0,warn:0,bad:0,tool:0,none:0},n=0;
+    let rloss=0; data[d.id].forEach((c,i)=>{if(!inRange(i))return;n++;cnt[c.k]++;if(c.k!=="tool")loss+=c.loss;else rloss+=c.loss;jmax=Math.max(jmax,c.jmax);});
+    tot.loss+=loss;tot.cells+=n;tot.red+=cnt.bad;tot.purple+=cnt.tool;tot.jmax=Math.max(tot.jmax,jmax);
+    const st=cnt.bad?["i-bad","✖"]:cnt.tool||cnt.none?["i-tool","◆"]:cnt.warn?["i-warn","⚠"]:["i-ok","✔"];
+    const pct=k=>n?cnt[k]/n*100:0;
+    keys+=`<div class="dev"><div class="hd"><span class="ico ${st[0]}">${st[1]}</span>${d.id}<span class="sub">Receiver · ${d.ch} · Wi-Fi 5 GHz</span></div>
+      <div class="kv"><div><span>Jitter max</span><b class="num">${jmax.toFixed(1)}<small>ms</small></b></div><div><span>Packet loss</span><b class="num" style="color:${loss?"var(--bad)":"inherit"}">${loss.toLocaleString()}</b></div></div>
+      <div class="bars" title="Share of 5-min boxes by color">${["ok","warn","bad","tool","none"].map(k=>`<i class="k-${k}" style="width:${pct(k)}%"></i>`).join("")}</div>
+      ${rloss?`<div class="sub num" style="color:var(--tool)">◆ +${rloss.toLocaleString()} lost on the tablet itself (receiver side, not counted against the router)</div>`:""}
+      ${cnt.none?`<div class="sub num">○ ${cnt.none*5} min without data (see Problems)</div>`:""}
+      <div class="sub num">${cnt.ok} green · ${cnt.warn} yellow · ${cnt.bad} red · ${cnt.tool} purple · ${cnt.none} grey</div></div>`;});
+  $("keys").innerHTML=keys||`<p class="sub">No device selected. Tick a device next to the 5-minute boxes.</p>`;
+  $("rsum").innerHTML=`<div><span>Router packet loss in range (all shown devices)</span><b class="num" style="color:${tot.loss?"var(--bad)":"inherit"}">${tot.loss.toLocaleString()}</b></div><div><span>Jitter max in range</span><b class="num">${tot.jmax.toFixed(1)} ms</b></div><div><span>Red boxes</span><b class="num">${tot.red}</b></div><div><span>Purple boxes (not router)</span><b class="num">${tot.purple}</b></div>`;
+  renderChart();
+}
+function renderChart(){
+  const box=$("chart"); if(!S.sel){box.hidden=true;return;} box.hidden=false;
+  const {dev,i}=S.sel, c=data[dev][i], W=900,H=220,pl=44,pr=12,pt=14,pb=28, n=300;
+  const jit=[],loss=[];for(let s=0;s<n;s++){let j=c.jmax*0.35+rnd(i*300+s,7)*c.jmax*0.4; if(s===137||s===138)j=c.jmax; jit.push(j);
+    let l=0; if(c.k==="bad"&&s>=260-(i-104)*80&&s<300)l=Math.round(c.loss/Math.max(1,40-(i-104)*0))/1; if(c.k==="tool"&&s>=120&&s<124)l=103; loss.push(c.k==="bad"&&s<260-(i-104)*80?0:l);}
+  if(c.k==="bad"){let rem=c.loss;const idx=loss.map((v,k)=>v?k:-1).filter(k=>k>=0);const base=Math.floor(c.loss/idx.length),extra=c.loss%idx.length;idx.forEach((k,q)=>{loss[k]=base+(q<extra?1:0);});}
+  const ymax=Math.max(160,Math.ceil(Math.max(...jit)/20)*20), X=s=>pl+s/(n-1)*(W-pl-pr), Y=v=>pt+(1-v/ymax)*(H-pt-pb);
+  const lmax=Math.max(1,...loss);
+  let grid="";[0,50,100,150].filter(v=>v<=ymax).forEach(v=>{grid+=`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v===150?"#D8483B":"#E3E7EC"}" ${v===150?'stroke-dasharray="4 3"':""}/><text x="${pl-6}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;});
+  const bars=loss.map((v,s)=>v?`<rect x="${X(s)-1.2}" y="${H-pb-(v/lmax)*(H-pt-pb)*0.5}" width="2.4" height="${(v/lmax)*(H-pt-pb)*0.5}" fill="#D8483B" opacity=".85"/>`:"").join("");
+  const path="M"+jit.map((v,s)=>`${X(s).toFixed(1)},${Y(v).toFixed(1)}`).join("L");
+  box.innerHTML=`<div class="hd"><b>${dev} · ${t5(i)} – ${t5(i+1)} · 1-second detail</b><span class="sub">Line: jitter (ms, left axis) · Red bars: lost packets per second · Dashed: 150 ms limit</span><span style="flex:1"></span><button class="btn" type="button" id="closeChart">Close</button></div>
+   <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Jitter and loss per second for ${dev}">${grid}<line x1="${pl}" x2="${W-pr}" y1="${H-pb}" y2="${H-pb}" stroke="#B9C1CB"/>${bars}<path d="${path}" fill="none" stroke="#27487F" stroke-width="1.5"/>
+   ${[0,60,120,180,240,299].map(s=>`<text x="${X(s)}" y="${H-8}" text-anchor="middle">+${Math.round(s/60)}m</text>`).join("")}</svg>
+   <div class="sub num">Loss in this box: ${c.loss.toLocaleString()}${c.hd?` (all ${c.hd} were host drops on the tablet → purple, not router)`:""} · Jitter max ${c.jmax} ms</div>`;
+}
+function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2200);}
+function setPreset(p){S.preset=p;
+  if(p==="all"){S.from=0;S.to=N-1;} if(p==="first"){S.from=0;S.to=11;} if(p==="last"){S.from=N-12;S.to=N-1;}
+  if(p==="red"){const f=104;S.from=Math.max(0,f-6);S.to=Math.min(N-1,f+8);}
+  keepSel();render();}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-p],[data-t],#closeChart,#redOnly");if(!b)return;
+  if(b.dataset.p){setPreset(b.dataset.p);if(b.dataset.jump){S.sel={dev:"Tablet-2",i:104};render();$("hGrid").scrollIntoView({behavior:"smooth",block:"start"});}} else if(b.dataset.t)toast(b.dataset.t); else if(b.id==="redOnly"){S.redOnly=!S.redOnly;render();} else {S.sel=null;render();}});
+document.addEventListener("change",e=>{const t=e.target;
+  if(t.id==="rFrom"||t.id==="rTo"){let f=+$("rFrom").value,to=+$("rTo").value;if(f>to)[f,to]=[to,f];S.from=f;S.to=to;S.preset=(f===0&&to===N-1)?"all":"custom";keepSel();render();}
+  if(t.dataset.dev&&t.type==="checkbox"){S.show[t.dataset.dev]=t.checked;keepSel();render();}});
+// drag to select, click for detail
+document.addEventListener("pointerdown",e=>{const c=e.target.closest(".cells span");if(!c)return;S.drag={start:+c.dataset.i,dev:c.dataset.dev,moved:false};});
+document.addEventListener("pointerover",e=>{if(!S.drag)return;const c=e.target.closest(".cells span");if(!c)return;const i=+c.dataset.i;if(i!==S.drag.start){S.drag.moved=true;S.from=Math.min(S.drag.start,i);S.to=Math.max(S.drag.start,i);S.preset="custom";render();}});
+document.addEventListener("pointercancel",()=>{S.drag=null;});
+document.addEventListener("pointerup",e=>{if(!S.drag)return;const d=S.drag;S.drag=null;if(d.moved){keepSel();render();return;} if(!d.moved){if(!inRange(d.start)){S.from=0;S.to=N-1;S.preset="all";toast("Range reset to the whole test to show that box.");} S.show[d.dev]=true; S.sel={dev:d.dev,i:d.start};render();$("chart").scrollIntoView({behavior:"smooth",block:"nearest"});}});
+render();
+})();
+</script>

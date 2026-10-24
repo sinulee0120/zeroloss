@@ -1,0 +1,10 @@
+#!/bin/sh
+# ZeroLoss agent: before the files go (4.3-1). This program is still here now,
+# so every clean-up that needs it happens here, not in postrm.
+set -e
+D="${DPKG_ROOT:-}/opt/zeroloss/deployer/zeroloss-deployer"
+case "$1" in
+    upgrade) "$D" node-remove --stop-only --root "${DPKG_ROOT:-/}" || true ;;
+    remove|deconfigure) "$D" node-remove --root "${DPKG_ROOT:-/}" || true ;;
+esac
+exit 0

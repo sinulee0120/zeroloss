@@ -1,0 +1,259 @@
+<title>ZeroLoss User Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Same design values and terms as the app (docs/11-ui.md 1.7-1, 1.11). Manual rules: docs/08-manual.md */
+:root{
+  --ground:#EEF1F4; --panel:#FFFFFF; --line:#D3D9E0; --line-strong:#B9C1CB; --window:#F5F7F9;
+  --ink:#18212C; --muted:#56606E; --faint:#6E7887; --accent:#27487F; --accent-soft:#E6ECF6;
+  --ok:#1E7A45; --ok-bg:#E3F3E9; --warn:#8A5A00; --warn-bg:#FFF2CC; --bad:#B42318; --bad-bg:#FDE6E4; --tool:#6A3E9E; --tool-bg:#EFE7F8; --none:#7C8695; --none-bg:#ECEFF2;
+  --wan:#1F5FBF; --lan:#1E7A45; --usb:#6E7887; --net:#18212C;
+  --c-ok:#5FB883; --c-warn:#F2C14E; --c-bad:#D8483B; --c-tool:#9A6FCB; --c-none:#C9CFD6;
+  color-scheme:light;
+}
+html,body{background:var(--ground);color:var(--ink)}
+body{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.55;padding-inline:16px;padding-block:24px 48px}
+*{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:980px;margin:0 auto;display:grid;grid-template-columns:220px 1fr;gap:24px;align-items:start}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}}
+nav{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px}
+@media (max-width:820px){nav{position:static}}
+nav b{display:block;margin-bottom:6px}
+nav ol{margin:0;padding-left:18px;display:grid;gap:3px}
+nav a{color:var(--accent);text-decoration:none}
+nav a:hover{text-decoration:underline}
+nav .soon{color:var(--faint)}
+main{display:grid;gap:20px;min-width:0}
+.page{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;min-width:0}
+.page h1{margin:0 0 4px;font-size:22px;text-wrap:balance}
+.page h2{margin:0 0 4px;font-size:18px;text-wrap:balance}
+.kicker{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:600}
+.lead{color:var(--muted);margin:4px 0 16px;max-width:65ch}
+.step{display:grid;grid-template-columns:36px 1fr;gap:12px;padding:14px 0;border-top:1px solid var(--line)}
+.step:first-of-type{border-top:none}
+.n{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600;font-size:14px}
+.do{font-weight:600;margin:2px 0 8px}
+.ok,.no{font-size:13px;margin-top:6px;display:flex;gap:6px;align-items:flex-start}
+.ok{color:var(--ok)} .no{color:var(--bad)}
+.no a{color:var(--bad)}
+.fig{border:1px solid var(--line);border-radius:8px;background:var(--window);padding:12px;overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto;min-width:520px}
+.fig svg text{font-family:inherit}
+.callout{position:relative}
+.cl{position:absolute;width:22px;height:22px;border-radius:50%;background:var(--bad);color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 2px #fff}
+.hl{outline:3px solid var(--bad);outline-offset:2px;border-radius:6px}
+/* mini app screenshots built in HTML so they match the app */
+.shot{background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;font-size:12px;max-width:560px}
+.shot .tb{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--window);border-bottom:1px solid var(--line)}
+.shot .tb b{font-size:13px}
+.shot .tb .sp{flex:1}
+.shot .bd{padding:10px;display:grid;gap:8px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:2px 8px;background:var(--panel)}
+.fieldrow{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center}
+.fieldrow span{color:var(--muted)}
+.sel{border:1px solid var(--line-strong);border-radius:6px;padding:4px 8px;background:var(--panel)}
+.bigbtn{border-radius:8px;padding:10px;text-align:center;font-weight:600;color:#fff;background:var(--ok)}
+.bigbtn.stop{background:var(--bad)}
+.devrow{display:grid;grid-template-columns:22px 1fr auto auto;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:6px}
+.ico{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700}
+.i-ok{background:var(--ok-bg);color:var(--ok)} .i-warn{background:var(--warn-bg);color:var(--warn)} .i-bad{background:var(--bad-bg);color:var(--bad)} .i-tool{background:var(--tool-bg);color:var(--tool)} .i-none{background:var(--none-bg);color:var(--none)}
+.cells{display:flex;gap:2px;flex-wrap:wrap}
+.cells i{width:12px;height:12px;border-radius:2px;display:inline-block}
+.k-ok{background:var(--c-ok)} .k-warn{background:var(--c-warn)} .k-bad{background:var(--c-bad)} .k-tool{background:var(--c-tool)} .k-none{background:var(--c-none)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500;background:#F7F9FB}
+.tbl{overflow-x:auto}
+.legend{display:grid;gap:8px}
+.legend div{display:grid;grid-template-columns:28px 90px 1fr;gap:10px;align-items:center}
+.legend i{width:22px;height:22px;border-radius:4px;display:grid;place-items:center;font-style:normal;font-size:12px}
+.verd{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.verd div{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.verd b{display:block;font-size:16px}
+.qs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.qs div{border:1px solid var(--line);border-radius:8px;padding:12px}
+.qs .n{width:24px;height:24px;font-size:12px;margin-bottom:6px}
+.tip{background:var(--accent-soft);border:1px solid #B7C6E3;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px}
+.terms{font-size:13px}
+.terms dt{font-weight:600}
+.terms dd{margin:0 0 8px;color:var(--muted)}
+.note{max-width:980px;margin:16px auto 0;color:var(--muted);font-size:12px}
+</style>
+
+<div class="wrap">
+  <nav aria-label="Contents">
+    <b>ZeroLoss User Guide</b>
+    <ol>
+      <li><a href="#quick">Quick Start</a></li>
+      <li><a href="#need">What you need</a></li>
+      <li><a href="#cables">Connect the cables</a></li>
+      <li class="soon">Install the Controller</li>
+      <li class="soon">Install Agents</li>
+      <li class="soon">Connect tablets</li>
+      <li class="soon">First start: find devices</li>
+      <li><a href="#run">Run a test</a></li>
+      <li><a href="#results">Read the results</a></li>
+      <li class="soon">Open and share the report</li>
+      <li class="soon">When something goes wrong</li>
+      <li class="soon">Update</li>
+      <li class="soon">Uninstall</li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+      <li><a href="#terms">Words used in ZeroLoss</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <!-- Quick Start: one page -->
+    <section class="page" id="quick" aria-labelledby="hq">
+      <div class="kicker">Quick Start · one page</div>
+      <h1 id="hq">Test a router's IPTV quality in 5 steps</h1>
+      <p class="lead">Use this page once everything is installed. Each step has one action.</p>
+      <div class="qs">
+        <div><div class="n">1</div><b>Connect</b><br>Sender PC to the router's <b style="color:var(--wan)">WAN</b> port. Controller and Receiver PC to <b style="color:var(--lan)">LAN</b> ports. Tablets on the router's Wi-Fi and on USB to the Receiver PC.</div>
+        <div><div class="n">2</div><b>Open ZeroLoss</b><br>On the Controller PC. Devices are found automatically. Check that every device shows ✔.</div>
+        <div><div class="n">3</div><b>Choose</b><br>Test type, <b>Video quality</b> (for example <span class="num">UHD · 3840×2160 · 35 Mbps</span>) and Duration.</div>
+        <div><div class="n">4</div><b>Press Start</b><br>Wait until the button turns red and says <b>Stop</b>.</div>
+        <div><div class="n">5</div><b>Read the result</b><br>When the test ends, press <b>Show report</b>. Green boxes = no problem, red = packets lost.</div>
+      </div>
+      <p class="tip">Do not change router settings or use the router's Wi-Fi from other phones during a test. It changes the result.</p>
+    </section>
+
+    <section class="page" id="need" aria-labelledby="hn">
+      <div class="kicker">Chapter 0</div>
+      <h2 id="hn">What you need</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Item</th><th>How many</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Router under test</td><td>1</td><td>Factory settings are fine. ZeroLoss gives its WAN port an address.</td></tr>
+          <tr><td>Controller PC (Windows)</td><td>1</td><td>Two network ports: one to the router, one to the internet</td></tr>
+          <tr><td>Sender PC (Windows or Linux)</td><td>1</td><td>Connects to the router's WAN port</td></tr>
+          <tr><td>Receiver PC (Windows or Linux)</td><td>1</td><td>Wired and Wi-Fi. Holds the tablets on USB</td></tr>
+          <tr><td>Android tablets</td><td>1 to 3</td><td>Android 16 or 17, charger cable</td></tr>
+          <tr><td>Network cables</td><td>4</td><td>Blue for WAN, green for LAN is easiest to follow</td></tr>
+        </tbody></table></div>
+    </section>
+
+    <section class="page" id="cables" aria-labelledby="hc">
+      <div class="kicker">Chapter 1</div>
+      <h2 id="hc">Connect the cables</h2>
+      <p class="lead">Every PC connects to the router under test. Only the Controller PC also connects to the internet.</p>
+      <div class="fig" role="img" aria-label="Wiring diagram">
+        <svg viewBox="0 0 760 330">
+          <rect x="300" y="120" width="160" height="80" rx="10" fill="#FFFFFF" stroke="#18212C" stroke-width="2"/>
+          <text x="380" y="150" text-anchor="middle" font-size="15" font-weight="600" fill="#18212C">Router under test</text>
+          <text x="380" y="170" text-anchor="middle" font-size="12" fill="#56606E">WAN · LAN 1–4 · Wi-Fi</text>
+          <rect x="30" y="130" width="140" height="60" rx="8" fill="#FFFFFF" stroke="#1F5FBF" stroke-width="2"/>
+          <text x="100" y="157" text-anchor="middle" font-size="13" font-weight="600" fill="#18212C">Sender PC</text>
+          <text x="100" y="175" text-anchor="middle" font-size="11" fill="#56606E">sends the video</text>
+          <line x1="170" y1="160" x2="300" y2="160" stroke="#1F5FBF" stroke-width="4"/>
+          <text x="235" y="150" text-anchor="middle" font-size="12" font-weight="600" fill="#1F5FBF">WAN port</text>
+          <rect x="590" y="30" width="150" height="60" rx="8" fill="#FFFFFF" stroke="#1E7A45" stroke-width="2"/>
+          <text x="665" y="57" text-anchor="middle" font-size="13" font-weight="600" fill="#18212C">Controller PC</text>
+          <text x="665" y="75" text-anchor="middle" font-size="11" fill="#56606E">you use this one</text>
+          <path d="M460 140 C 520 140, 540 60, 590 60" fill="none" stroke="#1E7A45" stroke-width="4"/>
+          <text x="520" y="92" font-size="12" font-weight="600" fill="#1E7A45">LAN</text>
+          <line x1="665" y1="30" x2="665" y2="8" stroke="#18212C" stroke-width="3" stroke-dasharray="6 4"/>
+          <text x="675" y="16" font-size="11" fill="#18212C">Internet (second port)</text>
+          <rect x="590" y="150" width="150" height="60" rx="8" fill="#FFFFFF" stroke="#1E7A45" stroke-width="2"/>
+          <text x="665" y="177" text-anchor="middle" font-size="13" font-weight="600" fill="#18212C">Receiver PC</text>
+          <text x="665" y="195" text-anchor="middle" font-size="11" fill="#56606E">wired + Wi-Fi</text>
+          <line x1="460" y1="180" x2="590" y2="180" stroke="#1E7A45" stroke-width="4"/>
+          <text x="525" y="172" text-anchor="middle" font-size="12" font-weight="600" fill="#1E7A45">LAN</text>
+          <g font-size="12" fill="#18212C">
+            <rect x="300" y="262" width="80" height="44" rx="8" fill="#FFFFFF" stroke="#6E7887"/><text x="340" y="288" text-anchor="middle">Tablet-1</text>
+            <rect x="400" y="262" width="80" height="44" rx="8" fill="#FFFFFF" stroke="#6E7887"/><text x="440" y="288" text-anchor="middle">Tablet-2</text>
+            <rect x="500" y="262" width="80" height="44" rx="8" fill="#FFFFFF" stroke="#6E7887"/><text x="540" y="288" text-anchor="middle">Tablet-3</text>
+          </g>
+          <path d="M340 262 L 370 200 M440 262 L 400 200 M540 262 L 430 200" fill="none" stroke="#27487F" stroke-width="2" stroke-dasharray="3 5"/>
+          <text x="250" y="238" font-size="12" font-weight="600" fill="#27487F">Wi-Fi (video)</text>
+          <path d="M580 284 C 640 284, 650 250, 665 210" fill="none" stroke="#6E7887" stroke-width="3"/>
+          <text x="610" y="262" font-size="12" font-weight="600" fill="#56606E">USB</text>
+        </svg>
+      </div>
+      <div class="step"><div class="n">1</div><div><div class="do">Connect the Sender PC to the router's WAN port.</div>
+        <div class="ok">✔ You should see: the router's WAN light turns on.</div>
+        <div class="no">✖ If not: try another cable. See <a href="#trouble">Troubleshooting</a> → "Sender PC not found".</div></div></div>
+      <div class="step"><div class="n">2</div><div><div class="do">Connect the Controller PC and the Receiver PC to LAN ports.</div>
+        <div class="ok">✔ You should see: both PCs get an address from the router (for example 192.168.1.x).</div></div></div>
+      <div class="step"><div class="n">3</div><div><div class="do">Connect each tablet to the Receiver PC with a USB cable.</div>
+        <div class="ok">✔ You should see: the tablet starts charging. Wi-Fi is set up by ZeroLoss later.</div>
+        <div class="no">✖ If the tablet asks "Allow USB debugging?", tap Allow. This happens only the first time.</div></div></div>
+    </section>
+
+    <section class="page" id="run" aria-labelledby="hr">
+      <div class="kicker">Chapter 6</div>
+      <h2 id="hr">Run a test</h2>
+      <p class="lead">Everything happens on the Controller PC.</p>
+      <div class="step"><div class="n">1</div><div><div class="do">Choose the Test type, Video quality and Duration.</div>
+        <div class="shot" aria-label="Test settings"><div class="tb"><b>Test</b></div><div class="bd">
+          <div class="fieldrow"><span>Test type</span><span class="sel">Tablet test ▾</span></div>
+          <div class="fieldrow"><span>Video quality</span><span class="sel hl num">UHD · 3840×2160 · 35 Mbps ▾</span></div>
+          <div class="fieldrow"><span>Duration</span><span class="sel">24 h ▾</span></div></div></div>
+        <div class="ok">✔ You should see: "Video quality" shows the name, the video resolution and the bitrate.</div>
+        <div class="no">✖ Video quality is the size of the video sent to the receivers. It is not your monitor's screen size.</div></div></div>
+      <div class="step"><div class="n">2</div><div><div class="do">Press Start.</div>
+        <div class="shot" aria-label="Start button"><div class="bd"><div class="bigbtn hl">▶ Start</div></div></div>
+        <div class="ok">✔ You should see: the Status panel checks each step (Devices, Tools, Network, Multicast, Sending, Receivers) and the button turns into a red <b>Stop</b>.</div>
+        <div class="no">✖ If Start is grey: read the line under the button, then see <a href="#trouble">Troubleshooting</a> → "Start is grey".</div></div></div>
+      <div class="step"><div class="n">3</div><div><div class="do">Watch the devices while the test runs.</div>
+        <div class="shot" aria-label="Devices"><div class="tb"><b>Devices</b></div><div class="bd">
+          <div class="devrow"><span class="ico i-ok">✔</span><span><b>Sender</b> · 3 channels</span><span class="num">105 Mbps</span><span></span></div>
+          <div class="devrow"><span class="ico i-ok">✔</span><span><b>Tablet-1</b> · CH1 · ▶ Playing</span><span class="num">Jitter 2.1 ms</span><span class="num">Loss 0</span></div>
+          <div class="devrow"><span class="ico i-warn">⚠</span><span><b>Tablet-2</b> · CH2 · ▶ Playing</span><span class="num">Jitter 61 ms</span><span class="num">Loss 0</span></div></div></div>
+        <div class="ok">✔ Jitter and Loss are the two most important numbers. Loss should stay 0.</div></div></div>
+      <div class="step"><div class="n">4</div><div><div class="do">To stop early, press Stop and confirm.</div>
+        <div class="ok">✔ You should see: "Stopping…" while ZeroLoss restores every device, then the result window.</div>
+        <div class="no">✖ Start stays unavailable until cleanup finishes. This is normal.</div></div></div>
+    </section>
+
+    <section class="page" id="results" aria-labelledby="hres">
+      <div class="kicker">Chapter 7</div>
+      <h2 id="hres">Read the results</h2>
+      <p class="lead">Every box is 5 minutes for one receiver.</p>
+      <div class="legend">
+        <div><i class="k-ok">✔</i><b>Green</b><span>No problem in these 5 minutes.</span></div>
+        <div><i class="k-warn">⚠</i><b>Yellow</b><span>No packets lost, but a warning (for example jitter higher than usual).</span></div>
+        <div><i class="k-bad" style="color:#fff">✖</i><b>Red</b><span>Packets were lost or jitter was over 150 ms. The router is the likely cause.</span></div>
+        <div><i class="k-tool" style="color:#fff">◆</i><b>Purple</b><span>A problem, but not caused by the router (for example the tablet dropped packets itself).</span></div>
+        <div><i class="k-none">○</i><b>Grey</b><span>No data (a device was disconnected).</span></div>
+      </div>
+      <h3 style="font-size:15px;margin:18px 0 8px">Overall result</h3>
+      <div class="verd">
+        <div><b style="color:var(--ok)">✔ PASS</b>Ran the full time. No red, purple or grey boxes.</div>
+        <div><b style="color:var(--bad)">✖ FAIL</b>At least one red box.</div>
+        <div><b style="color:var(--warn)">◐ INCOMPLETE</b>Stopped early, or some boxes are purple or grey. No red so far.</div>
+      </div>
+      <p class="tip">In a FAIL report, press <b>Show where it failed</b> at the top. It jumps to the first red box and opens the 1-second detail.</p>
+    </section>
+
+    <section class="page" id="trouble" aria-labelledby="ht">
+      <div class="kicker">Troubleshooting</div>
+      <h2 id="ht">Common problems</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>What you see</th><th>What to check</th><th>Code</th></tr></thead>
+        <tbody>
+          <tr><td>Start is grey</td><td>Read the line under the button. It names the device and the fix.</td><td>—</td></tr>
+          <tr><td>Sender PC not found</td><td>Type the "My IP" shown in the Sender PC's small window into <b>Set up devices → Add by IP</b>.</td><td class="num">ZL-DSC-010</td></tr>
+          <tr><td>Tablet not in the list</td><td>USB cable, and tap "Allow USB debugging" on the tablet.</td><td class="num">ZL-INS-019</td></tr>
+          <tr><td>Tablet on the wrong Wi-Fi</td><td>Press <b>Reconnect and retry</b> in the Status panel.</td><td class="num">ZL-TAB-005</td></tr>
+          <tr><td>All receivers get nothing right after Start</td><td>Router multicast (IGMP) setting. The Status panel shows "Multicast test".</td><td class="num">ZL-NET-003</td></tr>
+          <tr><td>Only Wi-Fi receivers are red</td><td>Router M2U setting and tablet signal strength.</td><td class="num">ZL-NET-004</td></tr>
+        </tbody></table></div>
+    </section>
+
+    <section class="page" id="terms" aria-labelledby="htm">
+      <div class="kicker">Glossary</div>
+      <h2 id="htm">Words used in ZeroLoss</h2>
+      <dl class="terms">
+        <dt>Video quality</dt><dd>The video sent to receivers: name, video resolution and bitrate. Example: UHD · 3840×2160 · 35 Mbps.</dd>
+        <dt>Video resolution</dt><dd>Width × height of the sent video. Example: 3840×2160.</dd>
+        <dt>Screen size, Monitor</dt><dd>Your PC monitor. Not related to the test result.</dd>
+        <dt>Router</dt><dd>The router under test (called DUT in technical report sections).</dd>
+        <dt>Sender, Receiver</dt><dd>The PC that sends the video, and the PC or tablet that receives it.</dd>
+        <dt>Jitter, Loss</dt><dd>How uneven packet arrival is (ms), and how many packets never arrived. The two most important numbers.</dd>
+      </dl>
+    </section>
+  </main>
+</div>
+<p class="note">Mockup of the user guide. Real screenshots will replace the drawn screens, captured automatically at build time (docs/08-manual.md). Grey items in the contents are written the same way in the full guide.</p>

@@ -1,0 +1,19 @@
+[Unit]
+Description=ZeroLoss node (test control, heartbeat, measurement)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/zeroloss/zeroloss.conf
+User=zeroloss
+Group=zeroloss
+ExecStart=/opt/zeroloss/agent/zeroloss serve --role agent --data ${ZL_DATA} --modules /opt/zeroloss/modules --node-port ${ZL_NODE_PORT} --player-host desktop
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_NICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_NICE
+KillMode=control-group
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

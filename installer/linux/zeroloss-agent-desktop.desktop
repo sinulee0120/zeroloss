@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ZeroLoss Agent Desktop
+Comment=ZeroLoss status window and PC player (docs/03-features.md F20)
+Exec=/opt/zeroloss/desktop/zeroloss-agent-desktop
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,515 @@
+<title>ZeroLoss Controller Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Single deliberate light palette: the real app forces its own palette regardless of OS theme (docs/11-ui.md 1.11). */
+:root{
+  --ground:#DCE1E7; --window:#F5F7F9; --panel:#FFFFFF; --line:#D3D9E0; --line-strong:#B9C1CB;
+  --ink:#18212C; --muted:#56606E; --faint:#6E7887; --accent:#27487F; --accent-soft:#E6ECF6;
+  --ok:#1E7A45; --ok-bg:#E3F3E9; --warn:#8A5A00; --warn-bg:#FFF2CC; --bad:#B42318; --bad-bg:#FDE6E4;
+  --tool:#6A3E9E; --tool-bg:#EFE7F8; --none:#7C8695; --none-bg:#ECEFF2;
+  --btn-off-bg:#E3E7EC; --btn-off-ink:#5E6875;
+  --r:6px; --f:13px; --fh:16px; --fk:24px;
+  color-scheme:light;
+}
+html,body{background:var(--ground);color:var(--ink)}
+body{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:var(--f);padding-inline:16px;padding-block:16px 32px}
+*{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* mockup control bar (not part of the app) */
+.demo{max-width:1320px;margin:0 auto 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:12px;color:var(--muted)}
+.demo b{color:var(--ink);font-weight:600}
+.demo .seg{display:flex;flex-wrap:wrap;gap:4px}
+.demo button{border:1px dashed var(--line-strong);background:transparent;border-radius:4px;padding:4px 8px;color:var(--ink);font-size:12px}
+.demo button[aria-pressed="true"]{background:var(--ink);color:#fff;border-style:solid;border-color:var(--ink)}
+
+/* app window */
+.win{max-width:1320px;margin:0 auto;background:var(--window);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 12px 32px rgba(24,33,44,.18);overflow:hidden;position:relative;container-type:inline-size}
+.win.compact{max-width:1093px}
+.titlebar{display:flex;align-items:center;gap:16px;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:600;font-size:var(--fh);letter-spacing:.2px}
+.brand small{font-weight:400;color:var(--faint);font-size:12px;margin-left:8px}
+.spacer{flex:1}
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;border:1px solid var(--line);background:var(--panel);font-size:12px;color:var(--ink)}
+.badge.bad{background:var(--bad-bg);border-color:#F2B8B2;color:var(--bad)}
+.badge.warn{background:var(--warn-bg);border-color:#EBCB7A;color:var(--warn)}
+.badge.hand{background:var(--accent-soft);border-color:#B7C6E3;color:var(--accent)}
+.badge[hidden]{display:none}
+.btn{border:1px solid var(--line-strong);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:6px 14px;min-height:32px}
+.btn:hover{border-color:var(--accent)}
+.btn.off{background:var(--btn-off-bg);color:var(--btn-off-ink);border-color:var(--line)}
+
+.body{display:grid;grid-template-columns:300px 1fr;gap:16px;padding:16px}
+@container (max-width:1180px){.body{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;min-width:0}
+.panel h2{margin:0 0 12px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.panel h2 .spacer{flex:1}
+
+/* test settings */
+.field{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:8px;margin-bottom:8px}
+.field label{color:var(--muted)}
+select{font:inherit;border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 8px;background:var(--panel);color:var(--ink);min-height:32px;width:100%}
+select:disabled,input:disabled{background:var(--btn-off-bg);color:var(--btn-off-ink)}
+.check{display:flex;align-items:center;gap:8px;margin:8px 0}
+.check input{width:16px;height:16px;accent-color:var(--accent)}
+.changed{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 8px}
+.adv{border-top:1px solid var(--line);margin-top:8px;padding-top:12px}
+.info{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line-strong);color:var(--muted);font-size:11px;cursor:help;margin-left:4px}
+.lockhint{font-size:12px;color:var(--faint);margin-top:4px}
+
+.run{margin-top:16px;display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.primary{border:none;border-radius:8px;padding:12px 16px;min-height:48px;font-size:var(--fh);font-weight:600;color:#fff;background:var(--ok);display:flex;align-items:center;justify-content:center;gap:8px}
+.primary.stop{background:var(--bad)}
+.primary.wait{background:var(--btn-off-bg);color:var(--btn-off-ink)}
+.progress{display:flex;justify-content:space-between;color:var(--muted);font-size:12px}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0}
+.why{font-size:12px;color:var(--bad)}
+
+/* devices */
+.dev{display:grid;grid-template-columns:28px minmax(90px,1.1fr) minmax(70px,.8fr) 1fr 1fr minmax(64px,.7fr) 32px;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.dev:first-of-type{border-top:none}
+.dev .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dev .sub{color:var(--faint);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kv{display:flex;flex-direction:column;line-height:1.15}
+.kv span{font-size:12px;color:var(--muted)}
+.kv b{font-size:var(--fk);font-weight:600}
+.kv b small{font-size:12px;font-weight:400;color:var(--muted);margin-left:2px}
+.kv.stale b{color:var(--faint)}
+.ico{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:12px;font-weight:700}
+.i-ok{background:var(--ok-bg);color:var(--ok)} .i-warn{background:var(--warn-bg);color:var(--warn)}
+.i-bad{background:var(--bad-bg);color:var(--bad)} .i-tool{background:var(--tool-bg);color:var(--tool)} .i-none{background:var(--none-bg);color:var(--none)}
+.expand{border:1px solid var(--line);background:var(--panel);border-radius:4px;width:28px;height:28px;color:var(--muted)}
+.detail{grid-column:1/-1;background:var(--window);border:1px solid var(--line);border-radius:6px;padding:12px;display:grid;grid-template-columns:1fr 220px;gap:16px}
+@container (max-width:760px){.detail{grid-template-columns:1fr}.dev{grid-template-columns:28px 1fr 1fr 1fr 32px}.dev .hide-s{display:none}}
+.rows{font-size:12px;max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:4px;background:var(--panel)}
+.rows table{width:100%;border-collapse:collapse}
+.rows th,.rows td{padding:3px 8px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowrap}
+.rows th{position:sticky;top:0;background:var(--window);color:var(--muted);font-weight:500}
+.rows td:first-child,.rows th:first-child{text-align:left}
+.relay{display:flex;align-items:center;gap:8px;margin-top:4px;padding:8px 0 0;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.relay b{color:var(--ink);font-weight:500}
+.relay.bad{color:var(--bad)}
+.ipbox{background:var(--window);border:1px solid var(--line);border-radius:6px;padding:12px;margin:-4px 0 8px}
+.ipbox input{font:inherit;border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 8px;min-height:32px;width:100%;background:var(--panel);color:var(--ink)}
+.ipbox input[aria-invalid="true"]{border-color:var(--bad)}
+.err{grid-column:2;font-size:12px;color:var(--bad);margin-top:-4px}
+.setup{position:absolute;inset:49px 0 0 0;background:var(--window);z-index:7;overflow:auto;padding:16px}
+.setup .head{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.setup .head h3{margin:0;font-size:var(--fh)}
+.nodes{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.nodes th,.nodes td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.nodes th{font-size:12px;color:var(--muted);font-weight:500;background:var(--window)}
+.nodes td .sub{color:var(--faint);font-size:12px}
+.nodes select{min-width:140px}
+.rec{font-size:12px;color:var(--ok)}
+.addip{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.addip input{font:inherit;border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 8px;min-height:32px;width:180px}
+.dutline{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:4px 16px}
+.dutline b{color:var(--ink);font-weight:500}
+
+/* 5-min grid */
+.gridwrap{overflow-x:auto}
+.grow{display:grid;grid-template-columns:64px 1fr;align-items:center;gap:8px;margin-bottom:6px}
+.grow .lab{font-size:12px;color:var(--muted);white-space:nowrap}
+.cells{display:flex;flex-wrap:wrap;gap:3px}
+.cell{width:16px;height:16px;border-radius:3px;display:grid;place-items:center;font-size:10px;line-height:1;cursor:default}
+.c-ok{background:#5FB883;color:#0E3B20} .c-warn{background:#F2C14E;color:#4A3100} .c-bad{background:#D8483B;color:#fff}
+.c-tool{background:#9A6FCB;color:#fff} .c-none{background:#C9CFD6;color:#3C4550}
+.c-off{background:repeating-linear-gradient(45deg,#D5DAE0 0 3px,#EEF1F4 3px 6px)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend i{width:12px;height:12px;border-radius:2px;display:inline-block}
+.follow{border:1px solid var(--line-strong);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.follow[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* status */
+.status{margin:0 16px 16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.status h2{margin:0 0 8px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.steps li{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start}
+.steps .fix{grid-column:2;background:var(--bad-bg);border:1px solid #F2B8B2;border-radius:6px;padding:8px 12px;color:var(--ink);font-size:12px;display:grid;gap:2px}
+.steps .fix b{color:var(--bad);font-weight:600}
+.steps .fix .acts{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.steps .pend{color:var(--faint)}
+.oneline{display:flex;align-items:center;gap:8px}
+
+/* overlays */
+.side{position:absolute;top:49px;right:0;bottom:0;width:min(420px,100%);background:var(--panel);border-left:1px solid var(--line-strong);box-shadow:-8px 0 24px rgba(24,33,44,.12);padding:16px;overflow:auto;z-index:5}
+.side h3{margin:0 0 12px;font-size:var(--fh);display:flex;align-items:center;gap:8px}
+.side h3 .spacer{flex:1}
+.prob{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:8px;display:grid;gap:4px}
+.prob .meta{font-size:12px;color:var(--faint);display:flex;gap:8px;flex-wrap:wrap}
+.prob .w{font-weight:600}
+.prob .y,.prob .f{font-size:12px}
+.prob .f{color:var(--ok)}
+.prob.resolved{opacity:.7}
+.scrim{position:absolute;inset:0;background:rgba(24,33,44,.35);display:grid;place-items:center;z-index:10;padding:16px}
+.dialog{background:var(--panel);border-radius:10px;padding:24px;width:min(520px,100%);box-shadow:0 16px 40px rgba(0,0,0,.25);display:grid;gap:12px}
+.dialog h3{margin:0;font-size:var(--fh)}
+.dialog p{margin:0;color:var(--muted);line-height:1.5}
+.dialog .acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.dialog .acts .go{background:var(--accent);border-color:var(--accent);color:#fff}
+.dialog .acts .danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.verdict{display:inline-flex;align-items:center;gap:8px;font-size:var(--fk);font-weight:600}
+.path{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--window);border:1px solid var(--line);border-radius:4px;padding:6px 8px;overflow-wrap:anywhere;color:var(--ink)}
+.fault{position:absolute;inset:49px 0 0 0;background:rgba(245,247,249,.96);z-index:8;display:grid;place-items:center;padding:16px}
+.fault .card{background:var(--panel);border:1px solid #F2B8B2;border-radius:10px;padding:24px;width:min(640px,100%);display:grid;gap:12px}
+.fault h3{margin:0;color:var(--bad);font-size:var(--fh);display:flex;gap:8px;align-items:center}
+.kvgrid{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:12px}
+.kvgrid dt{color:var(--muted)} .kvgrid dd{margin:0}
+.action{position:absolute;right:16px;top:64px;width:min(400px,calc(100% - 32px));background:var(--panel);border:2px solid var(--accent);border-radius:10px;box-shadow:0 12px 32px rgba(24,33,44,.22);padding:16px;z-index:9;display:grid;gap:8px}
+.action h3{margin:0;font-size:var(--fh);color:var(--accent)}
+.tabletpic{display:grid;place-items:center;height:120px;border:1px solid var(--line);border-radius:8px;background:var(--window)}
+.tabletpic .screen{width:170px;height:100px;border:3px solid #333;border-radius:10px;background:#fff;display:grid;place-items:center;font-size:11px;text-align:center;padding:6px}
+.tabletpic .allow{margin-top:4px;border:2px solid var(--bad);border-radius:4px;padding:1px 8px;font-weight:600}
+.toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:8px;padding:10px 16px;font-size:12px;z-index:12;max-width:calc(100% - 32px)}
+.note{max-width:1320px;margin:16px auto 0;color:var(--muted);font-size:12px;line-height:1.6}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="demo" role="group" aria-label="Mockup controls">
+  <b>Mockup controls</b> (not part of the app)
+  <span class="seg" id="demoState"></span>
+  <span class="seg">
+    <button id="dmFault" type="button">Inject fault: Tablet-2 USB lost</button>
+    <button id="dmPre" type="button">Pre-check fail: wrong Wi-Fi</button>
+  </span>
+  <span class="seg" id="demoSize"><span>Controller PC monitor:</span>
+    <button type="button" data-size="wide" aria-pressed="true" title="Preview how the app window looks on this monitor">Monitor 1920×1080 · 100%</button>
+    <button type="button" data-size="compact" aria-pressed="false" title="Preview how the app window looks on a small laptop screen">Laptop 1366×768 · 125%</button>
+  </span>
+</div>
+
+<div class="win" id="win">
+  <div class="titlebar">
+    <span class="brand">ZeroLoss <small>Controller · IPTV module · build 20260923.1432</small></span>
+    <span class="spacer"></span>
+    <button class="badge hand" id="bAction" type="button" hidden>🖐 <span id="bActionN">1</span> action needed</button>
+    <button class="badge" id="bProb" type="button">✔ No problems</button>
+    <button class="btn" type="button" id="bReports">Reports</button>
+    <button class="btn" type="button" id="bLast">Last report</button>
+  </div>
+
+  <div class="body">
+    <div class="col">
+      <section class="panel" aria-labelledby="hTest">
+        <h2 id="hTest">Test</h2>
+        <div class="field"><label for="sType">Test type</label>
+          <select id="sType"><option value="tablet">Tablet test</option><option value="pc">PC receiver test</option></select></div>
+        <div class="field"><label for="sQual">Video quality <span class="info" title="Resolution and bitrate of the video sent to receivers. UHD: 3840×2160, 30 fps, HEVC. HD: 1920×1080, 30 fps, H.264.">i</span></label>
+          <select id="sQual"><option>UHD · 3840×2160 · 35 Mbps</option><option>HD · 1920×1080 · 10 Mbps</option></select></div>
+        <div class="field"><label for="sDur">Duration</label>
+          <select id="sDur"><option>10 s</option><option>1 min</option><option>10 min</option><option>1 h</option><option>24 h</option><option selected>100 h</option></select></div>
+        <label class="check" for="cRep"><input type="checkbox" id="cRep" checked> Send quality reports <span class="info" title="Receivers send a 5-minute summary to the Controller. Turn off to compare whether reporting affects quality. Results are then calculated after the test.">i</span></label>
+        <label class="check" for="cAdv"><input type="checkbox" id="cAdv"> Advanced settings <span class="changed" id="advChanged" hidden>2 changed</span></label>
+        <div class="adv" id="advBox" hidden>
+          <div class="field"><label for="aTx">Transport <span class="info" title="Default RTP / MPEG-TS over UDP. Use MPEG-TS over UDP only to check a router without RTP. Example: RTP/TS">i</span></label>
+            <select id="aTx"><option>RTP / MPEG-TS</option><option>MPEG-TS / UDP</option></select></div>
+          <div class="field"><label for="aBr">Bitrate <span class="info" title="UHD 30–40 Mbps, HD 8–20 Mbps per channel.">i</span></label>
+            <select id="aBr"><option>35 Mbps</option><option>30 Mbps</option><option>40 Mbps</option></select></div>
+          <div class="field"><label for="aMode">Sender <span class="info" title="Prepared file: no re-encoding, lowest sender load (recommended). Live encode: needs a fast sender PC.">i</span></label>
+            <select id="aMode"><option>Prepared file</option><option>Live encode</option></select></div>
+          <div class="field"><label for="aWan">Router WAN IP <span class="info" title="Built-in DHCP gives the router its WAN address; no router settings needed.">i</span></label>
+            <select id="aWan"><option>Built-in DHCP</option><option>Static IP</option></select></div>
+          <div class="ipbox" id="ipBox" hidden>
+            <div class="field"><label for="ipWan">Router WAN IP <span class="info" title="What: the address you set on the router's WAN port (router settings). Example: 10.0.0.1">i</span></label><input id="ipWan" value="10.0.0.1" placeholder="10.0.0.1" inputmode="decimal"></div>
+            <div class="field"><label for="ipSnd">Sender PC IP <span class="info" title="What: address for the sender PC's WAN-side network card. ZeroLoss sets it during the test and restores it after. Example: 10.0.0.2">i</span></label><input id="ipSnd" value="10.0.0.2" placeholder="10.0.0.2" inputmode="decimal"></div>
+            <div class="field"><label for="ipMask">Subnet <span class="info" title="Prefix length shared by both. Example: 24 (= 255.255.255.0)">i</span></label><input id="ipMask" value="24" placeholder="24" inputmode="numeric"></div>
+            <div class="err" id="ipErr" hidden></div>
+            <div class="sub" style="font-size:12px;color:var(--faint)">Set the same Router WAN IP on the router yourself. ZeroLoss never logs in to the router.</div>
+          </div>
+          <div class="field"><label for="aZap">Channel change <span class="info" title="Change channels automatically to test IGMP join/leave over a long run.">i</span></label>
+            <select id="aZap"><option>Manual</option><option>Every 10 min</option></select></div>
+          <div class="field"><label for="aFault">On device lost <span class="info" title="What to do if a device stops answering for 10 s.">i</span></label>
+            <select id="aFault"><option>Stop all + report</option><option>Try to recover (60 s)</option><option>Shut down all</option></select></div>
+          <button class="btn" type="button" id="aReset">Reset to defaults</button>
+        </div>
+        <div class="run">
+          <button class="primary" id="bMain" type="button"><span id="bMainIco">▶</span> <span id="bMainTxt">Start</span></button>
+          <div class="why" id="whyOff" hidden></div>
+          <div id="prog" hidden>
+            <div class="progress num"><span id="progT">0h 00m / 100h</span><span id="progP">0%</span></div>
+            <div class="bar"><i id="progBar"></i></div>
+          </div>
+          <div class="lockhint" id="lockHint" hidden>Settings are locked during the test. Channel, Snapshot and range view stay available.</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" aria-labelledby="hDev">
+        <h2 id="hDev">Devices <span class="spacer"></span><span style="text-transform:none;letter-spacing:0;font-weight:400" id="devSum"></span><button class="follow" type="button" id="bSetup">Set up devices</button></h2>
+        <div id="devList"></div>
+        <div class="dutline" id="dut"></div>
+      </section>
+      <section class="panel" aria-labelledby="hGrid">
+        <h2 id="hGrid">5-min results <span class="spacer"></span><button class="follow" id="bFollow" type="button" aria-pressed="true">Follow live</button></h2>
+        <div class="gridwrap" id="grid"></div>
+        <div class="legend">
+          <span><i class="c-ok"></i>✔ No problem</span><span><i class="c-warn"></i>⚠ Warning</span><span><i class="c-bad"></i>✖ Loss / jitter over limit</span><span><i class="c-tool"></i>◆ Tool / receiver issue</span><span><i class="c-none"></i>○ No data</span><span><i class="c-off"></i>Reports off</span>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="status" aria-live="polite">
+    <h2 class="panel-h" style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)">Status</h2>
+    <div id="statusBody"></div>
+  </section>
+
+  <aside class="side" id="probPanel" hidden aria-label="Problems"></aside>
+  <div id="overlay"></div>
+</div>
+
+<p class="note">Mockup only: values are simulated and time runs fast (1 s = 20 min). Try: Start → watch the start-up checklist → Stop (confirm) → result popup. Use the controls above to inject a fault or a pre-check failure, switch Test type, open Advanced settings, expand a device with ▸, and switch to the 1366×768 size.</p>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const PHASES=[["IDLE","Idle"],["STARTING","Starting"],["RUNNING","Running"],["STOPPING","Stopping"],["FAULT","Fault"]];
+const S={phase:"IDLE",preFail:false,type:"tablet",sendRep:true,adv:false,advChanged:0,elapsed:0,planned:100*60,
+  cells:{},problems:[],actions:[],open:{},follow:true,step:0,modal:null,side:false,verdict:null,stopReason:null,
+  jit:{},setup:false,added:[]};
+const DEV_T=[{id:"Tablet-1",ch:1},{id:"Tablet-2",ch:2},{id:"Tablet-3",ch:3}];
+const START_STEPS=["Devices connected (Controller, Sender, Receiver PC, Tablet 1–3)","Tools ready (ffmpeg, TSDuck, adb 36.0.0)","Network check (NAT mode, router WAN 10.0.0.100 by built-in DHCP)","Multicast test: all receivers got data · M2U: active","Start sending 3 channels, 105 Mbps stable","Start receivers and wait until stable (first packet, PAT, 3 s clean)"];
+const STOP_STEPS=["Close measurement on receivers","Stop players and leave channels (IGMP Leave)","Stop sending","Restore sender NIC and built-in DHCP","Close files and create report"];
+let timer=null;
+
+/* ---------- control state table (docs/11-ui.md 1.10): one function decides every control ---------- */
+function controls(){
+  const p=S.phase, idle=p==="IDLE", ready=idle&&!S.preFail&&!(S.type==="tablet"&&false);
+  return {
+    main: idle?(S.preFail?{txt:"Start",ico:"▶",cls:"wait",blocked:"pre"}:{txt:"Start",ico:"▶",cls:""})
+      : p==="STARTING"?{txt:"Starting…",ico:"⏳",cls:"wait",blocked:"wait"}
+      : p==="RUNNING"?{txt:"Stop",ico:"■",cls:"stop"}
+      : p==="STOPPING"?{txt:"Stopping…",ico:"⏳",cls:"wait",blocked:"clean"}
+      : {txt:"Start",ico:"▶",cls:"wait",blocked:"fault"},
+    settings: idle,
+    advValues: idle,
+    channel: idle||p==="RUNNING",
+    snapshot: p==="RUNNING",
+    follow: p!=="IDLE"&&p!=="STARTING",
+    reports: true
+  };
+}
+
+/* ---------- render ---------- */
+function render(){
+  const c=controls(), p=S.phase;
+  // demo state buttons
+  $("demoState").innerHTML=PHASES.map(([k,l])=>`<button type="button" data-ph="${k}" aria-pressed="${S.phase===k}">${l}</button>`).join("");
+  // main button
+  const b=$("bMain"); b.className="primary "+(c.main.cls||""); $("bMainTxt").textContent=c.main.txt; $("bMainIco").textContent=c.main.ico;
+  b.setAttribute("aria-disabled",c.main.blocked?"true":"false");
+  b.title=c.main.blocked==="pre"?"Pre-check failed. See Status.":c.main.blocked==="wait"?"Starting. Please wait.":c.main.blocked==="clean"?"Cleanup in progress. Please wait.":c.main.blocked==="fault"?"Reset all devices first.":"";
+  const why=$("whyOff"); why.hidden=!(p==="IDLE"&&S.preFail); why.textContent="✖ Pre-check failed: Tablet-2 is on another Wi-Fi. See Status below.";
+  // settings lock
+  ["sType","sQual","sDur","cRep"].forEach(id=>{$(id).disabled=!c.settings; $(id).title=c.settings?"":"Locked during test";});
+  document.querySelectorAll("#advBox select,#aReset").forEach(el=>{el.disabled=!c.advValues; if(!c.advValues) el.title="Locked during test";});
+  $("cAdv").checked=S.adv; $("advBox").hidden=!S.adv; $("advChanged").hidden=S.advChanged===0; $("advChanged").textContent=S.advChanged+" changed";
+  $("sType").value=S.type; $("cRep").checked=S.sendRep;
+  $("lockHint").hidden=p!=="RUNNING";
+  $("ipBox").hidden=$("aWan").value!=="Static IP"; ["ipWan","ipSnd","ipMask"].forEach(id=>$(id).disabled=!c.advValues);
+  $("bSetup").disabled=!idle0(); $("bSetup").title=idle0()?"Find devices, choose roles and network cards":"Stop the test first";
+  // progress
+  const showProg=p==="RUNNING"||p==="STOPPING"; $("prog").hidden=!showProg;
+  if(showProg){const h=Math.floor(S.elapsed/60),m=S.elapsed%60,pc=Math.min(100,S.elapsed/S.planned*100);
+    $("progT").textContent=`${h}h ${String(m).padStart(2,"0")}m / 100h`;$("progP").textContent=pc.toFixed(1)+"%";$("progBar").style.width=pc+"%";}
+  // badges
+  const openProbs=S.problems.filter(x=>!x.resolved), bad=openProbs.filter(x=>x.lvl==="bad").length, warn=openProbs.length-bad;
+  const bp=$("bProb"); bp.className="badge"+(bad?" bad":warn?" warn":"");
+  bp.textContent=openProbs.length?`${bad?"✖":"⚠"} ${openProbs.length} problem${openProbs.length>1?"s":""}`:"✔ No problems";
+  const openActs=S.actions.filter(a=>!a.done); $("bAction").hidden=!openActs.length; $("bActionN").textContent=openActs.length;
+  $("bLast").className="btn"+(S.verdict?"":" off"); $("bLast").title=S.verdict?"":"No report yet. Run a test first.";
+  $("bFollow").hidden=!c.follow; $("bFollow").setAttribute("aria-pressed",S.follow);
+  renderDevices(c); renderGrid(); renderStatus(); renderSide(); renderOverlay();
+}
+
+function idle0(){return S.phase==="IDLE";}
+function devs(){
+  const list=[{id:"Sender",role:"sender",sub:"10.0.0.1 · WAN · 3 ch"}];
+  if(S.type==="tablet"){DEV_T.forEach(t=>list.push({id:t.id,role:"rx",ch:t.ch,sub:"Wi-Fi 5 GHz · RSSI −"+(44+t.ch*3)+" dBm"}));}
+  else list.push({id:"Receiver PC",role:"rx",ch:2,sub:"Wired · eth0 1 Gbps"});
+  return list;
+}
+function devState(d){
+  const p=S.phase;
+  if(p==="FAULT"&&d.id==="Tablet-2") return {ico:"○",cls:"i-none",stale:true,txt:"Disconnected"};
+  if(S.preFail&&d.id==="Tablet-2") return {ico:"✖",cls:"i-bad",txt:"Wrong Wi-Fi"};
+  if(p!=="RUNNING"&&p!=="STOPPING") return {ico:"○",cls:"i-none",txt:p==="STARTING"?"Starting":"Ready"};
+  if(d.id==="Tablet-2"&&S.jit[d.id]>50) return {ico:"⚠",cls:"i-warn"};
+  return {ico:"✔",cls:"i-ok"};
+}
+function renderDevices(c){
+  const list=devs(); let html="";
+  list.forEach(d=>{
+    const st=devState(d), running=S.phase==="RUNNING"||S.phase==="STOPPING"||S.phase==="FAULT";
+    let mid="";
+    if(d.role==="sender") mid=`<div class="kv hide-s"><span>Sending</span><b class="num">105<small>Mbps</small></b></div><div class="kv hide-s"><span>Channels</span><b class="num">3</b></div>`;
+    else if(d.role==="relay") mid=`<div class="kv hide-s"><span>Role</span><b style="font-size:13px">Relay</b></div><div class="kv hide-s"><span>Tablets</span><b class="num">3</b></div>`;
+    else { const j=running&&S.sendRep?(S.jit[d.id]??2).toFixed(1):"—", l=running&&S.sendRep?"0":"—";
+      mid=`<div class="kv ${st.stale?"stale":""}"><span>Jitter</span><b class="num">${j}<small>ms</small></b></div><div class="kv ${st.stale?"stale":""}"><span>Loss</span><b class="num">${l}</b></div>`; }
+    const chSel=d.role==="rx"?`<select aria-label="Channel for ${d.id}" ${c.channel?"":"disabled title='Locked while starting or stopping'"} data-ch="${d.id}">${[1,2,3].map(n=>`<option ${n===d.ch?"selected":""}>CH${n}</option>`).join("")}</select>`:`<span class="sub">${S.phase==="RUNNING"?"Running":"—"}</span>`;
+    html+=`<div class="dev"><span class="ico ${st.cls}" aria-hidden="true">${st.ico}</span>
+      <div style="min-width:0"><div class="name">${d.id}</div><div class="sub" title="${d.sub}">${st.txt?st.txt+" · ":""}${d.role==="rx"&&running&&!st.stale?"▶ Playing · ":""}${d.sub}</div></div>
+      <div class="hide-s">${chSel}</div>${mid}
+      <div class="sub hide-s">${st.stale?"Last update 14 s ago":running?"Updated now":""}</div>
+      <button class="expand" type="button" aria-expanded="${!!S.open[d.id]}" aria-label="Details for ${d.id}" data-open="${d.id}">${S.open[d.id]?"▾":"▸"}</button></div>`;
+    if(S.open[d.id]) html+=detail(d,c);
+  });
+  $("devList").innerHTML=html;
+  $("devSum").textContent=S.type==="tablet"?"Tablet test · 3 tablets":"PC receiver test · wired";
+  $("dut").innerHTML=`<span>Router: <b>NAT</b> (detected)</span><span>WAN <b class="num">10.0.0.100</b> (built-in DHCP)</span><span>LAN <b class="num">192.168.1.1</b></span><span>M2U: <b>${S.phase==="IDLE"?"not checked yet":"active"}</b></span>`;
+}
+function detail(d,c){
+  let rows="";
+  const base=Math.max(0,S.elapsed*3);
+  for(let i=0;i<12;i++){const t=base-i; if(t<0)break; const j=(1.5+((t*7)%13)/10+(d.id==="Tablet-2"&&i<2&&S.jit[d.id]>50?58:0)).toFixed(1);
+    rows+=`<tr><td class="num">${Math.floor(t/3600)}:${String(Math.floor(t/60)%60).padStart(2,"0")}:${String(t%60).padStart(2,"0")}</td><td class="num">${j}</td><td class="num">0</td><td class="num">3,333</td><td class="num">35.0</td></tr>`;}
+  if(!rows) rows=`<tr><td colspan="5" style="text-align:left;color:var(--faint)">No data yet. Values appear every second after Start.</td></tr>`;
+  return `<div class="detail"><div><div class="rows"><table><thead><tr><th>Elapsed</th><th>Jitter ms</th><th>Loss</th><th>Packets/s</th><th>Mbps</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="sub" style="margin-top:6px">Showing latest rows (max 1,000). Full data is saved to file.</div></div>
+    <div style="display:grid;gap:8px;align-content:start"><button class="btn ${c.snapshot?"":"off"}" type="button" data-snap="${d.id}" title="${c.snapshot?"Get a small screen capture":"Available while running"}">Snapshot</button>
+    <div class="sub">Player: ${S.phase==="RUNNING"?"Playing ✔":"—"}</div><div class="sub">Host drops: 0 · Buffer 16 MB</div></div></div>`;
+}
+function renderGrid(){
+  const rows=S.type==="tablet"?DEV_T.map(t=>t.id):["Receiver PC"]; let html="";
+  rows.forEach(r=>{const cells=S.cells[r]||[]; const show=S.follow?cells.slice(-60):cells.slice(0,60);
+    html+=`<div class="grow"><span class="lab">${r}</span><div class="cells">${show.length?show.map(x=>`<span class="cell c-${x.k}" title="${x.t}">${{ok:"✔",warn:"⚠",bad:"✖",tool:"◆",none:"○",off:""}[x.k]}</span>`).join(""):`<span class="sub">No results yet. The first box appears 5 minutes after the start.</span>`}</div></div>`;});
+  $("grid").innerHTML=html;
+}
+function renderStatus(){
+  const p=S.phase, el=$("statusBody");
+  if(p==="IDLE"&&S.preFail){el.innerHTML=`<ul class="steps"><li><span class="ico i-ok">✔</span><span>1. Devices connected</span></li><li><span class="ico i-ok">✔</span><span>2. Tools ready</span></li><li><span class="ico i-ok">✔</span><span>3. Network check</span></li>
+    <li><span class="ico i-bad">✖</span><span>4. Multicast test: <b>Tablet-2</b> received nothing</span>
+    <div class="fix"><span><b>Why:</b> Tablet-2 is connected to a different Wi-Fi ("Office_5G").</span><span><b style="color:var(--ok)">Fix:</b> ZeroLoss can reconnect it to "TestRouter_5G" over USB.</span><div class="acts"><button class="btn" type="button" id="fixRetry">Reconnect and retry</button><button class="btn" type="button" id="fixSkip">Start without Tablet-2</button><button class="btn" type="button">Show details</button></div></div></li>
+    <li><span class="ico i-none">○</span><span class="pend">5. Start sending</span></li><li><span class="ico i-none">○</span><span class="pend">6. Start receivers</span></li></ul>`;return;}
+  if(p==="IDLE"){el.innerHTML=`<div class="oneline"><span class="ico i-ok">✔</span>${S.verdict?"Ready. Last test: "+S.verdict+".":"Ready. 5 devices found. Press Start."}</div>`;return;}
+  if(p==="STARTING"||p==="STOPPING"){const steps=p==="STARTING"?START_STEPS:STOP_STEPS;
+    el.innerHTML=`<ul class="steps">${steps.map((s,i)=>`<li><span class="ico ${i<S.step?"i-ok":i===S.step?"i-warn":"i-none"}">${i<S.step?"✔":i===S.step?"…":"○"}</span><span class="${i>S.step?"pend":""}">${i+1}. ${s}</span></li>`).join("")}</ul>`;return;}
+  if(p==="RUNNING"){const w=S.jit["Tablet-2"]>50; el.innerHTML=`<div class="oneline"><span class="ico ${w?"i-warn":"i-ok"}">${w?"⚠":"✔"}</span>${w?"Running. Tablet-2 jitter is above the warning level (50 ms). No packet loss.":"Running normally."} Next 5-min result in ${(5-(S.elapsed%5))} min.</div>`;return;}
+  if(p==="FAULT"){el.innerHTML=`<div class="oneline"><span class="ico i-bad">✖</span>Stopped: Tablet-2 stopped answering. A report was created with data up to 12h 40m.</div>`;}
+}
+function renderSide(){
+  const s=$("probPanel"); s.hidden=!S.side; if(!S.side) return;
+  const items=[...S.problems].sort((a,b)=>(a.resolved-b.resolved));
+  s.innerHTML=`<h3>Problems <span class="spacer"></span><button class="btn" type="button" id="closeSide">Close</button></h3>`+
+   (items.length?items.map(x=>`<div class="prob ${x.resolved?"resolved":""}"><div class="meta"><span class="ico ${x.lvl==="bad"?"i-bad":"i-warn"}" style="width:18px;height:18px">${x.lvl==="bad"?"✖":"⚠"}</span><span class="num">${x.time}</span><span>${x.dev}</span><span>${x.code}</span>${x.count>1?`<span>×${x.count}</span>`:""}${x.resolved?"<span>Resolved</span>":""}</div><div class="w">${x.what}</div><div class="y">Why: ${x.why}</div><div class="f">Fix: ${x.fix}</div></div>`).join("")
+    :`<p class="sub">No problems so far. Problems appear here with what happened, why, and how to fix it.</p>`);
+}
+function renderOverlay(){
+  const o=$("overlay"); let h="";
+  if(S.phase==="FAULT") h+=`<div class="fault"><div class="card"><h3>✖ A device stopped answering</h3>
+    <dl class="kvgrid"><dt>Device</dt><dd>Tablet-2 (USB)</dd><dt>Last answer</dt><dd class="num">12h 40m 12s (14:32:10)</dd><dt>Likely cause</dt><dd>USB cable disconnected</dd><dt>Other devices</dt><dd>Stopped safely ✔ · settings restored ✔</dd><dt>Report</dt><dd>Created with data up to 12h 40m (INCOMPLETE)</dd></dl>
+    <div class="dialog acts" style="box-shadow:none;padding:0;width:auto"><div class="acts"><button class="btn" type="button" id="fShut">Shut down all</button><button class="btn" type="button" id="fShow">Show report</button><button class="btn go" type="button" id="fReset" style="background:var(--accent);color:#fff;border-color:var(--accent)">Reset all</button></div></div></div></div>`;
+  if(S.setup&&S.phase==="IDLE") h+=setupHTML();
+  const act=S.actions.find(a=>!a.done);
+  if(act&&!S.modal) h+=`<div class="action" role="dialog" aria-label="Action required"><h3>🖐 Action required</h3><div><b>Tablet-2 (USB)</b>: Allow USB debugging</div><div class="tabletpic"><div class="screen">Allow USB debugging?<span class="allow">Allow</span></div></div><div class="sub">Tap <b>Allow</b> on the tablet. This is needed only the first time. ZeroLoss will detect it automatically.</div><div class="oneline"><span class="ico i-warn">…</span> Waiting for the tablet… <span class="spacer"></span><button class="btn" type="button" id="actSim">Simulate: tapped Allow</button></div></div>`;
+  if(S.modal==="confirmStop"){const hh=Math.floor(S.elapsed/60),mm=S.elapsed%60;
+    h+=`<div class="scrim"><div class="dialog" role="dialog" aria-modal="true"><h3>Stop the test?</h3><p>${hh}h ${String(mm).padStart(2,"0")}m of 100h completed. A report will be created with the data collected so far. The result will be <b>INCOMPLETE</b>.</p><div class="acts"><button class="btn" type="button" id="mCancel">Cancel</button><button class="btn danger" type="button" id="mStop">Stop</button></div></div></div>`;}
+  if(S.modal==="wait"||S.modal==="pre"||S.modal==="faultStart"){
+    const t={wait:["Please wait","Cleanup in progress ("+(S.step+1)+"/5: "+(S.phase==="STARTING"?START_STEPS:STOP_STEPS)[Math.min(S.step,4)]+"). Start will be available when it finishes."],pre:["Pre-check failed","Tablet-2 is on another Wi-Fi. See the Status panel for the fix."],faultStart:["Reset needed","A device stopped answering. Press Reset all before starting a new test."]}[S.modal];
+    h+=`<div class="scrim"><div class="dialog" role="dialog" aria-modal="true"><h3>${t[0]}</h3><p>${t[1]}</p><div class="acts"><button class="btn go" type="button" id="mOk">OK</button></div></div></div>`;}
+  if(S.modal==="result"){const v=S.verdict, vc=v==="PASS"?"i-ok":v==="FAIL"?"i-bad":"i-warn";
+    h+=`<div class="scrim"><div class="dialog" role="dialog" aria-modal="true"><div class="verdict"><span class="ico ${vc}" style="width:32px;height:32px;font-size:16px">${v==="PASS"?"✔":v==="FAIL"?"✖":"◐"}</span>${v}</div><p>${S.stopReason}</p><div><div class="sub" style="margin-bottom:4px">Report saved to:</div><div class="path" id="rpath">C:\\ZeroLoss\\Reports\\2026-09-23_1432_UHD_Tablet3_${v}\\</div></div><p>Do you want to see the report now?</p><div class="acts"><button class="btn" type="button" id="rCopy">Copy path</button><button class="btn" type="button" id="rLater">Later</button><button class="btn" type="button" id="rFolder">Open folder</button><button class="btn go" type="button" id="rShow">Show report</button></div></div></div>`;}
+  o.innerHTML=h;
+}
+
+function setupHTML(){
+  const row=(name,os,ip,role,nic,rec,extra="")=>`<tr><td><b>${name}</b><div class="sub">${os} · ${ip}</div></td><td><select aria-label="Role for ${name}">${["Controller","Sender","Receiver","Controller + Sender","Not used"].map(r=>`<option ${r===role?"selected":""}>${r}</option>`).join("")}</select></td><td><select aria-label="Network card for ${name}">${nic.map(n=>`<option>${n}</option>`).join("")}</select><div class="rec">${rec}</div></td><td>${extra}</td></tr>`;
+  const added=S.added.map(ip=>row("New node",'<span class="sub">checking…</span>',ip,"Sender",["(reading…)"],"Found by IP. Reading details…")).join("");
+  return `<div class="setup" role="dialog" aria-label="Set up devices"><div class="head"><h3>Set up devices</h3><span class="sub">Found automatically. Check the suggestions and press Done.</span><span class="spacer"></span><button class="btn" type="button" id="suScan">Scan again</button><button class="btn go" type="button" id="suDone" style="background:var(--accent);color:#fff;border-color:var(--accent)">Done</button></div>
+  <div style="overflow-x:auto"><table class="nodes"><thead><tr><th>Device</th><th>Role</th><th>Network card</th><th>Status</th></tr></thead><tbody>
+  ${row("CTRL-PC","Windows 11","192.168.1.20","Controller",["Ethernet 2 · 192.168.1.20 (router LAN)","Ethernet · 172.30.5.14 (internet)"],"✔ Suggested: gateway 192.168.1.1 looks like the router under test","<span class='ico i-ok'>✔</span>")}
+  ${row("SENDER-01","Ubuntu 22.04","10.0.0.1","Sender",["enp3s0 · 10.0.0.1 (router WAN)","wlp2s0 · not connected"],"✔ Suggested: connected to the router WAN port","<span class='ico i-ok'>✔</span> Found at suggested address")}
+  ${row("RECV-01","Ubuntu 22.04","192.168.1.31","Receiver",["enp2s0 · 192.168.1.31 (wired)","wlp3s0 · TestRouter_5G · −48 dBm (wireless)"],"Both connected. Choose per test on the main screen.","<span class='ico i-ok'>✔</span> 3 tablets on USB")}
+  ${added}
+  </tbody></table></div>
+  <div class="addip"><label for="suIp"><b>Add by IP</b> <span class="info" title="Use when a device is not found automatically, for example a sender PC behind the router's NAT. The sender PC shows its address as 'My IP' in its small status window.">i</span></label><input id="suIp" placeholder="10.0.0.2" inputmode="decimal"><button class="btn" type="button" id="suAdd" ${S.adding?"disabled":""}>${S.adding?"Adding…":"Add"}</button><span class="err" id="suErr" hidden style="grid-column:auto;margin:0"></span></div>
+  <div class="dutline" style="margin-top:12px"><span>Router mode: <b>NAT</b> (detected)</span><span>Router WAN: <b>10.0.0.100</b></span><span>Tablets: <b>Tablet-1, Tablet-2, Tablet-3</b> (app 20260923.1432 ✔)</span></div></div>`;
+}
+function ipOk(v){const m=v.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);return !!m&&m.slice(1).every(x=>+x<=255);}
+function ipNum(v){return v.split(".").reduce((a,x)=>a*256+(+x),0);}
+function checkIps(){const w=$("ipWan").value,sn=$("ipSnd").value,mk=+$("ipMask").value,e=$("ipErr");let msg="";
+  $("ipWan").setAttribute("aria-invalid",!ipOk(w));$("ipSnd").setAttribute("aria-invalid",!ipOk(sn));
+  if(!ipOk(w))msg="Router WAN IP is not a valid address. Example: 10.0.0.1";
+  else if(!ipOk(sn))msg="Sender PC IP is not a valid address. Example: 10.0.0.2";
+  else if(!(mk>=8&&mk<=30))msg="Subnet must be between 8 and 30. Example: 24";
+  else if(w.trim()===sn.trim())msg="Router and sender need different addresses.";
+  else {const sh=2**(32-mk); if(Math.floor(ipNum(w)/sh)!==Math.floor(ipNum(sn)/sh)) msg=`Not in the same subnet (/${mk}). Use for example ${w.split(".").slice(0,3).join(".")}.2 for the sender.`;}
+  e.hidden=!msg;e.textContent=msg?"✖ "+msg:"";}
+
+/* ---------- actions (all go through set/transition, never touching widgets directly) ---------- */
+function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;$("win").appendChild(d);setTimeout(()=>d.remove(),2200);}
+function now(){const d=new Date();return d.toTimeString().slice(0,8);}
+function addProb(p){const ex=S.problems.find(x=>x.code===p.code&&x.dev===p.dev&&!x.resolved); if(ex){ex.count++;return;} S.problems.unshift({...p,time:now(),count:1,resolved:false});}
+function clearTimer(){if(timer){clearInterval(timer);timer=null;}}
+function go(phase){clearTimer();S.phase=phase;S.step=0;if(phase!=="IDLE")S.setup=false;
+  if(phase==="STARTING"){timer=setInterval(()=>{S.step++; if(S.step>=START_STEPS.length){go("RUNNING");}else render();},700);}
+  if(phase==="RUNNING"){if(!S.elapsed){S.cells={};}timer=setInterval(tick,1000);}
+  if(phase==="STOPPING"){timer=setInterval(()=>{S.step++; if(S.step>=STOP_STEPS.length){clearTimer();S.phase="IDLE";S.verdict=S.verdict||"INCOMPLETE";S.modal="result";render();}else render();},600);}
+  render();}
+function tick(){S.elapsed+=20; const rows=S.type==="tablet"?DEV_T.map(t=>t.id):["Receiver PC"];
+  rows.forEach(r=>{S.jit[r]=+(1.5+Math.random()*1.5).toFixed(1);});
+  if(S.type==="tablet"&&Math.random()<.25){S.jit["Tablet-2"]=61.4;addProb({lvl:"warn",dev:"Tablet-2",code:"ZL-IPTV-J01",what:"Jitter above warning level (61 ms)",why:"Wi-Fi signal dropped to −71 dBm for a few seconds.",fix:"No action needed if it stays below 150 ms. Move the tablet closer to the router if it repeats."});}
+  for(let k=0;k<4;k++) rows.forEach(r=>{(S.cells[r]=S.cells[r]||[]).push({k:!S.sendRep?"off":(r==="Tablet-2"&&S.jit["Tablet-2"]>50&&k===3)?"warn":"ok",t:"5-min result"});});
+  if(S.elapsed>=S.planned){S.verdict="PASS";S.stopReason="Finished the full 100h. No red boxes.";go("STOPPING");return;}
+  render();}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button,[data-open]"); if(!t) return;
+  if(t.dataset.ph){const ph=t.dataset.ph; S.modal=null; S.preFail=false; if(ph==="RUNNING"&&!S.elapsed)S.elapsed=0; if(ph==="IDLE"){S.elapsed=0;S.cells={};} go(ph); return;}
+  if(t.dataset.size){document.querySelectorAll("#demoSize button").forEach(b=>b.setAttribute("aria-pressed",b===t));$("win").classList.toggle("compact",t.dataset.size==="compact");return;}
+  if(t.dataset.open){S.open[t.dataset.open]=!S.open[t.dataset.open];render();return;}
+  if(t.dataset.snap){if(S.phase!=="RUNNING"){toast("Snapshot is available while the test is running.");return;}toast("Snapshot from "+t.dataset.snap+" received (320×180).");return;}
+  switch(t.id){
+    case "bMain":{const c=controls().main; if(c.blocked==="pre"){S.modal="pre";render();return;} if(c.blocked==="fault"){S.modal="faultStart";render();return;} if(c.blocked){S.modal="wait";render();return;}
+      if(S.phase==="IDLE"){S.verdict=null;S.elapsed=0;S.cells={};go("STARTING");} else if(S.phase==="RUNNING"){S.modal="confirmStop";render();} return;}
+    case "mCancel":S.modal=null;render();return;
+    case "mStop":S.modal=null;S.verdict="INCOMPLETE";S.stopReason=`Stopped by user at ${Math.floor(S.elapsed/60)}h ${String(S.elapsed%60).padStart(2,"0")}m of 100h. No red boxes so far.`;go("STOPPING");return;
+    case "mOk":S.modal=null;render();return;
+    case "rLater":case "rShow":case "rFolder":S.modal=null;render();toast(t.id==="rShow"?"Report opened in the browser (mockup).":t.id==="rFolder"?"Report folder opened (mockup).":"You can open it later from Last report.");return;
+    case "rCopy":{const txt=$("rpath").textContent;(navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>toast("Path copied."),()=>{const r=document.createRange();r.selectNodeContents($("rpath"));const s=getSelection();s.removeAllRanges();s.addRange(r);toast("Path selected. Press Ctrl+C to copy.");});return;}
+    case "bProb":S.side=!S.side;render();return;
+    case "closeSide":S.side=false;render();return;
+    case "bAction":S.actions.forEach(a=>a.hidden=false);render();return;
+    case "actSim":S.actions.forEach(a=>a.done=true);toast("Tablet-2 allowed USB debugging ✔");render();return;
+    case "bReports":toast("Reports list (mockup): 3 reports.");return;
+    case "bLast":if(!S.verdict){toast("No report yet. Run a test first.");return;}S.modal="result";render();return;
+    case "bFollow":S.follow=!S.follow;render();return;
+    case "dmFault":S.setup=false;if(S.phase!=="RUNNING"){S.elapsed=760;go("RUNNING");}clearTimer();S.phase="FAULT";S.verdict="INCOMPLETE";S.stopReason="Stopped: Tablet-2 stopped answering.";
+      addProb({lvl:"bad",dev:"Tablet-2",code:"ZL-TAB-001",what:"USB disconnected",why:"The tablet disappeared from the USB connection.",fix:"Check the USB cable, then press Reset all."});
+      (S.cells["Tablet-2"]=S.cells["Tablet-2"]||[]).push({k:"none",t:"No data"});render();return;
+    case "fReset":S.phase="IDLE";S.problems.forEach(p=>p.resolved=true);toast("All devices reset and clean ✔");render();return;
+    case "fShow":S.modal="result";S.phase="IDLE";render();return;
+    case "fShut":S.phase="IDLE";toast("All test processes shut down.");render();return;
+    case "dmPre":go("IDLE");S.preFail=true;S.actions=[{id:"usb",done:false}];addProb({lvl:"bad",dev:"Tablet-2",code:"ZL-TAB-005",what:"Connected to a different Wi-Fi",why:"Tablet-2 joined \"Office_5G\" instead of the router under test.",fix:"Reconnect to \"TestRouter_5G\" (ZeroLoss can do it over USB)."});render();return;
+    case "fixRetry":S.preFail=false;S.problems.forEach(p=>{if(p.code==="ZL-TAB-005")p.resolved=true;});toast("Tablet-2 reconnected to TestRouter_5G ✔");render();return;
+    case "fixSkip":S.preFail=false;toast("Tablet-2 removed from this test.");render();return;
+    case "bSetup":if(!idle0()){toast("Stop the test first.");return;}S.setup=true;render();return;
+    case "suDone":S.setup=false;render();toast("Device setup saved.");return;
+    case "suScan":toast("Scanning… 3 devices found.");return;
+    case "suAdd":{const v=$("suIp").value.trim(),e=$("suErr");if(!ipOk(v)){e.hidden=false;e.textContent="✖ Not a valid address. Example: 10.0.0.2";return;}
+      /* single-flight + no duplicates: rapid clicks or the same IP twice must not add rows */
+      if(S.adding){return;} if(S.added.includes(v)||["192.168.1.20","10.0.0.1","192.168.1.31"].includes(v)){e.hidden=false;e.textContent="✖ "+v+" is already in the list.";return;}
+      S.adding=true;S.added.push(v);render();toast("Contacting "+v+" on port 10992…");setTimeout(()=>{S.adding=false;render();},1000);return;}
+    case "aReset":S.advChanged=0;document.querySelectorAll("#advBox select").forEach(s=>s.selectedIndex=0);$("ipWan").value="10.0.0.1";$("ipSnd").value="10.0.0.2";$("ipMask").value="24";checkIps();render();return;
+  }
+});
+document.addEventListener("input",e=>{if(["ipWan","ipSnd","ipMask"].includes(e.target.id))checkIps();});
+document.addEventListener("change",e=>{
+  const t=e.target;
+  if(t.id==="cAdv"){S.adv=t.checked;render();return;}
+  if(t.id==="cRep"){S.sendRep=t.checked;render();return;}
+  if(t.id==="sType"){S.type=t.value;S.open={};S.cells={};render();return;}
+  if(t.closest&&t.closest("#advBox")){S.advChanged=[...document.querySelectorAll("#advBox select")].filter(s=>s.selectedIndex!==0).length;render();return;}
+  if(t.dataset.ch){toast(`${t.dataset.ch} → ${t.value}. Leave and join sent; zap time is recorded.`);return;}
+});
+render();
+})();
+</script>
