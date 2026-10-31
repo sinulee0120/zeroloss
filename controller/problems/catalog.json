@@ -117,6 +117,11 @@
    "why": "The connection was refused, timed out or dropped.",
    "fix": "Check that the PC is on, the cable is in and the ZeroLoss service is running."
   },
+  "ZL-DSC-017": {
+   "what": "A PC's clock is off and its time sync is off",
+   "why": "Its automatic time sync (NTP) is turned off, so its clock drifted from the Controller's. Results use the Controller's time; log times from that PC differ.",
+   "fix": "Press Turn on time sync in Action Required (between tests)."
+  },
   "ZL-DSC-016": {
    "what": "Another PC answers at a device's address",
    "why": "The address saved for this device belongs to a different PC (another device ID answers there).",
@@ -946,6 +951,11 @@
    "what": "A tablet scans for Wi-Fi by itself on a timer",
    "why": "An app on the tablet (e.g. Samsung Context Engine) takes the Wi-Fi away from the TV stream for seconds every 30 minutes; the live stream meanwhile is lost. The router is not the cause.",
    "fix": "The tool pauses that app during the test and puts it back after. If it could not, the test goes on; Reset All tries to put it back again."
+  },
+  "ZL-SND-026": {
+   "what": "A traffic shaper is on the sender PC's card",
+   "why": "Something on the sender PC (tc netem, tbf, ...) delays or drops the test stream after it was sent. What the receivers lose then is the sender's, not the router's.",
+   "fix": "Remove it on the sender PC if it is not on purpose (tc qdisc del dev <card> root). ZeroLoss only reads it."
   },
   "ZL-TAB-019": {
    "what": "A tablet left the Wi-Fi it was kept on",

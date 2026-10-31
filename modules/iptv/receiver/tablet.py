@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from core.blocks.tablets import TabletError, Tablets, width_from_rate
-from core.events.bus import Event, EventBus, Level
+from core.events.bus import Event, EventBus, Level, utc_now
 from core.records.recorder import Recorder
 from modules.iptv import record_keys as k
 from modules.iptv.receiver.evidence import MIN_GAP_S, PER_HOUR, trouble
@@ -42,7 +43,18 @@ WIFI_EVERY_S = 10  # the standard and width (wst wbw) are read this often, and a
 # come through the player's buffer; PNGs, at most this much a test (a full-size screen is
 # a few MB)
 SCREEN_BUDGET_MB = 1024
-SCREEN_AFTER_S = 0.5  # after the buffer: the picture of that second is on the screen
+# 2026-10-31 user ("PC처럼 하라고", "버퍼링 타임 설정에 따라 화면 캡춰 시간이 달라져야하는지"):
+# a 4 x 4 grid as a PC's evidence, 4 frames a second from 1 s before the trouble is on
+# the screen to 3 s after. The screen is recorded from when the trouble second arrives
+# here, ARRIVAL_S after it happened; it is on the screen after the player's buffer (the
+# 3 % loss test, T460 clock corrected: 3 s buffer, damage 4.5 s into the video, i.e. the
+# loss's last second + 3 s). So the grid starts at buffer - ARRIVAL_S - 1 s and the
+# recording lasts the buffer + RECORD_AFTER_S; each frame cropped to the picture (the
+# app's bars and the taskbar left out: y 16 %..84 % of the screen)
+ARRIVAL_S = 1.3
+RECORD_AFTER_S = 5
+SCREEN_CROP = "crop=iw:ih*0.68:0:ih*0.16"
+LATER_S = 5  # the loss after a trouble second (counted a second late, 3 s of it: R20261031-205951)
 
 
 @dataclass(frozen=True)
@@ -82,9 +94,11 @@ class TabletReceiver:
         tablets: Tablets,
         wait: Callable[[float], bool] | None = None,
         held: HeldWifi | None = None,
+        render: Callable[[Path, Path, float], Any] | None = None,
     ) -> None:
         self.cfg = cfg
         self.held = held
+        self.render = render  # the PCs' evidence picture maker (ffmpeg), None: frames only
         self.bus = bus
         self.tablets = tablets
         self.records_dir = data_dir / "raw" / cfg.device
@@ -115,6 +129,7 @@ class TabletReceiver:
         self._shots: list[float] = []  # when screenshots were taken (F23 limits)
         self._shot_bytes = 0
         self._shooting = False
+        self._recent: list[dict[str, Any]] = []  # the last seconds, for a capture's "why"
 
     # ---------------------------------------------------------------- start / stop
 
@@ -128,6 +143,7 @@ class TabletReceiver:
             self.tablets.ensure_app(c.serial)  # this build's app (Update PCs brought it)
             self._pause_scans()
             self._hold_wifi()
+            self.tablets.clear_leftovers(c.serial)
             self.tablets.start_app(c.serial)
             self._wait_app()
             self.tablets.call(c.serial, "POST", "/v1/receiver/start", params)
@@ -349,6 +365,7 @@ class TabletReceiver:
         self.lost_total += int(rec.get(k.LOST, 0) or 0)
         assert self._recorder is not None
         self._recorder.write_second(rec["e"], {key: v for key, v in rec.items() if key != "e"})
+        self._recent = [*self._recent[-30:], rec]
         why = trouble(rec)
         if why:
             self._screenshot(int(rec["e"]), why)
@@ -375,20 +392,48 @@ class TabletReceiver:
     def _shoot(self, e: int, why: list[str]) -> None:
         c = self.cfg
         stem = f"{c.run_id}_ev_e{e:06d}_ch{c.ch}"  # as the PCs' (records index)
-        png = self.records_dir / f"{stem}.png"
+        mp4, jpg = (self.records_dir / f"{stem}{x}" for x in (".mp4", ".jpg"))
         info: dict[str, Any] = {"e": e, "ch": c.ch, "why": why, "packets": None, "pcap": None,
-                                "picture": None, "kept_less": None, "from_s": None,
-                                "to_s": None, "source": "tablet screen"}  # fmt: skip
+                                "picture": None, "video": None, "kept_less": None,
+                                "from_s": None, "to_s": None, "source": "tablet screen",
+                                "recorded_utc": utc_now()}  # fmt: skip
         try:
-            self._sleep(c.buffer_ms / 1000 + SCREEN_AFTER_S)  # through the player's buffer
             self.records_dir.mkdir(parents=True, exist_ok=True)
-            self.tablets.screenshot(c.serial, png)
-            info["picture"] = png.name
-            self._shot_bytes += png.stat().st_size
-        except (TabletError, OSError) as err:
-            info["kept_less"] = f"no screenshot: {err}"
+            buffer_s = c.buffer_ms / 1000
+            self.tablets.screen_record(c.serial, mp4, math.ceil(buffer_s) + RECORD_AFTER_S)
+            info["video"] = mp4.name
+            self._shot_bytes += mp4.stat().st_size
+            if self.render is not None:  # when it is on the screen, as the PCs' grid
+                drawn = self.render(mp4, jpg, max(0.0, buffer_s - ARRIVAL_S))
+                frozen = (drawn or {}).get("frozen") if isinstance(drawn, dict) else None
+                if frozen:  # a freeze shown: red-bordered frames, and said in words
+                    held = sum(b - a for a, b in frozen)
+                    info["frozen"] = frozen
+                    why = info["why"] = [*why, f"screen frozen {held:.1f} s"]
+                    info["reading"] = {
+                        "text": f"The tablet's screen froze for {held:.1f} s: "
+                        "the frames in a red border show the same picture held."
+                    }
+                if jpg.is_file():
+                    info["picture"] = jpg.name
+                    self._shot_bytes += jpg.stat().st_size
+        except (TabletError, OSError) as err:  # an Android without screenrecord: one frame
+            png = self.records_dir / f"{stem}.png"
+            try:
+                self.tablets.screenshot(c.serial, png)
+                info["picture"] = png.name
+                info["kept_less"] = f"one frame only: {err}"
+                self._shot_bytes += png.stat().st_size
+            except (TabletError, OSError) as err2:
+                info["kept_less"] = f"no screen picture: {err2}"
         finally:
             self._shooting = False
+        # the loss of those seconds is counted after the 1 s reorder window: written too
+        # (receiverPC 2026-10-31: the json said "CC errors 10" for ~300 lost packets)
+        lost = sum(int(r.get(k.LOST) or 0) for r in list(self._recent)
+                   if e <= int(r.get("e", -1)) <= e + LATER_S)  # fmt: skip
+        if lost and not any(w.startswith("lost") for w in why):
+            info["why"] = [*why, f"lost {lost} in that and the next {LATER_S} s"]
         with contextlib.suppress(OSError):
             (self.records_dir / f"{stem}.json").write_text(json.dumps(info), encoding="utf-8")
 

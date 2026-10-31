@@ -139,7 +139,7 @@ def test_records_a_silent_pc_still_owes_are_fetched_when_it_answers(
                {"files": [{"device": "rx"}], "missing": {}}]  # fmt: skip
 
     def collect(reports: object, run: str, devices: list[object], boot: str,
-                stopping: object = None) -> dict[str, object]:  # fmt: skip
+                stopping: object = None, generation: int = 0) -> dict[str, object]:  # fmt: skip
         asked.append([d.name for d in devices])  # type: ignore[attr-defined]
         return {"run": run, "files": [], **answers[len(asked) - 1]}  # type: ignore[dict-item]
 

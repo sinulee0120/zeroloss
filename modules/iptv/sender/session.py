@@ -21,6 +21,7 @@ from core.blocks.unicode_path import find_file
 from core.events.bus import Event, EventBus, Level
 from core.lifecycle.state_flow import State, StateFlow
 from core.protocol.envelope import ZlError
+from modules.iptv.sender import shaper
 from modules.iptv.sender.commands import DEFAULT_TTL, new_ssrc, parse_rate, send_command
 
 STABLE_SECONDS = 3
@@ -264,12 +265,23 @@ class SenderSession:
                 if silent >= 2:  # the rate report comes once a second
                     self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} no rate report")
             self._watch_pace()
+            self._watch_shaper()
             pacer_died = self._pacer is not None and self._pacer.poll() is ProcState.FAULT
             if (runner.poll() is ProcState.FAULT or pacer_died) and not self._halt.is_set():
                 self._process_died(runner.exit_code)
                 if self.flow.state is State.FAULT:
                     return
                 silent = 0
+
+    def _watch_shaper(self) -> None:
+        """SND-026 every second a shaper (netem, tbf, ...) sits on this sender's card: what
+        the receivers lose then is the sender's (purple), not the router's. Read only."""
+        if not hasattr(self, "_card"):
+            self._card = shaper.card_of(self.cfg.local_address)
+        found = shaper.shaping(self._card)
+        if found:
+            self._event("ZL-SND-026", "warn", f"CH{self.cfg.ch}: a traffic shaper on the "
+                        f"sender's card {self._card}: {found}")  # fmt: skip
 
     def _watch_pace(self) -> None:
         """SND-025 every second the even-spacing sender ran late: the stream left this PC

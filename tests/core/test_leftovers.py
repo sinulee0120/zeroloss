@@ -164,6 +164,9 @@ def test_programs_start_only_through_process_runner() -> None:
         "controller/wan_route.py",  # nmcli / ip route; Windows powershell read, 15 s (GAP-88)
         "modules/iptv/receiver/perf.py",  # `vainfo`, 10 s timeout (RCV-015)
         "modules/iptv/sender/sources.py",  # `ffprobe`, 15 s timeout (S-48 list)
+        "modules/iptv/sender/shaper.py",  # `ip addr` / `tc qdisc show`, read only, 2 s (SND-026)
+        "modules/iptv/receiver/evidence.py",  # ffmpeg freezedetect on a tablet's screen video,
+        # 120 s timeout, nice 19 (F23 for tablets, 2026-10-31)
         "agent/deployer/agent_link.py",  # systemctl / sc / taskkill (L0, 12 4-3 rule 1)
         "agent/deployer/nodesetup.py",  # adduser / sysctl / ufw / systemctl (06 4.3-1)
         "agent/deployer/node_update.py",  # dpkg-deb / systemd-run / is-active; the install

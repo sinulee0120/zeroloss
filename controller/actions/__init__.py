@@ -48,7 +48,7 @@ class ActionBoard:
         with self._lock:
             clears = (e.data or {}).get("clears")
             if isinstance(clears, list):
-                for row in self._rows.values():
+                for row in list(self._rows.values()):  # _finish may drop old rows
                     if (
                         row["state"] == "waiting"
                         and row["device"] == e.device

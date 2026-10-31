@@ -61,3 +61,16 @@ def test_not_allowed_is_a_reason_not_a_failure(tmp_path: Path) -> None:
     g = guard(tmp_path, t)
     why = g.hold()
     assert why and "Access denied" in why and t.ntp is True and g.status()["state"] == "not held"
+
+
+def test_the_screens_button_turns_time_sync_on_between_tests(tmp_path: Path) -> None:
+    """2026-10-31 user ("명령어로 나한테 시키지 말고 앱에 반영할수있나?"): the T460 had its time
+    sync off and ran 10 s fast; the heartbeat says so and the button turns it on."""
+    t = Timedate(ntp=False)
+    g = guard(tmp_path, t)
+    assert g.status()["ntp"] is False  # read for the heartbeat
+    assert g.turn_on()["ok"] and t.ntp is True and g.status()["ntp"] is True
+    assert g.turn_on()["why"] == "time sync was on already"
+    assert not (tmp_path / "held.json").exists()  # not this guard's: a test still puts back
+    refused = Timedate(ntp=False, allowed=False)
+    assert not guard(tmp_path, refused).turn_on()["ok"]

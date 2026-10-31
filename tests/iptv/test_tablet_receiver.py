@@ -25,6 +25,8 @@ class FakeTablets:
         self.in_front = True
         self.counters: dict[str, int] = {"hd": 0, "nd": 0, "ne": 0, "ue": 5, "ub": 5}
         self.ssid: str | None = "TV"
+        self.no_recorder = False
+        self.recorded: list[int] = []
         self.held: list[str] = []
         self.rejoined: list[tuple[str, str, str]] = []
 
@@ -33,6 +35,15 @@ class FakeTablets:
 
     def wifi_status(self, serial: str) -> dict[str, Any]:
         return {"std": "11ax", "freq": 5745, "rx_mbps": 1201, "ssid": self.ssid}
+
+    def clear_leftovers(self, serial: str) -> None:
+        self.cleared = True
+
+    def screen_record(self, serial: str, out: Path, seconds: int) -> None:
+        if self.no_recorder:
+            raise TabletError("record the screen", "screenrecord: not found")
+        self.recorded.append(seconds)
+        out.write_bytes(b"mp4 of the screen")
 
     def screenshot(self, serial: str, out: Path) -> None:
         if self.away:
@@ -321,30 +332,60 @@ def test_keep_holds_the_network_it_is_on_and_an_open_one_can_be_joined_again() -
 
 
 def test_a_trouble_second_keeps_the_tablets_screen_as_evidence(tmp_path: Path) -> None:
-    """F23 for tablets (2026-10-31 user: "태블릿 깨진거 스크린샷은 왜 없냐고"): the screen after the
-    player's buffer, beside the records as the PCs' evidence; one a minute at most."""
+    """F23 for tablets, as a PC's (2026-10-31 user: "PC처럼 하라고"): the screen recorded for
+    the buffer + 5 s from when the trouble second arrives, the PCs' 4 x 4 grid from 1 s
+    before it is on the screen (buffer less the arrival), the video kept, the loss counted
+    a second later in "why"; one a minute at most."""
     import json
     import threading
 
     from core.records.recorder import record_run
 
     fake = FakeTablets()
-    r = receiver(tmp_path, fake)
-    slept: list[float] = []
-    r._sleep = slept.append  # type: ignore[assignment]
+    cfg = TabletConfig("R1", "tablet-1", "A1", 1, "239.1.1.1", 5004, "b", cell_s=10,
+                       buffer_ms=3000)  # fmt: skip
+    drawn: list[tuple[str, float]] = []
+
+    def render(src: Path, jpg: Path, at_s: float) -> None:
+        drawn.append((src.suffix, at_s))
+        jpg.write_bytes(b"grid")
+
+    r = TabletReceiver(cfg, tmp_path, EventBus(), fake, wait=lambda s: True,  # type: ignore[arg-type]
+                       render=render)  # fmt: skip
     r.start()
     fake.records = [rec(i) for i in range(1, 10)]
-    fake.records[5]["lost"] = 3
-    fake.records[7]["pb"] = "glitch"  # within a minute of the first: no second picture
+    fake.records[5]["cc"] = 4  # the CC errors come first ...
+    fake.records[6]["lost"] = 15  # ... the loss is counted a second later
+    fake.records[7]["pb"] = "glitch"  # within a minute of the first: not kept again
     r._pull()
     for t in threading.enumerate():
         if t.name.endswith("-screen"):
             t.join(5)
     folder = tmp_path / "raw" / "tablet-1"
-    shots = sorted(folder.glob("*_ev_e*"))
-    assert [p.suffix for p in shots] == [".json", ".png"]
-    assert all(record_run(p.name) == ("R1", None) for p in shots)  # the records index takes them
-    info = json.loads(shots[0].read_text(encoding="utf-8"))
-    assert info["why"] == ["lost 3"] and info["picture"] == shots[1].name
-    assert slept and slept[0] == 3.5  # the 3 s buffer, then half a second
+    kept = sorted(p.suffix for p in folder.glob("*_ev_e*"))
+    assert kept == [".jpg", ".json", ".mp4"] and fake.recorded == [8]  # 3 s buffer + 5 s
+    assert all(record_run(p.name) == ("R1", None) for p in folder.glob("*_ev_e*"))
+    info = json.loads(next(folder.glob("*_ev_e*.json")).read_text(encoding="utf-8"))
+    assert info["why"] == ["CC errors 4", "lost 15 in that and the next 5 s"]
+    assert info["picture"].endswith(".jpg")
+    assert info["video"].endswith(".mp4") and info["recorded_utc"]
+    assert drawn[0][0] == ".mp4" and abs(drawn[0][1] - 1.7) < 1e-9  # 3 s buffer - 1.3 s
+    r.stop()
+
+
+def test_a_tablet_that_cannot_record_its_screen_keeps_one_frame(tmp_path: Path) -> None:
+    import threading
+
+    fake = FakeTablets()
+    fake.no_recorder = True
+    r = receiver(tmp_path, fake)
+    r.start()
+    fake.records = [rec(i) for i in range(1, 8)]
+    fake.records[5]["lost"] = 2
+    r._pull()
+    for t in threading.enumerate():
+        if t.name.endswith("-screen"):
+            t.join(5)
+    kept = sorted(p.suffix for p in (tmp_path / "raw" / "tablet-1").glob("*_ev_e*"))
+    assert kept == [".json", ".png"]
     r.stop()

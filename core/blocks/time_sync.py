@@ -23,11 +23,13 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 TIMEOUT_S = 10.0
+NTP_READ_S = 60.0  # how often the heartbeat's "ntp" is read again (a short OS call)
 
 Run = Callable[[list[str]], tuple[int, str]]
 
@@ -49,6 +51,8 @@ class TimeSyncGuard:
         self._lock = threading.Lock()
         self._state = "unknown"  # held / on / off / not held
         self._why: str | None = None
+        self._ntp: bool | None = None  # last read, for the heartbeat
+        self._ntp_at = -NTP_READ_S
 
     def _ntp_on(self) -> bool | None:
         if self.platform == "win32" or shutil.which("timedatectl") is None:
@@ -99,6 +103,25 @@ class TimeSyncGuard:
             self._state, self._why = "unknown", None
             return {"ok": True, "why": "time sync on again"}
 
+    def turn_on(self) -> dict[str, Any]:
+        """Automatic time sync on, between tests, from the screen's button (2026-10-31
+        user: "명령어로 나한테 시키지 말고 앱에 반영할수있나?": the T460 had it off and ran
+        10 s fast). Not remembered as this guard's: a later test holds and puts it back."""
+        with self._lock:
+            on = self._ntp_on()
+            if on is None:
+                return {"ok": False, "why": "Windows: needs an administrator" if
+                        self.platform == "win32" else "no timedatectl here"}  # fmt: skip
+            if on:
+                return {"ok": True, "why": "time sync was on already"}
+            rc, out = self.run(["timedatectl", "set-ntp", "true"])
+            if rc != 0:
+                return {"ok": False, "why": f"timedatectl set-ntp true: {out[-200:]}"}
+            self._ntp, self._ntp_at = True, time.monotonic()
+            return {"ok": True, "why": "time sync on; the clock is set within a minute"}
+
     def status(self) -> dict[str, Any]:
         with self._lock:
-            return {"state": self._state, "why": self._why}
+            if time.monotonic() - self._ntp_at >= NTP_READ_S:
+                self._ntp, self._ntp_at = self._ntp_on(), time.monotonic()
+            return {"state": self._state, "why": self._why, "ntp": self._ntp}

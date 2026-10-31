@@ -16,7 +16,8 @@ from core.records.experience import ACTION_ID
 def test_catalog_ids_texts_and_codes() -> None:
     """14 1: standard action_id names; F22: the representative actions; every opening
     code exists in 09 (via the Problems catalog); plain English screen text."""
-    assert len(CATALOG) == 16  # 03 F22 + wifi.check + card.put_back + add_wan_route + sender wifi
+    assert len(CATALOG) == 17  # 03 F22 + wifi.check, card.put_back, add_wan_route, sender wifi,
+    # time_sync_on (DSC-017, 2026-10-31)
     for aid, a in CATALOG.items():
         assert ACTION_ID.match(aid), aid
         assert a["what"] and a["how"] and a["repeat"] in ("once", "every")
@@ -158,3 +159,16 @@ def test_a_wifi_drop_asks_for_the_router_wifi_not_a_cable() -> None:
     b(ev("ZL-NET-015", "tx", nic="eth0", before={"nic": "eth0", "wifi": None}, run_id="R1"))
     got = {a["device"]: a["action_id"] for a in b.snapshot()["actions"]}
     assert got == {"rx": "human.wifi.check", "tx": "human.cable.check"}
+
+
+def test_a_pc_with_its_time_sync_off_gets_a_button() -> None:
+    """DSC-017 (2026-10-31 user: "명령어로 나한테 시키지 말고 앱에 반영할수있나?"): the clock is off
+    and its time sync is off; the action offers the button, the plain DSC-009 does not."""
+    b = ActionBoard(grace=False)
+    b(ev("ZL-DSC-009", device="t460-rx", level="warn"))
+    assert b.snapshot()["actions"] == []  # a warning only
+    b(ev("ZL-DSC-017", device="t460-rx", level="warn", choose="time_sync",
+         choices=[{"id": "t460-rx", "label": "Turn on time sync on t460-rx"}]))  # fmt: skip
+    (row,) = b.snapshot()["actions"]
+    assert row["action_id"] == "human.pc.time_sync_on" and row["choose"] == "time_sync"
+    assert row["choices"] == [{"id": "t460-rx", "label": "Turn on time sync on t460-rx"}]

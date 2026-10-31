@@ -692,7 +692,8 @@ def channel_change(p: IptvPlan, summaries: list[dict[str, Any]]) -> dict[str, An
 # ---------------------------------------------------------------- trouble windows (05 5.3)
 
 # purple windows (SND-016 comes every second; SND-023: the sender's WAN address was gone)
-SENDER_TROUBLE = ("ZL-SND-005", "ZL-SND-016", "ZL-SND-023", "ZL-SND-025")
+# (SND-026: a shaper on the sender's own card, 2026-10-31)
+SENDER_TROUBLE = ("ZL-SND-005", "ZL-SND-016", "ZL-SND-023", "ZL-SND-025", "ZL-SND-026")
 
 
 def on_test_nic(p: IptvPlan, device: str, data: dict[str, Any]) -> bool:

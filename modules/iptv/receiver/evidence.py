@@ -28,6 +28,7 @@ import contextlib
 import itertools
 import json
 import os
+import re
 import shutil
 import struct
 import threading
@@ -321,17 +322,20 @@ class Evidence:
             ts.unlink(missing_ok=True)
 
 
-def ffmpeg_render(procs_dir: Path, ffmpeg: str = "ffmpeg") -> Render:
-    """1 s before the trouble to 3 s after, 4 frames a second, 4 x 4 grid, 960 px each.
-    Run through process_runner (12 4-3), at the lowest priority on Linux."""
+def ffmpeg_render(procs_dir: Path, ffmpeg: str = "ffmpeg", seconds: float = 4.0,
+                  before: float = 1.0, crop: str = "") -> Render:  # fmt: skip
+    """1 s before the trouble to 3 s after, 4 frames a second, 4 x 4 grid, 960 px each
+    (a tablet's screen video: its whole ``seconds`` spread over the 16, ``crop`` to the
+    picture). Run through process_runner (12 4-3), at the lowest priority on Linux."""
     import sys
 
     from core.blocks.process_runner import ProcessRunner, ProcState
 
     def render(ts: Path, jpg: Path, at_s: float) -> None:
-        start = max(0.0, at_s - 1.0)
+        start = max(0.0, at_s - before)
+        vf = f"fps={16 / seconds:g},{crop + ',' if crop else ''}scale=960:-2,tile=4x4:padding=4"
         argv = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.2f}",
-                "-i", str(ts), "-t", "4", "-vf", "fps=4,scale=960:-2,tile=4x4:padding=4",
+                "-i", str(ts), "-t", f"{seconds:g}", "-vf", vf,
                 "-frames:v", "1", "-q:v", "3", str(jpg)]  # fmt: skip
         if sys.platform.startswith("linux"):
             argv = ["nice", "-n", "19", *argv]  # the measuring comes first
@@ -341,5 +345,71 @@ def ffmpeg_render(procs_dir: Path, ffmpeg: str = "ffmpeg") -> Render:
         while runner.poll() is ProcState.RUNNING and time.monotonic() < end:
             time.sleep(0.2)
         runner.stop()
+
+    return render
+
+
+FREEZE_NOISE_DB = -60  # freezedetect: below this difference two frames are the same
+FREEZE_MIN_S = 0.4  # a held picture this long counts (a 30 fps screen repeats none)
+FROZEN_BORDER = "drawbox=x=0:y=0:w=iw:h=ih:color=red@0.9:t=28"
+_FREEZE = re.compile(r"freeze_(start|end): ([\d.]+)")
+
+ScreenRender = Callable[[Path, Path, float], dict[str, Any]]
+
+
+def screen_freezes(text: str, length_s: float) -> list[tuple[float, float]]:
+    """freezedetect's lines -> (start, end) seconds; one still frozen at the end ends
+    with the video."""
+    out: list[tuple[float, float]] = []
+    start: float | None = None
+    for kind, value in _FREEZE.findall(text):
+        if kind == "start":
+            start = float(value)
+        elif start is not None:
+            out.append((start, float(value)))
+            start = None
+    if start is not None:
+        out.append((start, length_s))
+    # one freeze can come in adjacent pieces (receiverPC 2026-10-31: 1.24-2.27, 2.27-4.93,
+    # 4.93-5.97 on one tablet): pieces that touch are one
+    merged: list[tuple[float, float]] = []
+    for a, b in out:
+        if merged and a - merged[-1][1] <= 0.05:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def screen_render(procs_dir: Path, ffmpeg: str, crop: str, length_s: float = 0.0
+                  ) -> ScreenRender:  # fmt: skip
+    """A tablet's screen video as the PCs' grid, with every frame of a frozen stretch in a
+    red border (2026-10-31 user: "같은 화면이 보였다는걸 어떻게 알려주면 좋을까": a freeze is
+    as big a problem as a glitch, but sixteen near-identical tiles hide it). The frozen
+    stretches come from ffmpeg's freezedetect on the picture only; returned as seconds
+    into the video."""
+    import subprocess
+    import sys
+
+    from core.blocks.process_runner import NO_WINDOW
+
+    def render(video: Path, jpg: Path, at_s: float) -> dict[str, Any]:
+        argv = [ffmpeg, "-hide_banner", "-nostats", "-i", str(video), "-vf",
+                f"{crop},freezedetect=n={FREEZE_NOISE_DB}dB:d={FREEZE_MIN_S}", "-map", "0:v",
+                "-f", "null", "-"]  # fmt: skip
+        if sys.platform.startswith("linux"):
+            argv = ["nice", "-n", "19", *argv]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=120,
+                                  check=False, creationflags=NO_WINDOW)  # fmt: skip
+            frozen = screen_freezes(done.stderr, length_s)
+        except (OSError, subprocess.SubprocessError):
+            frozen = []
+        start = max(0.0, at_s - 1.0)  # the grid's own window (ffmpeg_render)
+        boxes = ",".join(f"{FROZEN_BORDER}:enable='between(t,{a - start:.2f},{b - start:.2f})'"
+                         for a, b in frozen if b > start)  # fmt: skip
+        grid_crop = f"{crop},{boxes}" if boxes else crop
+        ffmpeg_render(procs_dir, ffmpeg, crop=grid_crop)(video, jpg, at_s)
+        return {"frozen": [[round(a, 2), round(b, 2)] for a, b in frozen]}
 
     return render

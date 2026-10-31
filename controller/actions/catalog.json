@@ -83,6 +83,12 @@
    "repeat": "every",
    "opened_by": {"ZL-NET-023": true}
   },
+  "human.pc.time_sync_on": {
+   "what": "Turn on this PC's time sync",
+   "how": "Its clock is off and its automatic time sync is off. Press Turn on time sync: ZeroLoss turns it on (between tests only) and the clock is set within a minute. A test still holds it off while it runs and puts it back after.",
+   "repeat": "every",
+   "opened_by": {"ZL-DSC-017": false}
+  },
   "human.pc.consider_sender_wifi_off": {
    "what": "Consider turning off the sender PC's Wi-Fi",
    "how": "The sender PC has Wi-Fi on that the test does not use. A Wi-Fi driver that resets can hold up sending, and the losses then look like the router's. Turn it off on that PC if you want to, then press Done. ZeroLoss does not turn it off.",

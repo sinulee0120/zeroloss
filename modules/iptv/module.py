@@ -33,9 +33,15 @@ from modules.iptv.probe import (
     send_probe,
     wait_prime,
 )
+from modules.iptv.receiver.evidence import screen_render
 from modules.iptv.receiver.perf import PerfCheck
 from modules.iptv.receiver.session import ReceiverConfig, ReceiverSession
-from modules.iptv.receiver.tablet import HeldWifi, TabletConfig, TabletReceiver
+from modules.iptv.receiver.tablet import (
+    SCREEN_CROP,
+    HeldWifi,
+    TabletConfig,
+    TabletReceiver,
+)
 from modules.iptv.sender.commands import DEFAULT_TTL, QUALITIES
 from modules.iptv.sender.prepare import Preparer
 from modules.iptv.sender.prime import PrimedSender, PrimeFlow, prime_payload
@@ -384,8 +390,11 @@ class IptvModule:
             if old is not None and old.state == "RUNNING":
                 raise ZlError("RUN-012", f"{cfg.device} is already receiving")
             held = self._join_wifi(cfg.device, cfg.serial, p.get("bands"))
+            ffmpeg = self.node.tools.path("ffmpeg")  # the PCs' evidence picture (F23)
+            render = (screen_render(self.node.procs_dir, ffmpeg, SCREEN_CROP)
+                      if ffmpeg else None)  # fmt: skip
             t = TabletReceiver(cfg, self._run_dir(req), self.node.bus, self.node.tablets,
-                               held=held)  # fmt: skip
+                               held=held, render=render)  # fmt: skip
             self._node_starting()
             try:
                 t.start()
@@ -656,6 +665,11 @@ class IptvModule:
 
     def _node_starting(self) -> None:
         if self.node.flow.state is State.IDLE:
+            # a new test: the earlier tests' data the Controller has fetched goes first
+            # (2026-10-31 user: "메모리 쌓이지 않게")
+            clean = getattr(self.node, "clean_fetched", None)
+            if clean is not None:
+                threading.Thread(target=clean, name="clean-fetched", daemon=True).start()
             self.node.flow.move(State.STARTING, reason="iptv session starting")
 
     def _node_settle(self) -> None:

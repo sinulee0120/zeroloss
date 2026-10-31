@@ -12,6 +12,7 @@ sent before the stop are refused. The node never resumes the old run by itself.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -110,6 +111,7 @@ ModuleData = Callable[[], Mapping[str, Any]]
 KEEP_SUMMARIES = 20_000  # a restarted node reloads at most this many (100 h x 3 ch = 3,600)
 
 
+FETCHED = ".fetched"  # in a run's raw/: the Controller has it all, removed at the next start
 DIAG_SKIP = ("wifi.json",)  # 02 2-13: the Controller's test Wi-Fi password never leaves
 
 # 02 4 /v1/tablets/<action>
@@ -206,6 +208,8 @@ class Node:
         self.api.command("/v1/storage/delete", self.storage_delete)
         self.api.get("/v1/records/index", self.records_index)  # 02 4 (20 GAP-80)
         self.api.file("/v1/records", self.records_file)
+        self.api.command("/v1/records/fetched", self.records_fetched)  # then cleaned here
+        self.api.command("/v1/time/sync", self.time_sync_on)  # the screen's button
         self.api.command("/v1/wan", self.wan_set)
         self.api.command("/v1/arp_probe", self.arp_probe)  # SND-013 (F17 step 3)
         # 01-overview D3: the tablets on this PC's USB, one to three, each by its serial
@@ -252,6 +256,7 @@ class Node:
 
     def start(self) -> None:
         self._stop_leftovers()  # before anything new is started (SYS-007, 12 4-3)
+        threading.Thread(target=self.clean_fetched, name="clean-fetched", daemon=True).start()
         self._attach_modules()
         wanted = [t for m in self.modules if m.enabled for t in m.tools]
         threading.Thread(  # versions ready before the first /v1/info (F17 step 2)
@@ -561,6 +566,43 @@ class Node:
         )  # fmt: skip
         return {"stopped": stopped, "state": self.flow.state.value,
                 "run": newest.name if newest else None, "files": files}  # fmt: skip
+
+    def time_sync_on(self, _: Request) -> dict[str, Any]:
+        """02 4 ``POST /v1/time/sync``: this PC's automatic time sync on (DSC-009's button),
+        only between tests: a test holds it off on purpose (SYS-012)."""
+        if self.flow.state is not State.IDLE:
+            raise ZlError("RUN-012", "Not during a test", "A test holds the time sync off.",
+                          "Press it after the test.")  # fmt: skip
+        return self.time_sync.turn_on()
+
+    def records_fetched(self, req: Request) -> dict[str, Any]:
+        """02 4 ``POST /v1/records/fetched``: the Controller has every record and evidence
+        file of this run from here (its report has them); marked, so the next start of this
+        node (or of a test) removes them here (2026-10-31 user: "다시 시작하면 기존 저장된
+        캡춰화면이나 정보들 다 지워 메모리 쌓이지 않게")."""
+        run = run_storage.check_run(str(req.params.get("run", "")))
+        raw = self.data_dir / "runs" / run / "raw"
+        if raw.is_dir() and not raw.is_symlink():
+            (raw / FETCHED).write_text("", encoding="utf-8")
+            return {"run": run, "marked": True}
+        return {"run": run, "marked": False}
+
+    def clean_fetched(self) -> list[str]:
+        """The raw data (1-second records, evidence pictures, packet clips, screen videos)
+        of every run the Controller has fetched, never the one in use; a run not fetched
+        yet stays until it is. Returns the runs cleaned."""
+        root = self.data_dir / "runs"
+        done = []
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            if not (d / "raw" / FETCHED).is_file() or self._in_use(d.name):
+                continue
+            with contextlib.suppress(OSError, ValueError, ZlError):
+                run_storage.delete(root, d.name, raw_only=True)
+                done.append(d.name)
+        if done:
+            self.bus.publish(Event("ZL-INFO", "info", f"Removed the fetched data of "
+                                   f"{len(done)} earlier test(s) here"))  # fmt: skip
+        return done
 
     def _in_use(self, run: str) -> bool:
         """The run this node works for now: not IDLE and its last command named it."""

@@ -233,6 +233,7 @@ def evidence_list(run_dir: Path, offsets: dict[str, float]) -> list[dict[str, An
             "why": list(info.get("why") or []), "packets": info.get("packets"),
             "picture": rel + info["picture"] if info.get("picture") and (f.parent / info["picture"]).is_file() else None,
             "pcap": rel + info["pcap"] if info.get("pcap") else None,
+            "video": rel + info["video"] if info.get("video") and (f.parent / info["video"]).is_file() else None,
             "kept_less": info.get("kept_less"), "from_s": info.get("from_s"), "to_s": info.get("to_s"),
             "reading": str((info.get("reading") or {}).get("text") or ""),
         })  # fmt: skip
@@ -425,7 +426,7 @@ function evidenceHtml(){var ev=(R.evidence||[]).filter(function(x){return x.t>=s
  if(!ev.length)return "<p>None in this range ("+R.evidence.length+" in the whole test).</p>";
  return ev.slice(0,100).map(function(x){var head="<b>"+esc(real(x.t).replace(/^ \(|\)$/g,"")||clk(x.t))+"</b> (run "+hm(x.t)+", second "+Math.round(x.t)+") · "+esc(x.device)+chs(x.ch)+" · "+esc(x.why.join(", "));
   var pic=x.picture?"<a href='"+esc(x.picture)+"' target='_blank'><img src='"+esc(x.picture)+"' loading='lazy' alt='frames around the trouble'></a><div class='cap'>Frames from 1 s before to 3 s after, 4 a second, rendered from the packets this PC received.</div>":"<div class='cap'>No picture (Evidence capture S-30 was Off, or the picture could not be made).</div>";
-  var pk=x.pcap?"<a href='"+esc(x.pcap)+"'>Packets (pcap, "+(x.packets||0)+" packets, "+(x.from_s)+" s to +"+(x.to_s)+" s)</a>":"No packet clip"+(x.kept_less?": "+esc(x.kept_less):"");
+  var pk=x.pcap?"<a href='"+esc(x.pcap)+"'>Packets (pcap, "+(x.packets||0)+" packets, "+(x.from_s)+" s to +"+(x.to_s)+" s)</a>":x.video?"<a href='"+esc(x.video)+"'>The tablet's screen (video)</a>":"No packet clip"+(x.kept_less?": "+esc(x.kept_less):"");
   var rd=x.reading?"<p>"+esc(x.reading)+"</p>":"";
   return "<div class='ev'><p>"+head+"</p>"+rd+pic+"<p>"+pk+"</p></div>";}).join("")+(ev.length>100?"<p>"+(ev.length-100)+" more: choose a shorter range.</p>":"");}
 function burstsHtml(){var h="";devs().forEach(function(d){var b=(R.bursts||{})[d.key];

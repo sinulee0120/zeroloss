@@ -157,6 +157,7 @@ class RunController:
         self.nic_of: Callable[[str], str | None] = nic_of
         self.local_ips: Callable[[], dict[str, str]] = _local_ips
         self._route_told = False
+        self._clock_told: set[str] = set()  # DSC-009 time sync button, once a PC
         self._problems_report = problems_report  # F21 report table (02 10)
         self._on_finished = on_finished or (lambda: None)  # test over: problems resolved (F21)
         self._on_report = on_report or (lambda run, devices: None)  # records (02 2-13)
@@ -1398,6 +1399,14 @@ class RunController:
                 if abs(offset) > CLOCK_WARN_S:
                     if cl.kind == "start":  # Problems too (F21); not every idle check
                         self._event("ZL-DSC-009", "warn", f"{name} clock {offset:+.1f} s off", name)
+                    ntp = (power.get("time_sync") or {}).get("ntp")
+                    if ntp is False and name not in self._clock_told:  # a button, asked once
+                        # (2026-10-31 user: "명령어로 나한테 시키지 말고 앱에 반영할수있나?")
+                        self._clock_told.add(name)
+                        on = {"id": name, "label": f"Turn on time sync on {name}"}
+                        self._event("ZL-DSC-017", "warn", f"{name} clock {offset:+.1f} s off "
+                                    "and its time sync is off", name, choose="time_sync",
+                                    choices=[on])  # fmt: skip
                     cl.warn(s, ZlError(
                         "DSC-009", f"{name} clock is {offset:+.1f} s off",
                         "Its time differs from the Controller's; results use Controller time.",

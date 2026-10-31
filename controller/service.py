@@ -254,6 +254,19 @@ class ControllerService:
                               "ipv4.never-default yes ipv4.ignore-auto-dns yes")  # fmt: skip
             self.actions.done(key)
             return {"key": key, "choice": choice, "route": what}
+        if kind == "time_sync":  # DSC-009: that PC's automatic time sync on (2026-10-31)
+            dev = self.devices.get(choice)
+            client = NodeClient(dev.host, dev.port, self.run.boot_id, dev.name)
+            try:
+                got = client.command("/v1/time/sync", self.run.generation, None, timeout_s=20)
+            finally:
+                client.close()
+            if not got.get("ok"):
+                raise ZlError("DSC-009", f"Time sync not turned on on {choice}",
+                              str(got.get("why") or ""),
+                              "On that PC: sudo timedatectl set-ntp true")  # fmt: skip
+            self.actions.done(key)
+            return {"key": key, "choice": choice, "time_sync": got}
         if kind == "wan_route":  # NET-023: this PC's way to the router WAN side
             wan_route.forget_asked()
             routed = self.run.wan_route()
@@ -1118,7 +1131,8 @@ class ControllerService:
     def _collect(self, run: str, names: list[str]) -> dict[str, Any]:
         with self._records_lock:
             devices = [d for d in self.devices.all() if d.name in names]
-            got = collect_records(self.reports_dir, run, devices, self.run.boot_id, self._closing)
+            got = collect_records(self.reports_dir, run, devices, self.run.boot_id, self._closing,
+                                  self.run.generation)  # fmt: skip
             # iptv 2.4: the cause candidates again, now with the 1-second records
             got["reanalyzed"] = bool(got["files"]) and reanalyze(self.reports_dir / run,
                                                                  self.modules_dir)  # fmt: skip

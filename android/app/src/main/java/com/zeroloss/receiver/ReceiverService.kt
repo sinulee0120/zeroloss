@@ -220,6 +220,9 @@ class ReceiverService : Service() {
             throw ApiError(400, "ZL-DSC-012", "Request rejected", "buffer_ms must be 300..5000, got $bufferMs")
         }
         stopReceiving()
+        // a new test: the earlier records go (2026-10-31 user: "메모리 쌓이지 않게"); the seq
+        // numbers go on, so the receiving PC still takes only what comes after this start
+        synchronized(records) { records.clear() }
         holdWifi()
         val j = Receiving(group, port, StreamAnalyzer(ch), if (play) TsPipe() else null, bufferMs, ::keep, monitor,
             ::wifiReading)

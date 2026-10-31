@@ -21,9 +21,11 @@ from typing import IO, Any
 FILE_SECONDS = 3600
 RECORD_NAME = re.compile(r"^([A-Za-z0-9_.-]{1,64})_h(\d{3,})(?:_r\d+)?\.jsonl$")  # run, hour
 ZAP_NAME = re.compile(r"^([A-Za-z0-9_.-]{1,64})_zaps\.jsonl$")  # channel changes (02 7-2)
-# evidence of a trouble second (03 F23, 20 GAP-154): json, packet clip, picture (png: a
-# tablet's screen, 2026-10-31)
-EVIDENCE_NAME = re.compile(r"^([A-Za-z0-9_.-]{1,64})_ev_e\d{6}_ch\d{1,2}\.(?:json|pcap|jpg|png)$")
+# evidence of a trouble second (03 F23, 20 GAP-154): json, packet clip, picture (png, mp4:
+# a tablet's screen, 2026-10-31)
+EVIDENCE_NAME = re.compile(
+    r"^([A-Za-z0-9_.-]{1,64})_ev_e\d{6}_ch\d{1,2}\.(?:json|pcap|jpg|png|mp4)$"
+)
 
 
 def record_run(name: str) -> tuple[str, int | None] | None:

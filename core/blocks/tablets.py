@@ -645,6 +645,29 @@ class Tablets:
             raise TabletError("install the app", e.why, fix) from e
         return {"installed": True, "adb": out.splitlines()[-1] if out else ""}
 
+    def clear_leftovers(self, serial: str) -> None:
+        """A screen picture or video a cut cable left on the tablet (2026-10-31 user:
+        "메모리 쌓이지 않게"): only ZeroLoss's own temporary files."""
+        with contextlib.suppress(AdbError):
+            self.adb.shell(serial, ["rm", "-f", "/data/local/tmp/zeroloss-screen.png",
+                                    "/data/local/tmp/zeroloss-screen.mp4"])  # fmt: skip
+
+    def screen_record(self, serial: str, out: Path, seconds: int) -> None:
+        """The tablet's screen as a video for ``seconds`` (Android's screenrecord), saved
+        as an MP4 on this PC: the frames around a trouble second, as a PC's evidence has
+        them (2026-10-31 user: "PC처럼 하라고"). Its own temporary file is removed."""
+        remote = "/data/local/tmp/zeroloss-screen.mp4"
+        try:
+            self.adb.shell(serial, ["screenrecord", "--time-limit", str(seconds), "--size",
+                                    "1280x800", "--bit-rate", "8000000", remote],
+                           seconds + 20.0)  # fmt: skip
+            self.adb.pull(serial, remote, str(out))
+        except AdbError as e:
+            raise TabletError("record the screen", e.why) from e
+        finally:
+            with contextlib.suppress(AdbError):
+                self.adb.shell(serial, ["rm", "-f", remote])
+
     def screenshot(self, serial: str, out: Path) -> None:
         """What the tablet's screen shows now, as a PNG on this PC (F23 for tablets,
         2026-10-31 user: "태블릿 깨진거 스크린샷은 왜 없냐고"). Only its own temporary file

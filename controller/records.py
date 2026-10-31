@@ -3,13 +3,15 @@
 One job: copy one run's 1-second record files (and channel change files, 7-2) from the
 nodes into
 ``Reports/<run>/raw/<device>/``. A file already there with the same size is not fetched
-again; each file is written as ``.part`` and renamed when complete. The nodes keep
-their own files (F15). A node that does not answer is written down, not a failure of
-the rest.
+again; each file is written as ``.part`` and renamed when complete. A node whose files
+all came is told so (``/v1/records/fetched``) and removes its copy at its next start or
+test (2026-10-31 user: "메모리 쌓이지 않게"). A node that does not answer is written
+down, not a failure of the rest.
 """
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,7 @@ def collect(
     devices: list[Device],
     boot_id: str,
     stopping: threading.Event | None = None,
+    generation: int = 0,
 ) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     missing: dict[str, str] = {}
@@ -67,6 +70,9 @@ def collect(
                         break  # the node is gone: the rest of its files too
                     continue
                 files.append({**row, "bytes": dest.stat().st_size, "state": "got"})
+            if dev.name not in missing:  # all here: the node may remove its copy (2026-10-31)
+                with contextlib.suppress(ZlError):  # an older node keeps it
+                    client.command("/v1/records/fetched", generation, None, run=run)
         except ZlError as e:
             missing.setdefault(dev.name, f"{e.code} {e.what}")
         finally:
