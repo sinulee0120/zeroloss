@@ -11,6 +11,7 @@ different ones, each its own TabletReceiver keyed by its device name.
 from __future__ import annotations
 
 import contextlib
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from core.blocks.tablets import TabletError, Tablets, width_from_rate
 from core.events.bus import Event, EventBus, Level
 from core.records.recorder import Recorder
 from modules.iptv import record_keys as k
+from modules.iptv.receiver.evidence import MIN_GAP_S, PER_HOUR, trouble
 from modules.iptv.summary_rules import make_summarizer, shape
 
 PULL_EVERY_S = 1.0
@@ -35,6 +37,12 @@ APP_KEYS_DROPPED = ("type", "seq", "e")  # the app's own numbering; ours starts 
 # the cell sums them)
 COUNTER_KEYS = ("hd", "nd", "ne", "ue", "ub")
 WIFI_EVERY_S = 10  # the standard and width (wst wbw) are read this often, and at start
+# F23 for tablets (2026-10-31 user: "태블릿 깨진거 스크린샷은 왜 없냐고"): the PC gets no packets
+# from a tablet, so its evidence is the screen itself, taken by adb once the trouble has
+# come through the player's buffer; PNGs, at most this much a test (a full-size screen is
+# a few MB)
+SCREEN_BUDGET_MB = 1024
+SCREEN_AFTER_S = 0.5  # after the buffer: the picture of that second is on the screen
 
 
 @dataclass(frozen=True)
@@ -104,6 +112,9 @@ class TabletReceiver:
         self._rise: dict[str, int] = {}  # risen since, not yet on a second
         self._wifi: dict[str, Any] = {}  # wst / wbw, put on every second until read again
         self._off: str | None = None  # the network Android moved it to (TAB-019), said once
+        self._shots: list[float] = []  # when screenshots were taken (F23 limits)
+        self._shot_bytes = 0
+        self._shooting = False
 
     # ---------------------------------------------------------------- start / stop
 
@@ -338,10 +349,48 @@ class TabletReceiver:
         self.lost_total += int(rec.get(k.LOST, 0) or 0)
         assert self._recorder is not None
         self._recorder.write_second(rec["e"], {key: v for key, v in rec.items() if key != "e"})
+        why = trouble(rec)
+        if why:
+            self._screenshot(int(rec["e"]), why)
         closed = self._summarizer.add(rec)
         with self._lock:
             self.last_1s = rec
             self.summaries += [self._shape(p) for p in closed]
+
+    def _screenshot(self, e: int, why: list[str]) -> None:
+        """The tablet's screen for this second's trouble (F23), off the pull thread: one at
+        a time, at most one a minute and ``PER_HOUR`` an hour, ``SCREEN_BUDGET_MB`` a test.
+        Written beside its records as the PCs' evidence, so the report shows it."""
+        now = time.monotonic()
+        self._shots = [t for t in self._shots if now - t < 3600]
+        if (self._shooting or len(self._shots) >= PER_HOUR
+                or (self._shots and now - self._shots[-1] < MIN_GAP_S)
+                or self._shot_bytes >= SCREEN_BUDGET_MB * 1024 * 1024):  # fmt: skip
+            return
+        self._shots.append(now)
+        self._shooting = True
+        threading.Thread(target=self._shoot, args=(e, why), daemon=True,
+                         name=f"iptv-{self.cfg.device}-screen").start()  # fmt: skip
+
+    def _shoot(self, e: int, why: list[str]) -> None:
+        c = self.cfg
+        stem = f"{c.run_id}_ev_e{e:06d}_ch{c.ch}"  # as the PCs' (records index)
+        png = self.records_dir / f"{stem}.png"
+        info: dict[str, Any] = {"e": e, "ch": c.ch, "why": why, "packets": None, "pcap": None,
+                                "picture": None, "kept_less": None, "from_s": None,
+                                "to_s": None, "source": "tablet screen"}  # fmt: skip
+        try:
+            self._sleep(c.buffer_ms / 1000 + SCREEN_AFTER_S)  # through the player's buffer
+            self.records_dir.mkdir(parents=True, exist_ok=True)
+            self.tablets.screenshot(c.serial, png)
+            info["picture"] = png.name
+            self._shot_bytes += png.stat().st_size
+        except (TabletError, OSError) as err:
+            info["kept_less"] = f"no screenshot: {err}"
+        finally:
+            self._shooting = False
+        with contextlib.suppress(OSError):
+            (self.records_dir / f"{stem}.json").write_text(json.dumps(info), encoding="utf-8")
 
     def _settled(self, pb: Any) -> bool:
         if pb not in (None, "none"):

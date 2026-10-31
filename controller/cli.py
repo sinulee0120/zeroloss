@@ -130,6 +130,9 @@ def _parser() -> argparse.ArgumentParser:
     mr.add_argument("--purge", action="store_true", help="also delete the module's settings")
     mr.add_argument("--dry-run", action="store_true", help="only list what would be removed")
     mr.add_argument("--yes", action="store_true", help="confirm the removal")
+    made = sub.add_parser("made", help="the sender's finished 10-minute videos into a folder")
+    made.add_argument("--node", required=True, help="the sender device")
+    made.add_argument("--out", type=Path, required=True, help="a folder on this PC")
     src = sub.add_parser("sources", help="source videos in the sender PC's media folder")
     src.add_argument("--node", required=True, help="the sender device")
     src.add_argument("--module", default="iptv")
@@ -435,6 +438,12 @@ def _dispatch(cli: Cli, args: argparse.Namespace) -> int:
         return cli.out(0, r, f"{args.node}: {r['id']} {r['build']} {r['result']}")
     if args.cmd == "modules":
         return _modules(cli, args)
+    if args.cmd == "made":  # the offline kit's movies (2026-10-31)
+        r = cli.command(f"{P}/made/fetch", timeout_s=3 * 3600, node=args.node,
+                        out=str(args.out.resolve()))  # fmt: skip
+        lines = [f"CH{x['ch']} {x['quality']}: {x['file']} (from {x['movie']})"
+                 for x in r["files"]]  # fmt: skip
+        return cli.out(0, r, "\n".join(lines) or "No finished 10-minute video on that PC")
     if args.cmd == "quit":
         return _quit(cli, args.wait)
     if args.cmd == "stop":

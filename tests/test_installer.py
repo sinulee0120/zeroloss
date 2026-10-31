@@ -67,3 +67,26 @@ def test_installer_command_needs_the_controller_folder(capsys: pytest.CaptureFix
     assert build.main(["build", "installer", "--app"]) == 6
     assert build.main(["build", "installer", "--app", "x", "--bad", "y"]) == 6
     assert "installer --app DIR" in capsys.readouterr().err
+
+
+def test_the_kit_takes_a_made_file_the_sender_will_send_as_it_is(tmp_path: Path) -> None:
+    """2026-10-31 user: the kit carries the three finished 10-minute videos only. Each is
+    renamed for its channel and checked with the sender's own rule before the kit."""
+    import json
+
+    from core.events.bus import EventBus
+    from modules.iptv.sender.prepare import Preparer
+    from tools.kit.make_kit import sample
+
+    src = tmp_path / "cache"
+    src.mkdir()
+    p = Preparer(src, EventBus(), src)
+    made = src / "ch2_UHD_35M_fabc12345.ts"
+    made.write_bytes(b"ts")
+    key = p._key("UHD", 2, 35_000_000, Path("in"), "fabc12345")
+    made.with_suffix(".json").write_text(json.dumps({"key": key, "check": [], "bytes": 2}))
+    got = sample(made, tmp_path / "usb", "sample_2")
+    assert got.name == "sample_2_CH2_UHD.ts" and got.with_suffix(".json").is_file()
+    made.with_suffix(".json").write_text(json.dumps({"key": key, "check": [], "bytes": 9}))
+    with pytest.raises(SystemExit, match="as it is"):
+        sample(made, tmp_path / "usb2", "sample_2")

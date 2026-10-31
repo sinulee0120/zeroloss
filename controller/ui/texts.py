@@ -271,7 +271,8 @@ TEXT: dict[str, str] = {
     "Devices. Prepare that PC first with zeroloss-linux-setup.sh from the kit.",
     "linux_title": "Add a Linux PC",
     # 06 7 (2026-10-31, the remove buttons): ZeroLoss off a Linux PC, the app off a tablet
-    "remove": "Remove…",
+    "remove": "Remove",
+    "remove_mark": "✕",  # the row's button: small, so a tablet row fits (2026-10-31 screen)
     "remove_tip": "Remove ZeroLoss from this PC (over SSH), or the ZeroLoss app from this "
     "tablet. Only between tests.",
     "remove_pc_title": "Remove ZeroLoss from {name}",

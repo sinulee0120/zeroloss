@@ -196,7 +196,8 @@ def test_the_sender_lists_the_videos_it_has_made(prep: Preparer, tmp_path: Path)
     _made(prep, src, source_tag(src))
     (got,) = prep.made()
     assert got == {"quality": "UHD", "ch": 1, "mbps": MUX // 1_000_000, "whole": False,
-                   "digest": source_tag(src)}  # fmt: skip
+                   "digest": source_tag(src),
+                   "file": f"ch1_UHD_10M_{source_tag(src)}.ts"}  # fmt: skip
     stale = prep.folder / "ch2_UHD_10M_fdeadbeef.json"  # another recipe: made again
     stale.write_text('{"key": {"quality": "UHD", "ch": 2, "muxrate_bps": 10000000, '
                      '"recipe": "old"}, "check": [], "bytes": 0}', encoding="utf-8")  # fmt: skip
@@ -217,3 +218,48 @@ def test_ffmpeg_that_cannot_start_fails_the_channel(tmp_path: Path) -> None:
     st = p.status()
     assert [(c["ch"], c["state"]) for c in st["channels"]] == [(2, "failed")]
     assert any(e.code == "ZL-SND-020" for e in seen)
+
+
+def test_a_made_file_in_the_media_folder_is_sent_as_it_is(prep: Preparer, tmp_path: Path) -> None:
+    """2026-10-31 user: the kit carries "변환한거 10분짜리 3개" only. A made file with its
+    description in the media folder is used on its own channel and quality, nowhere else;
+    a changed size or an old recipe is not."""
+    import json
+    import shutil
+
+    made = _made(prep, tmp_path / "movie.mp4", "fabc12345")
+    media = tmp_path / "media"
+    media.mkdir()
+    kit = media / "sample_1_CH1_UHD.ts"
+    shutil.copy(made, kit)
+    shutil.copy(made.with_suffix(".json"), kit.with_suffix(".json"))
+    assert prep.made_as_is(kit) is not None
+    assert prep.ready("UHD", 1, MUX, kit) == kit
+    assert prep.ready("UHD", 2, MUX, kit) is None  # made for CH1
+    assert prep.ready("HD", 1, MUX, kit) is None
+    kit.write_bytes(b"made plus")  # not the file that was checked
+    assert prep.made_as_is(kit) is None
+    kit.write_bytes(b"made")
+    desc = json.loads(kit.with_suffix(".json").read_text(encoding="utf-8"))
+    desc["key"]["recipe"] = "old"
+    kit.with_suffix(".json").write_text(json.dumps(desc), encoding="utf-8")
+    assert prep.made_as_is(kit) is None
+
+
+def test_the_sender_hands_out_made_files_only(prep: Preparer, tmp_path: Path) -> None:
+    """The kit's videos come from the sender (``GET sender/made_file``): a made file or
+    its description by name, a link the server removes after sending, nothing else."""
+    from core.protocol.envelope import ZlError
+    from core.protocol.http_server import Query
+    from modules.iptv.module import IptvModule
+
+    made = _made(prep, tmp_path / "movie.mp4", "fabc12345")
+    m = IptvModule()
+    m.preparer = prep
+    sent = m.made_file(Query({"name": made.name}, "127.0.0.1", "127.0.0.1"))
+    assert sent.read_bytes() == b"made" and sent != made
+    sent.unlink()
+    assert made.is_file()  # the made file stays
+    for bad in ("../../etc/passwd", "notes.txt", "ch1_UHD_10M_fabc12345.ts.bak"):
+        with pytest.raises(ZlError):
+            m.made_file(Query({"name": bad}, "127.0.0.1", "127.0.0.1"))

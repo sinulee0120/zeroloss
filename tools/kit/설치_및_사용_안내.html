@@ -136,14 +136,14 @@ sudo bash zeroloss-linux-setup.sh</pre></li>
 <p><span class="warn">✖ 안 되면:</span> 영어 메시지를 사진으로 찍어 보내 주세요. 자주 있는 경우: IP를 잘못 입력함, 3단계를 안 함, 비밀번호 틀림.</p>
 
 <h2 id="sample">5-1. 샘플 영상 넣기 (송신 PC에서 한 번)</h2>
-<p>키트에는 시험용 영화가 들어 있습니다(<code>sample_1</code>, <code>sample_2</code>, <code>sample_3</code>). 각각 원본(<code>sample_N_original.mp4</code>)과, 그 원본으로 <b>미리 만들어 둔 UHD 시험 영상</b>(<code>sample_N_cache</code>)입니다. 미리 만든 것이 있어서 <b>시험이 바로 시작</b>됩니다. 새로 만들면 한 편에 몇 시간 걸립니다.</p>
+<p>키트에는 시험용 영상 3개가 들어 있습니다: <b>미리 만들어 둔 UHD 10분 영상</b>(35 Mbps), 채널마다 하나(<code>sample_1_CH1_UHD.ts</code>, <code>sample_2_CH2_UHD.ts</code>, <code>sample_3_CH3_UHD.ts</code>, 각각 설명 파일 <code>.json</code>과 함께). 이미 만든 영상이라 <b>시험이 바로 시작</b>됩니다. 새로 만들면 한 편에 몇 시간 걸립니다.</p>
 <ol>
 <li><b>송신 PC</b>에서 3단계처럼 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>로 터미널을 엽니다(3단계에서 홈에 복사한 <code>2_Linux_PC_USB</code> 폴더를 씁니다).</li>
 <li>아래 두 줄을 한 줄씩 입력하고 <kbd>Enter</kbd>:
 <pre>cd ~/2_Linux_PC_USB
 sudo bash zeroloss-sample-video.sh</pre></li>
-<li>비밀번호를 입력합니다(화면에 안 보이는 것이 정상). 한 편에 3~6분 걸립니다.</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"와 함께 영화마다 채널이 나옵니다. 미리 만든 영상은 <b>UHD · 기본 비트레이트(35 Mbps) · 10분</b>짜리로 <b>sample_1은 CH1, sample_2는 CH2, sample_3은 CH3</b>용입니다. 그 채널의 Source video 목록에 <b>sample_N_original.mp4 · ✔ ready, starts at once</b>가 보입니다(7단계). 다른 채널·HD·영화 전체 길이는 처음 한 번 만들어야 합니다.</li>
+<li>비밀번호를 입력합니다(화면에 안 보이는 것이 정상). 한 편에 2~4분 걸립니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"와 함께 영상마다 채널이 나옵니다. 7단계의 Source video 목록에서 <b>CH1에 sample_1_CH1_UHD.ts, CH2에 sample_2_CH2_UHD.ts, CH3에 sample_3_CH3_UHD.ts</b>를 고르면 <b>✔ ready, starts at once</b>로 바로 시작합니다. 각 영상은 그 채널용이고 UHD 전용입니다. 다른 채널·HD·내 영화는 처음 한 번 만들어야 합니다.</li>
 </ol>
 <p><span class="warn">✖ "ZeroLoss가 아직 이 PC에 없습니다"가 나오면:</span> 5단계(등록)를 먼저 하세요.</p>
 
@@ -177,7 +177,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <h2 id="run">7. IPTV 시험</h2>
 <ol>
 <li>왼쪽 <b>Test</b>에서 고릅니다: Test type = <b>IPTV test</b>, Video quality = <b>UHD</b>(또는 HD), Duration = 시험 시간(예: 10m, 1h, 100h).</li>
-<li><b>Source video</b>의 채널마다 영상을 고릅니다(5-1단계를 했으면 <b>sample_N_original.mp4 · ✔ ready, starts at once</b>).
+<li><b>Source video</b>의 채널마다 영상을 고릅니다(5-1단계를 했으면 CHn에 <b>sample_n_CHn_UHD.ts · ✔ ready, starts at once</b>).
 <ul>
 <li><b>✔ ready, starts at once</b>: 미리 만든 영상이 있어 바로 시작합니다.</li>
 <li><b>made first (takes a while)</b>: 먼저 만들어야 합니다(UHD는 몇 시간). 고르는 순간 만들기 시작하고, 아래에 진행률이 보입니다. 한 번 만든 것은 다시 만들지 않습니다.</li>
@@ -282,8 +282,8 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 
 <h2 id="remove">12. 지우는 방법</h2>
 <ul>
-<li><b>태블릿</b>: ZeroLoss 창 Devices의 그 태블릿 줄 <b>[Remove…]</b> → [Yes]. 또는 태블릿 설정 → 애플리케이션 → <b>ZeroLoss</b> → <b>삭제</b>. 개발자 옵션의 USB 디버깅도 끄고 싶으면 끕니다.</li>
-<li><b>Ubuntu PC</b>: 그 PC 줄의 <b>[Remove…]</b> → 아이디·비밀번호 입력 → [Remove]. 시험 자료까지 지우려면 "Also delete its test data"를 체크합니다. 또는 그 PC의 터미널에서 <code>sudo apt purge zeroloss-agent</code> (ZeroLoss가 바꾼 설정도 원래대로 돌아갑니다)</li>
+<li><b>태블릿</b>: ZeroLoss 창 Devices의 그 태블릿 줄 <b>[✕]</b>(Remove) → [Yes]. 또는 태블릿 설정 → 애플리케이션 → <b>ZeroLoss</b> → <b>삭제</b>. 개발자 옵션의 USB 디버깅도 끄고 싶으면 끕니다.</li>
+<li><b>Ubuntu PC</b>: 그 PC 줄의 <b>[✕]</b>(Remove) → 아이디·비밀번호 입력 → [Remove]. 시험 자료까지 지우려면 "Also delete its test data"를 체크합니다. 또는 그 PC의 터미널에서 <code>sudo apt purge zeroloss-agent</code> (ZeroLoss가 바꾼 설정도 원래대로 돌아갑니다)</li>
 <li><b>Windows PC</b>: <b>설정 → 앱 → 설치된 앱 → ZeroLoss Controller → 제거</b>. 마지막에 "시험 보고서와 설정도 지울까요?"를 묻습니다. <b>[아니요]</b>(기본)를 누르면 보고서와 설정이 남습니다. 시험이 진행 중이면 제거하지 않습니다.</li>
 </ul>
 </main></body></html>

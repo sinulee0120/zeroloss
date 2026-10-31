@@ -431,7 +431,8 @@ class SetupRow(QWidget):
             h.addWidget(w)
         self._h = h
         h.addStretch(1)
-        self.remove = QPushButton(TEXT["remove"])  # 06 7: ZeroLoss off it (between tests)
+        self.remove = QPushButton(TEXT["remove_mark"])  # 06 7: ZeroLoss off it (between tests)
+        self.remove.setFixedWidth(3 * GRID)  # 2026-10-31: "Remove…" made the rows scroll
         self.remove.setToolTip(TEXT["remove_tip"])
         self.remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.remove.clicked.connect(lambda: on_remove())
@@ -880,7 +881,7 @@ class LinuxDialog(QDialog):
             self.host.setText(remove)
         self.why = QLabel("")
         form.addWidget(self.why, 5, 0, 1, 2)
-        ok = QPushButton(TEXT["remove"].rstrip("…") if remove else TEXT["linux_title"])
+        ok = QPushButton(TEXT["remove"] if remove else TEXT["linux_title"])
         cancel = QPushButton("Cancel")
         ok.setDefault(True)
         ok.clicked.connect(self._ok)

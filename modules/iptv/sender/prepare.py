@@ -222,6 +222,11 @@ class Preparer:
         """The made file (generated, or from ``source``) if it exists, matches its
         description and passed 4.3. ``whole``: the whole user file (S-55)."""
         whole = whole and source is not None
+        if source is not None and not whole:
+            own = self.made_as_is(source)
+            if own is not None and (own["quality"], own["ch"], own["muxrate_bps"]) == (
+                    quality, ch, muxrate_bps):  # fmt: skip
+                return source  # a made file put in the media folder (the offline kit)
         for legacy in (False, True) if source is not None else (False,):
             try:
                 tag = source_tag(source, whole, legacy)
@@ -241,6 +246,24 @@ class Preparer:
             if ok:
                 return path
         return None
+
+    def made_as_is(self, source: Path) -> dict[str, Any] | None:
+        """A finished 10-minute made file used as a source (2026-10-31 user: the kit
+        carries "변환한거 10분짜리 3개" only): its description beside it says how it was made;
+        it is sent as it is when that is this build's recipe, it passed 4.3 and its size
+        is unchanged. Returns its key, else None."""
+        try:
+            desc = json.loads(source.with_suffix(".json").read_text(encoding="utf-8"))
+            size = source.stat().st_size
+            key = desc["key"]
+            quality, ch, mux = str(key["quality"]), int(key["ch"]), int(key["muxrate_bps"])
+            want = self._key(quality, ch, mux, Path("in") if key.get("source") == "file"
+                             else None, str(key.get("digest") or ""))  # fmt: skip
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if key != want or desc.get("check") != [] or desc.get("bytes") != size:
+            return None
+        return dict(key)
 
     def made(self) -> list[dict[str, Any]]:
         """Every finished file this build would use as it is: quality, channel, Mbps,
@@ -268,7 +291,8 @@ class Preparer:
                 continue
             out.append({"quality": quality, "ch": ch, "mbps": mux // 1_000_000,
                         "whole": whole and src is not None,
-                        "digest": tag.removesuffix("_whole") or None})  # fmt: skip
+                        "digest": tag.removesuffix("_whole") or None,
+                        "file": desc_path.with_suffix(".ts").name})  # fmt: skip
         return out
 
     def status(self) -> dict[str, Any]:

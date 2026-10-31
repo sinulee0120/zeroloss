@@ -645,6 +645,20 @@ class Tablets:
             raise TabletError("install the app", e.why, fix) from e
         return {"installed": True, "adb": out.splitlines()[-1] if out else ""}
 
+    def screenshot(self, serial: str, out: Path) -> None:
+        """What the tablet's screen shows now, as a PNG on this PC (F23 for tablets,
+        2026-10-31 user: "태블릿 깨진거 스크린샷은 왜 없냐고"). Only its own temporary file
+        on the tablet is written and removed."""
+        remote = "/data/local/tmp/zeroloss-screen.png"
+        try:
+            self.adb.shell(serial, ["screencap", "-p", remote], 20.0)
+            self.adb.pull(serial, remote, str(out))
+        except AdbError as e:
+            raise TabletError("take a screenshot", e.why) from e
+        finally:
+            with contextlib.suppress(AdbError):
+                self.adb.shell(serial, ["rm", "-f", remote])
+
     def uninstall_app(self, serial: str) -> dict[str, Any]:
         """06 7 / 2026-10-31 (the remove buttons): the ZeroLoss app off the tablet, nothing
         else; a tablet without it is fine as it is."""

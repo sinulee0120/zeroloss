@@ -126,6 +126,10 @@ class Adb:
                 rows.append((parts[0], int(parts[1][4:]), parts[2]))
         return rows
 
+    def pull(self, serial: str, remote: str, local: str) -> str:
+        """A file from the tablet to this PC (a screenshot, F23 evidence)."""
+        return self._adb(["-s", check_serial(serial), "pull", remote, local], "copy a file")
+
     def uninstall(self, serial: str, package: str) -> str:
         """Only the package named (the ZeroLoss app, 06 7)."""
         return self._adb(["-s", check_serial(serial), "uninstall", package],

@@ -199,6 +199,7 @@ class ControllerService:
         loc.command(f"{P}/modules/remove", self.deploy_remove)
         loc.command(f"{P}/install/linux", self.install_linux)
         loc.command(f"{P}/remove/linux", self.remove_linux)  # 06 7 (the remove buttons)
+        loc.command(f"{P}/made/fetch", self.made_fetch)  # the offline kit's movies
         loc.command(f"{P}/remove/tablet_app", self.remove_tablet_app)
         loc.get(f"{P}/prepare", self.prepare_state)
 
@@ -673,6 +674,32 @@ class ControllerService:
                                                            p.get("purge") is True)  # fmt: skip
         self.node.bus.publish(Event("ZL-INFO", "info", f"ZeroLoss removed from {dev.name}"))
         return out
+
+    def made_fetch(self, req: Request) -> dict[str, Any]:
+        """The sender's finished 10-minute made files, each with its description, into a
+        folder on this PC (2026-10-31 user: the kit carries "변환한거 10분짜리 3개"). Each
+        row names the movie it was made from and its channel."""
+        p = req.params
+        dev = self.devices.get(str(p.get("node", "")))
+        out = Path(str(p.get("out", "")))
+        if not out.is_absolute():
+            raise ZlError("DSC-012", "Request rejected", detail="out: a folder path on this PC")
+        out.mkdir(parents=True, exist_ok=True)
+        client = NodeClient(dev.host, dev.port, self.run.boot_id, dev.name)
+        iptv = "/v1/modules/iptv/sender"
+        try:
+            listed = client.get(f"{iptv}/sources", timeout_s=120)
+            rows = [{"movie": f.get("name"), "ch": m.get("ch"), "quality": m.get("quality"),
+                     "file": m["file"]} for f in listed.get("files") or []
+                    for m in f.get("made") or []
+                    if m.get("file") and not m.get("whole") and not m.get("as_is")]  # fmt: skip
+            for r in rows:
+                ts = str(r["file"])
+                for name in (ts, ts.removesuffix(".ts") + ".json"):
+                    client.download(f"{iptv}/made_file", out / name, timeout_s=1800, name=name)
+        finally:
+            client.close()
+        return {"node": dev.name, "out": str(out), "files": rows}
 
     def remove_tablet_app(self, req: Request) -> dict[str, Any]:
         """06 7: the ZeroLoss app off one tablet on a PC's USB (only between tests)."""

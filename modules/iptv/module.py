@@ -9,7 +9,11 @@ closes receivers first, then senders (stop order, 05 2.1-2 rule 5).
 from __future__ import annotations
 
 import functools
+import os
+import re
+import shutil
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +44,8 @@ from modules.iptv.sender.sources import digest, legacy_digest, list_sources, saf
 from modules.iptv.warmup import JOIN_WAIT_S, START_MAX_S
 
 PREFIX = "/v1/modules/iptv"
+# a finished made file and its description (prepare.generated_path), nothing else
+MADE_NAME = re.compile(r"^ch\d{1,2}_(?:SD|HD|UHD)_\d{1,3}M(?:_f[0-9a-f]+)?\.(?:ts|json)$")
 ACTIVE = (State.STARTING, State.RUNNING, State.FAULT)
 
 
@@ -90,6 +96,7 @@ class IptvModule:
         node.api.command(f"{PREFIX}/sender/probe", self.sender_probe)
         node.api.command(f"{PREFIX}/receiver/perfcheck", self.perfcheck)
         node.api.get(f"{PREFIX}/sender/sources", self.sources)
+        node.api.file(f"{PREFIX}/sender/made_file", self.made_file)  # the offline kit
         node.api.command(f"{PREFIX}/receiver/perfcheck/cancel", self.perfcheck_cancel)
         node.api.command(f"{PREFIX}/receiver/desktop", self.desktop_check)
         node.api.command(f"{PREFIX}/receiver/probe", self.receiver_probe)
@@ -228,9 +235,32 @@ class IptvModule:
             tags = self._tags(self.media_dir / str(f.get("name")))
             f["made"] = [{k: v for k, v in m.items() if k != "digest"}
                          for m in made if m["digest"] in tags]  # fmt: skip
+            own = (self.preparer.made_as_is(self.media_dir / str(f.get("name")))
+                   if self.preparer is not None else None)  # fmt: skip
+            if own is not None:  # a made file itself (the kit): ready on its channel
+                f["made"].append({"quality": own["quality"], "ch": own["ch"],
+                                  "mbps": int(own["muxrate_bps"]) // 1_000_000,
+                                  "whole": False, "as_is": True})  # fmt: skip
         out["generated_made"] = [
             {k: v for k, v in m.items() if k != "digest"} for m in made if m["digest"] is None
         ]
+        return out
+
+    def made_file(self, q: Query) -> Path:
+        """02 4 ``GET sender/made_file?name=``: one finished made file or its description,
+        for the offline kit (2026-10-31: the three 10-minute movies come from the sender
+        that made them). A link beside it, removed after sending; nothing else is served."""
+        name = str(q.params.get("name", ""))
+        if not MADE_NAME.match(name) or self.preparer is None:
+            raise ZlError("DSC-012", "Request rejected", detail="name of a made file")
+        src = self.preparer.folder / name
+        if not src.is_file() or src.is_symlink():
+            raise ZlError("RPT-005", f"No made file {name}", detail=str(src))
+        out = self.preparer.folder / f".send-{uuid.uuid4().hex}{src.suffix}"
+        try:
+            os.link(src, out)  # the same folder: no 2.6 GB copy
+        except OSError:
+            shutil.copyfile(src, out)
         return out
 
     def _tags(self, path: Path) -> set[str]:

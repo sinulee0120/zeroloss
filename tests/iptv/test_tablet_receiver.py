@@ -34,6 +34,11 @@ class FakeTablets:
     def wifi_status(self, serial: str) -> dict[str, Any]:
         return {"std": "11ax", "freq": 5745, "rx_mbps": 1201, "ssid": self.ssid}
 
+    def screenshot(self, serial: str, out: Path) -> None:
+        if self.away:
+            raise TabletError("take a screenshot", "not answering")
+        out.write_bytes(b"PNG fake screen")
+
     def hold_wifi(self, serial: str, ssid: str) -> list[str]:
         self.held.append(ssid)
         return ["ipreach disconnect off"]
@@ -313,3 +318,33 @@ def test_keep_holds_the_network_it_is_on_and_an_open_one_can_be_joined_again() -
     assert held is not None and (held.ssid, held.security) == ("Home", None)
     fake.ssid = None
     assert m._join_wifi("tablet-1", "A1", None) is None  # on no network: nothing to hold
+
+
+def test_a_trouble_second_keeps_the_tablets_screen_as_evidence(tmp_path: Path) -> None:
+    """F23 for tablets (2026-10-31 user: "태블릿 깨진거 스크린샷은 왜 없냐고"): the screen after the
+    player's buffer, beside the records as the PCs' evidence; one a minute at most."""
+    import json
+    import threading
+
+    from core.records.recorder import record_run
+
+    fake = FakeTablets()
+    r = receiver(tmp_path, fake)
+    slept: list[float] = []
+    r._sleep = slept.append  # type: ignore[assignment]
+    r.start()
+    fake.records = [rec(i) for i in range(1, 10)]
+    fake.records[5]["lost"] = 3
+    fake.records[7]["pb"] = "glitch"  # within a minute of the first: no second picture
+    r._pull()
+    for t in threading.enumerate():
+        if t.name.endswith("-screen"):
+            t.join(5)
+    folder = tmp_path / "raw" / "tablet-1"
+    shots = sorted(folder.glob("*_ev_e*"))
+    assert [p.suffix for p in shots] == [".json", ".png"]
+    assert all(record_run(p.name) == ("R1", None) for p in shots)  # the records index takes them
+    info = json.loads(shots[0].read_text(encoding="utf-8"))
+    assert info["why"] == ["lost 3"] and info["picture"] == shots[1].name
+    assert slept and slept[0] == 3.5  # the 3 s buffer, then half a second
+    r.stop()

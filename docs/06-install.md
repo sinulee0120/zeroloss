@@ -189,7 +189,7 @@
 8. **실패하면 되돌림:** 새 버전 제거 → 백업으로 이전 버전 복원 → 실패 원인 표시
 
 ## 7. 제거 절차
-- **화면에서(2026-10-31):** Devices의 각 줄 **[Remove…]**(시험 사이에만). 태블릿 줄 = 확인 후 그 태블릿에서 ZeroLoss 앱만 `adb uninstall`(노드 `/v1/tablets/uninstall_app`). 리눅스 PC 줄 = 계정·비밀번호를 한 번 묻고(저장 안 함) 설치 때와 같은 SSH 로그인·같은 호스트 키로 `dpkg -r zeroloss-agent`, "Also delete its test data" 체크 시 `--purge`(기본 꺼짐 = 자료 보존, 1 5), 끝나면 Devices에서 뺌(`/v1/controller/remove/linux`, `/remove/tablet_app`). Controller PC는 Windows의 "앱 → 제거"(4.1-2).
+- **화면에서(2026-10-31):** Devices의 각 줄 **[✕]**(Remove)(시험 사이에만). 태블릿 줄 = 확인 후 그 태블릿에서 ZeroLoss 앱만 `adb uninstall`(노드 `/v1/tablets/uninstall_app`). 리눅스 PC 줄 = 계정·비밀번호를 한 번 묻고(저장 안 함) 설치 때와 같은 SSH 로그인·같은 호스트 키로 `dpkg -r zeroloss-agent`, "Also delete its test data" 체크 시 `--purge`(기본 꺼짐 = 자료 보존, 1 5), 끝나면 Devices에서 뺌(`/v1/controller/remove/linux`, `/remove/tablet_app`). Controller PC는 Windows의 "앱 → 제거"(4.1-2).
 - **리눅스 PC 등록도 화면에서:** Devices의 **[Add a Linux PC]**(IP·계정·비밀번호·이름·자동 로그인) = 11.3 SSH 설치, 키트의 `2_리눅스PC_등록.bat`과 같은 일.
 1. 실행 중인 시험이 있으면 거부
 2. `--dry-run`: 지울 항목 목록만 표시
