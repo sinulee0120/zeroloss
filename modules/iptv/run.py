@@ -942,8 +942,9 @@ def cell_color(summary: dict[str, Any], jitter_warn_ms: float) -> tuple[Color, t
         bitrate_avg_bps=float((summary.get("bitrate_bps") or {}).get("avg") or 0.0),
         lost=int(loss.get("lost") or 0),
         host_drops=int((summary.get("receiver") or {}).get("host_drops") or 0),
+        scan_lost=int((summary.get("receiver") or {}).get("scan_lost") or 0),
         jitter_max_ms=float(jit.get("max_ms") or 0.0),
-        pdv_pp_ms=_pdv(jit),
+        pdv_pp_ms=_pdv(jit), wireless=bool(summary.get("wifi")),
         p1_errors=int((summary.get("ts") or {}).get("p1_errors") or 0),
         sender_s=int(tr.get("sender_s") or 0), sender_lost=int(tr.get("sender_lost") or 0),
         sender_p1=int(tr.get("sender_p1") or 0), link_s=int(tr.get("link_s") or 0),
@@ -1326,15 +1327,46 @@ def receiver_rows(plan: IptvPlan, module_data: dict[str, Any], memo: dict[str, A
         one = live_row(plan, {"receivers": [t]}, memo)
         if t.get("away"):
             one = {**one, "color": "red", "why": "No answer over USB (cable out?)"}
+        wifi = wifi_text(t.get("last_1s") or {})
+        if wifi:  # 2026-10-24 user: no RSSI, band, width or 11ax shown for the tablets
+            one = {
+                **one,
+                "items": [
+                    *one.get("items", []),
+                    {"label": wifi, "value": None, "unit": "", "key": False},
+                ],
+            }
         rows[str(t.get("id"))] = {**one, "link_label": "Wi-Fi"}
     return rows
+
+
+# How a receiver's own seconds say the Wi-Fi it receives on (a tablet has no card in the
+# plan): drawn by the live page and the tablet's row in this order
+WIFI_PARTS: list[dict[str, Any]] = [
+    {"key": k.WIFI_BAND}, {"key": k.WIFI_CH, "label": "ch"},
+    {"key": k.WIFI_BW, "unit": "MHz"}, {"key": k.WIFI_STD},
+    {"key": k.RSSI_DBM, "unit": "dBm"}, {"key": k.WIFI_MBPS, "unit": "Mbps"},
+]  # fmt: skip
+
+
+def wifi_text(rec: dict[str, Any]) -> str:
+    """ "Wi-Fi 5GHz · ch 149 · 80 MHz · 11ax · -31 dBm · 1201 Mbps" from one second, or ""."""
+    bits = []
+    for p in WIFI_PARTS:
+        v = rec.get(p["key"])
+        if v is None or v == "":
+            continue
+        bits.append(" ".join(str(x) for x in (p.get("label"), v, p.get("unit")) if x))
+    return "Wi-Fi " + " · ".join(bits) if rec.get(k.RSSI_DBM) is not None else ""
 
 
 # Live monitor (02 12 /live, 2026-10-08 GAP-119): what the Controller's live page shows of a
 # receiver's 1-second records, by name only — the page draws these, it never names a key.
 # now = card of the last second; cell = how the open 5-minute cell sums it (sum / max /
 # min / avg); total = whole-test card; chart = a 10-minute line (bars for "bad" counts);
-# bad = any non-zero is trouble; scale turns the value into the unit shown.
+# bad = any non-zero is trouble; scale turns the value into the unit shown; receiver = the
+# trouble is this receiver's own (its player), never the router's: shown amber, not red
+# (2026-10-31 user: red only for what the router lost).
 LIVE_COLUMNS: list[dict[str, Any]] = [
     {"key": k.JITTER_MS, "label": "Jitter", "unit": "ms", "now": True, "cell": "max",
      "chart": True, "digits": 1},
@@ -1351,9 +1383,9 @@ LIVE_COLUMNS: list[dict[str, Any]] = [
     {"key": k.DUPLICATES, "label": "Duplicates", "unit": "", "cell": "sum", "total": True},
     {"key": k.REORDERED, "label": "Reordered", "unit": "", "cell": "sum", "total": True},
     {"key": k.PLAYBACK, "label": "Playback", "unit": "", "now": True, "text": True,
-     "ok": ["ok"]},
+     "ok": ["ok"], "receiver": True},
     {"key": k.PLAY_DROPPED, "label": "Dropped frames", "unit": "", "cell": "sum",
-     "total": True, "bad": True},
+     "total": True, "bad": True, "receiver": True},
     {"key": k.RSSI_DBM, "label": "Wi-Fi RSSI", "unit": "dBm", "now": True, "cell": "min"},
 ]  # fmt: skip
 
@@ -1361,7 +1393,7 @@ LIVE_COLUMNS: list[dict[str, Any]] = [
 def live_view(p: IptvPlan) -> dict[str, Any]:
     """live monitor (02 12 /live): the columns above, and the line drawn on the jitter chart
     (this test's jitter warning level, S-23)."""
-    return {"columns": LIVE_COLUMNS, "cell_s": p.cell_s,
+    return {"columns": LIVE_COLUMNS, "cell_s": p.cell_s, "wifi": WIFI_PARTS,
             "lines": {k.JITTER_MS: [p.jitter_warn_ms]}}  # fmt: skip
 
 

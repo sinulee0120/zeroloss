@@ -84,7 +84,16 @@
 - `ZeroLoss.exe` 더블클릭: 127.0.0.1:10994가 응답하지 않으면 Controller 서비스(`cli\zeroloss.exe serve --role controller`)를 창 없이 따로 띄우고(창을 닫아도 서비스·시험은 계속, 12 1-0), Controller Desktop을 연다. 이미 도는 서비스가 있으면 그것에 붙는다.
 - **창을 닫으면(2026-10-04 GAP-116, 사용자가 작업 관리자로 강제 종료해야 했음):** 화면은 일하는 스레드를 기다리지 않고 바로 닫힌다(응답 없는 PC에 묻는 중이어도). 그다음 시험·시작·상시 방송이 없으면 서비스에 `quit`(02 2-13)을 보내 서비스도 끝난다 — 남는 프로세스가 없다. 시험 중이면 서비스는 계속(12 1-0).
 - 데이터 `C:\ProgramData\ZeroLoss\Controller\`, 보고서 `C:\ZeroLoss\Reports\`(위 표와 같은 곳 — 나중에 설치 파일로 바꿔도 이어짐), 서비스 출력 `…\Controller\logs\controller-service.log`.
-- 아직 없음(설치 파일, V18): Windows 서비스 등록·자동 시작·Deployer, 방화벽 규칙, 트레이·로그인 때 자동 실행, 시작 메뉴, 제거.
+- 아직 없음(V18): Windows 서비스 등록·자동 시작·Deployer, 트레이·로그인 때 자동 실행.
+
+#### 4.1-2 Windows Controller 설치 파일 (2026-10-31 사용자 "설치가이드. Offline kit. Installer . 사용법")
+- `python -m tools.build installer --app <휴대 빌드 폴더(packages\ 포함)> [--tools <TSDuck .deb 폴더>]` → `dist/ZeroLoss-Controller-Setup-<빌드>.exe` (Inno Setup, `installer/windows/zeroloss-controller.iss`, 컴파일러 `C:\Android\InnoSetup7\ISCC.exe` 또는 `ZEROLOSS_ISCC`).
+- **원클릭:** 관리자 승인 한 번 뒤 묻는 것 없이 `C:\Program Files\ZeroLoss\Controller\`에 설치, 마지막 창에서 [ZeroLoss 켜기]. 위 휴대 빌드와 같은 파일에 안내서(`설치_및_사용_안내.html`)와 `리눅스PC_등록.bat`을 더한다.
+- 만드는 것: 시작 메뉴 `ZeroLoss Controller`·`ZeroLoss 사용 안내`·`ZeroLoss 리눅스 PC 등록`, 바탕 화면 바로 가기, 방화벽 규칙 3개(프로그램 기준 인바운드: `ZeroLoss Controller service`(cli\zeroloss.exe), `… screen`(ZeroLoss.exe), `… iperf3`), "앱 및 기능" 항목.
+- **시험 중에는 설치·제거 거부(1 7):** 127.0.0.1:10994 `status`가 IDLE이 아니면 "시험이 진행 중입니다"로 끝낸다(시험은 계속). IDLE이면 서비스에 `quit`을 보내 끝난 것을 확인한 뒤 진행한다(어느 폴더의 Controller든). CLI에도 같은 `zeroloss quit`.
+- 다음 버전 설치: 같은 AppId라 덮어쓰며, 이전 빌드의 `_internal\`·`cli\`·`modules\`·`packages\`를 먼저 지운다(찌꺼기 없음).
+- **제거:** 방화벽 규칙은 만든 이름 그대로만 지우고, 마지막에 "보고서와 설정도 지울까요?"를 묻는다(기본 [아니요] = 보존, 조용한 제거도 보존).
+- 확인(2026-10-31): 시험 중 거부(종료 코드 7), 대기 중 quit 후 설치(29초), 설치된 `cli\zeroloss.exe status` 동작, 제거 후 프로그램·바로 가기 없음·데이터 남음. 시험은 `--port`(다른 포트로 컴파일)로 도는 Controller를 건드리지 않고 했다.
 
 ### 4.2 Windows Agent
 | 종류 | 이름 | 비고 |
@@ -180,6 +189,8 @@
 8. **실패하면 되돌림:** 새 버전 제거 → 백업으로 이전 버전 복원 → 실패 원인 표시
 
 ## 7. 제거 절차
+- **화면에서(2026-10-31):** Devices의 각 줄 **[Remove…]**(시험 사이에만). 태블릿 줄 = 확인 후 그 태블릿에서 ZeroLoss 앱만 `adb uninstall`(노드 `/v1/tablets/uninstall_app`). 리눅스 PC 줄 = 계정·비밀번호를 한 번 묻고(저장 안 함) 설치 때와 같은 SSH 로그인·같은 호스트 키로 `dpkg -r zeroloss-agent`, "Also delete its test data" 체크 시 `--purge`(기본 꺼짐 = 자료 보존, 1 5), 끝나면 Devices에서 뺌(`/v1/controller/remove/linux`, `/remove/tablet_app`). Controller PC는 Windows의 "앱 → 제거"(4.1-2).
+- **리눅스 PC 등록도 화면에서:** Devices의 **[Add a Linux PC]**(IP·계정·비밀번호·이름·자동 로그인) = 11.3 SSH 설치, 키트의 `2_리눅스PC_등록.bat`과 같은 일.
 1. 실행 중인 시험이 있으면 거부
 2. `--dry-run`: 지울 항목 목록만 표시
 3. 목록 표시 후 확인 받기

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -38,6 +39,7 @@ def test_speed_and_vainfo() -> None:
     assert hw_decode("UHD", lambda a: None) is None  # no vainfo: unknown
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="vainfo is Linux")
 def test_warn_texts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pc = PerfCheck(tmp_path, tmp_path / "procs", vainfo=lambda a: VAINFO, idle_cpu=lambda: 70.0)
     monkeypatch.setattr(pc, "_run", lambda *a, **k: 0)
@@ -96,6 +98,7 @@ def test_cancel_stops_a_sample_being_made(tmp_path: Path) -> None:
     assert perf.MIN_SPEED == 1.5
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="vainfo is Linux")
 def test_fast_enough_decoding_needs_no_vainfo_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

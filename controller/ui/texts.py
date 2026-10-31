@@ -65,6 +65,8 @@ TEXT: dict[str, str] = {
     # Tablet test (11-ui 3, 2026-10-23): a row per tablet on a PC's USB
     "tablet_new": "Tablet",
     "relays_tablets": "relays {n} tablet(s) by USB",
+    "usb_unseen": "{n} tablet(s) on its USB not seen by adb: plug in again, try another "
+    "cable, straight into the PC (not a hub or dock), then Refresh",
     "tablet_on": "on {host} USB",
     "tablet_battery": "battery {n}%{how}",
     "tablet_charging": " charging",
@@ -172,6 +174,8 @@ TEXT: dict[str, str] = {
     "warming_up": "Warming up",
     "last_update": "Last update {s} s ago",
     "rssi": "RSSI {v} dBm",
+    "wifi_band_item_tablet": "{ssid} · {security}",
+    "cells_merged": "Hours {a}-{b} of the test (one box, its worst result)",
     "rssi_none": "RSSI —",
     "rssi_none_tip": "Wi-Fi signal not available",
     "rssi_weak_tip": "Weak Wi-Fi signal (below {v} dBm)",
@@ -252,6 +256,50 @@ TEXT: dict[str, str] = {
     "why": "Why",
     "fix": "Fix",
     "progress": "{elapsed} / {planned} ({pct}%)",
+    "refresh": "Refresh",
+    "help": "?",  # narrow: the top bar fits 1280 px while a test runs
+    "tip_help": "Help: the install and use guide (in the browser), at the part for this test.",
+    "refreshing": "Reading…",
+    "refresh_tip": "Read the PCs and the tablets on their USB again now (they are read every few "
+    "seconds anyway). A tablet that never shows: its USB cable or port (the PC does not see it).",
+    "start_title": "Start the test?",
+    # 2026-10-31 (a black window and typed commands were the only way): a Linux PC is
+    # registered from here, as 2_리눅스PC_등록.bat does it (06 11.3)
+    "add_linux": "Add a Linux PC",
+    "add_linux_busy": "Installing on {host}… (a few minutes)",
+    "add_linux_tip": "Install ZeroLoss on an Ubuntu PC over the network (SSH) and add it to "
+    "Devices. Prepare that PC first with zeroloss-linux-setup.sh from the kit.",
+    "linux_title": "Add a Linux PC",
+    # 06 7 (2026-10-31, the remove buttons): ZeroLoss off a Linux PC, the app off a tablet
+    "remove": "Remove…",
+    "remove_tip": "Remove ZeroLoss from this PC (over SSH), or the ZeroLoss app from this "
+    "tablet. Only between tests.",
+    "remove_pc_title": "Remove ZeroLoss from {name}",
+    "remove_purge": "Also delete its test data and settings (/var/lib/zeroloss)",
+    "remove_tablet_title": "Remove the ZeroLoss app?",
+    "remove_tablet_body": "The ZeroLoss app comes off tablet {serial} (on {host}). Nothing "
+    "else on the tablet changes. Update PCs puts it back.",
+    "removed_title": "Removed",
+    "removed_pc": "ZeroLoss is off {name} and out of Devices.",
+    "removed_tablet": "The ZeroLoss app is off tablet {serial}.",
+    "remove_failed_title": "Not removed",
+    "remove_failed_body": "{what}\n\n{why}\n\n{fix}",
+    "linux_host": "IP address",
+    "linux_user": "User name",
+    "linux_password": "Password",
+    "linux_name": "Name (sender, receiver…)",
+    "linux_auto_login": "Log this user in after a reboot (receiving PC: its picture shows)",
+    "linux_need": "Type the IP address, the user name and the password.",
+    "linux_done_title": "Linux PC added",
+    "linux_done_body": "{name} ({host}) is installed and in Devices.{missing}",
+    "linux_missing": "\n\nNot installed on it yet: {tools}. Run zeroloss-linux-setup.sh there.",
+    "linux_failed_title": "Linux PC not added",
+    "linux_failed_body": "{what}\n\n{why}\n\n{fix}",
+    "start_sender": "Sender: {pc}",
+    "start_wan": "WAN side PC: {pc}",
+    "start_wifi": "Wi-Fi {ssid} (kept)",
+    "this_pc": "this PC",
+    "start_body": "{what}\n\nThe test starts on every PC now.",
     "stop_title": "Stop the test?",
     "stop_body": "The test stops now and the report is written from the data so far. "
     "A stopped test is never PASS.",

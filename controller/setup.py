@@ -114,13 +114,15 @@ def address_labels(links: list[dict[str, Any]] | None,
     return out
 
 
-def _tablets(client: NodeClient) -> list[dict[str, Any]]:
-    """The tablets on this PC's USB (02 4 ``/v1/tablets``); none from an older build."""
+def _tablets(client: NodeClient) -> tuple[list[dict[str, Any]], int]:
+    """The tablets on this PC's USB (02 4 ``/v1/tablets``), and how many more are on its
+    USB that adb does not list; none from an older build."""
     try:
         got = client.get("/v1/tablets", timeout_s=15.0)
     except ZlError:
-        return []
-    return [t for t in got.get("tablets") or [] if isinstance(t, dict) and t.get("serial")]
+        return [], 0
+    rows = [t for t in got.get("tablets") or [] if isinstance(t, dict) and t.get("serial")]
+    return rows, int(got.get("usb_unseen") or 0)
 
 
 def sides(devices: DeviceList, boot_id: str,
@@ -150,7 +152,10 @@ def sides(devices: DeviceList, boot_id: str,
                 wan = client.get("/v1/wan", timeout_s=2.0)
             except ZlError:
                 wan = {}
-            tablets = _tablets(client) if test_type in (IPTV_TEST, *OLD_TEST_TYPES) else []
+            # the tablets on its USB: IPTV receivers, and in a Wi-Fi throughput test measured
+            # like the PCs (T-4, 2026-10-29 user "구현부터 다 해")
+            wants = (IPTV_TEST, *OLD_TEST_TYPES, "Throughput · All", "Throughput · Wi-Fi")
+            tablets, unseen = _tablets(client) if test_type in wants else ([], 0)
         except ZlError:
             out[dev.name] = {"reachable": False, "side": "unknown", "host": dev.host,
                              "addresses": picks, "why": f"no answer at {dev.host}",
@@ -171,7 +176,8 @@ def sides(devices: DeviceList, boot_id: str,
         wan_ip = str(wan.get("server_ip") or "") if wan.get("on") else None
         out[dev.name] = {"reachable": True, "side": side, "isp_role": bool(wan.get("on")),
                          "links": known, "host": dev.host, "addresses": picks,
-                         "labels": address_labels(known, wan_ip), "tablets": tablets}  # fmt: skip
+                         "labels": address_labels(known, wan_ip), "tablets": tablets,
+                         "usb_unseen": unseen}  # fmt: skip
     return out
 
 
@@ -187,9 +193,21 @@ def roles(setup: dict[str, Any], found: dict[str, dict[str, Any]]) -> dict[str, 
     tablet = setup.get("test_type") in (IPTV_TEST, *OLD_TEST_TYPES)
     # a tablet test has its tablets and may have the PC receiver too (2026-10-23 user:
     # "수신기 pc 한대, 태블릿 두대"); a PC test has PCs only
+    # 2026-10-31 user ("지금 두대 뿐이거든", "한대밖에 안골라지거든"): a tablet unplugged
+    # since stays saved but is not a receiver of this test (its PC lists the ones on USB)
+    on_usb = {str(t.get("serial")) for s in found.values() if isinstance(s, dict)
+              for t in s.get("tablets") or [] if isinstance(t, dict)
+              and t.get("state") == "device"}  # fmt: skip
+    asked = any("tablets" in s for s in found.values() if isinstance(s, dict))
     receivers = [r for r in setup.get("receivers") or []
                  if (r.get("host") in names if r.get("serial") else r.get("device") in names)
-                 and (tablet or not r.get("serial"))]  # fmt: skip
+                 and (tablet or not r.get("serial"))
+                 and (not r.get("serial") or not asked or r.get("serial") in on_usb)]  # fmt: skip
+    # 2026-10-31 user ("왜 태블릿 한개인데 이름이 tablet 3이야"): the tablets of this test are
+    # tablet-1, -2, -3 in the order they were numbered before, with no gaps
+    tabs = sorted((r for r in receivers if r.get("serial")), key=lambda r: str(r.get("device")))
+    renamed = {id(r): f"tablet-{i}" for i, r in enumerate(tabs, start=1)}
+    receivers = [{**r, "device": renamed[id(r)]} if id(r) in renamed else r for r in receivers]
     if not receivers:
         why = why or ("Choose the receivers: set a PC or tablet row to Receiver" if tablet
                       else "Choose the receiver: set its row to Receiver")  # fmt: skip

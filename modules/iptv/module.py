@@ -31,7 +31,7 @@ from modules.iptv.probe import (
 )
 from modules.iptv.receiver.perf import PerfCheck
 from modules.iptv.receiver.session import ReceiverConfig, ReceiverSession
-from modules.iptv.receiver.tablet import TabletConfig, TabletReceiver
+from modules.iptv.receiver.tablet import HeldWifi, TabletConfig, TabletReceiver
 from modules.iptv.sender.commands import DEFAULT_TTL, QUALITIES
 from modules.iptv.sender.prepare import Preparer
 from modules.iptv.sender.prime import PrimedSender, PrimeFlow, prime_payload
@@ -101,6 +101,8 @@ class IptvModule:
         if tablets is not None:
             threading.Thread(target=tablets.resume_timer_scans, name="iptv-scans-back",
                              daemon=True).start()  # fmt: skip
+            threading.Thread(target=tablets.release_wifi, name="iptv-wifi-back",
+                             daemon=True).start()  # TAB-019 as well  # fmt: skip
 
     def safe_stop(self, reason: str) -> None:
         # a video being made stops too (iptv 1-1-2) — except when only the Controller came
@@ -133,7 +135,9 @@ class IptvModule:
         """Reset All (node /v1/reset): what the tablets had paused for a test is put
         back (TAB-018), also after a crash left it so."""
         tablets = getattr(self.node, "tablets", None)
-        return list(tablets.resume_timer_scans()) if tablets is not None else []
+        if tablets is None:
+            return []
+        return [*tablets.resume_timer_scans(), *tablets.release_wifi()]  # TAB-018, TAB-019
 
     def clean_check(self) -> list[str]:
         """F11 Reset All (02 4 ``/v1/reset``): what is still running after the stop."""
@@ -349,8 +353,9 @@ class IptvModule:
             old = self.tablet_rx.get(cfg.device)
             if old is not None and old.state == "RUNNING":
                 raise ZlError("RUN-012", f"{cfg.device} is already receiving")
-            t = TabletReceiver(cfg, self._run_dir(req), self.node.bus, self.node.tablets)
-            self._join_wifi(cfg.device, cfg.serial, p.get("bands"))
+            held = self._join_wifi(cfg.device, cfg.serial, p.get("bands"))
+            t = TabletReceiver(cfg, self._run_dir(req), self.node.bus, self.node.tablets,
+                               held=held)  # fmt: skip
             self._node_starting()
             try:
                 t.start()
@@ -361,12 +366,26 @@ class IptvModule:
             self._node_settle()
             return {"device": cfg.device, "ch": cfg.ch, "state": t.state}
 
-    def _join_wifi(self, device: str, serial: str, bands: Any) -> None:
+    def _join_wifi(self, device: str, serial: str, bands: Any) -> HeldWifi | None:
         """S-51 / TAB-014: the tablet onto the Wi-Fi picked for it (its password added by
-        the Controller, never kept here); a tablet already on it is left as it is."""
+        the Controller, kept in memory for this test only); a tablet already on it is left
+        as it is. Returns the network it stays on for the test (TAB-019): that one, or
+        the one it is on now when none was picked ("Wi-Fi: keep")."""
         band = bands[0] if isinstance(bands, list) and bands else None
         if not isinstance(band, dict) or not band.get("ssid"):
-            return  # none picked: the tablet stays on the Wi-Fi it is on
+            try:  # none picked: the tablet stays on the Wi-Fi it is on
+                on = self.node.tablets.wifi_status(serial).get("ssid")
+            except TabletError:
+                return None
+            if not on:
+                return None
+            # an open network (the router's TV SSID) is joined again with no password
+            # (receiverPC 2026-10-31: Android will not go back to it by itself)
+            try:
+                kind = self.node.tablets.saved_security(serial, str(on))
+            except TabletError:
+                kind = None
+            return HeldWifi(str(on), "Open" if kind == "Open" else None)
         try:
             got = self.node.tablets.join_wifi(serial, str(band["ssid"]),
                                               str(band.get("security") or "Open"),
@@ -378,6 +397,8 @@ class IptvModule:
             self.node.bus.publish(Event("ZL-INFO", "info",
                                         f"{device}: joined Wi-Fi {got['ssid']} ({got.get('ip')})",
                                         data={"module": "iptv", "device": device}))  # fmt: skip
+        return HeldWifi(str(band["ssid"]), str(band.get("security") or "Open"),
+                        str(band.get("password") or ""))  # fmt: skip
 
     def tablet_stop(self, req: Request) -> dict[str, Any]:
         device = _need(req.params, "device", str)

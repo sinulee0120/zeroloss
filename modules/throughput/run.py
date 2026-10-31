@@ -32,6 +32,8 @@ TEST_TYPES = {"Throughput · All": "all", "Throughput · Wired": "wired",
               "Throughput · Wi-Fi": "wifi"}  # fmt: skip
 NETWORK = {"wired": "Wired", "wifi": "Wireless", "all": ""}  # which cards each test takes
 CASE_OVERHEAD_S = 5  # iperf3 start and end, per direction
+WIFI_SETTINGS_PER_BAND = 4  # an estimate: a width cap and two or three modes per band
+WIFI_JOIN_S = 40  # a Wi-Fi setting: the card joins with it, then back and joined again
 SERVER_S = 10  # the server start
 STARTED = ("queued", "running", "done", "failed")
 OVER = ("done", "failed", "stopped")
@@ -50,16 +52,18 @@ class Target:
     """One card to measure: a PC's address on the router LAN side, by cable or Wi-Fi
     (2026-10-16 user: "LAN이나 WIFI가 있는 IP가 발견되면 하나하나 추가하고 순차 테스트")."""
 
-    device: str
+    device: str  # the PC it is measured through (a tablet: the PC its USB is on)
     ip: str
-    kind: str  # wired / wifi
+    kind: str  # wired / wifi / tablet
     nic: str = ""
     # Wi-Fi: (band, ssid, bssid, security) the person picked
     bands: tuple[tuple[str, str, str, str], ...] = ()
+    serial: str = ""  # a tablet (T-4): its adb serial
+    name: str = ""  # a tablet: what its row says (model)
 
     @property
     def id(self) -> str:
-        return f"{self.device}@{self.ip}"
+        return f"{self.device}@tablet:{self.serial}" if self.serial else f"{self.device}@{self.ip}"
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,11 @@ class ThroughputPlan:
     def clients(self) -> list[str]:
         return list(dict.fromkeys(t.device for t in self.targets))
 
+    def node_of(self, device: str) -> str:
+        """The PC a row is reached through: a tablet's is the PC its USB is on."""
+        return next((t.device for t in self.targets if t.kind == "tablet"
+                     and tablet_name(t.serial) == device), device)  # fmt: skip
+
 
 def _setting(s: dict[str, Any], sid: str) -> Any:
     return s.get(sid, DEFAULTS[sid])
@@ -114,6 +123,22 @@ def _ranged(s: dict[str, Any], sid: str) -> float:
 
 def _net24(ip: str) -> str:
     return ".".join(ip.split(".")[:3]) if ip.count(".") == 3 else ""
+
+
+def missing_tablets(plan: dict[str, Any]) -> tuple[str, ...]:
+    """Tablets ticked in S-65 that were not on their PC's USB when Start was pressed."""
+    ticked = _setting(dict(plan.get("settings") or {}), "S-65") or {}
+    present = plan.get("tablets_present") or {}
+    out = []
+    for device, cards in ticked.items() if isinstance(ticked, dict) else []:
+        seen = present.get(device)
+        if seen is None or not isinstance(cards, dict):
+            continue  # not asked: its tablets are kept
+        for nic in cards:
+            serial = str(nic)[len(TABLET) :]
+            if str(nic).startswith(TABLET) and serial not in seen:
+                out.append(f"tablet {serial} on {device}: not connected by USB at Start")
+    return tuple(out)
 
 
 def find_targets(plan: dict[str, Any], sender: str, kind: str) -> list[Target]:
@@ -140,6 +165,17 @@ def find_targets(plan: dict[str, Any], sender: str, kind: str) -> list[Target]:
                 continue
             lan = lan_of(device) or others  # this PC (127.0.0.1): the LAN the others are on
             for nic, want in sorted(mine.items()):
+                if str(nic).startswith(TABLET) and isinstance(want, dict):
+                    # T-4 (2026-10-29): a tablet on this PC's USB, its Wi-Fi as it is or the
+                    # band networks picked in its row
+                    serial = str(nic)[len(TABLET) :]
+                    seen = (plan.get("tablets_present") or {}).get(str(device))
+                    if seen is not None and serial not in seen:
+                        continue  # not on its PC's USB at Start: left out (missing_tablets)
+                    out.append(Target(str(device), str(want.get("ip") or ""), "tablet", serial,
+                                      _bands(want), serial,
+                                      str(want.get("name") or serial)))  # fmt: skip
+                    continue
                 card: dict[str, Any] = next(
                     (c for c in cards.get(device) or [] if c.get("nic") == nic), {}
                 )
@@ -163,12 +199,20 @@ def find_targets(plan: dict[str, Any], sender: str, kind: str) -> list[Target]:
                     out.append(Target(d, ip, "wifi" if net == "Wireless" else "wired"))
                 else:  # the card is not known yet: start_steps says so
                     out.append(Target(d, "", "wifi" if net == "Wireless" else "wired"))
-    if kind != "all":
-        out = [t for t in out if t.kind == kind]
-    return sorted(out, key=lambda t: (t.kind != "wired", t.device, t.ip))
+    if kind != "all":  # a tablet is measured over Wi-Fi
+        out = [t for t in out if t.kind == kind or (kind == "wifi" and t.kind == "tablet")]
+    order = {"wired": 0, "wifi": 1, "tablet": 2}  # cables, then Wi-Fi cards, then tablets
+    # 2026-10-29 user ("다시 이 와이파이로 돌아와야할거야, 그래야 클로드 AI로 계속 확인하지"):
+    # the Controller PC's Wi-Fi is its way to the internet; it goes last of all, so every
+    # other result is in before it leaves its network (it comes back after)
+    last = {(CONTROLLER, "wifi")}
+    return sorted(out, key=lambda t: ((t.device, t.kind) in last, order[t.kind], t.device,
+                                      t.ip, t.serial))  # fmt: skip
 
 
 BANDS = ("2.4GHz", "5GHz", "6GHz")
+TABLET = "tablet:"  # S-65: a tablet's entry under the PC it hangs on, "tablet:<serial>"
+CONTROLLER = "controller"  # the Controller PC as a LAN-side PC (controller/service.py THIS_PC)
 
 
 def _bands(want: Any) -> tuple[tuple[str, str, str, str], ...]:
@@ -194,6 +238,7 @@ def validate(plan: dict[str, Any]) -> ThroughputPlan:
                       "The WAN-side PC runs the iperf3 server.",
                       "Connect a PC to the router WAN port, or choose it as Sender.")  # fmt: skip
     targets = find_targets(plan, sender, kind)
+    missing = missing_tablets(plan)
     if not targets:
         net = {"wired": "by cable", "wifi": "over Wi-Fi", "all": "by cable or Wi-Fi"}[kind]
         fix = "Tick the cards to test in Devices (a Wi-Fi card with its bands)."
@@ -212,18 +257,27 @@ def validate(plan: dict[str, Any]) -> ThroughputPlan:
     # an estimate only (the end comes from the PCs): a cable ~6 modes, the WAN side ~6
     per_case = len(directions) * (seconds + CASE_OVERHEAD_S) + (wait if every else 0)
     n_cases = sum(1 + (10 if every and t.kind == "wired" else 0) for t in targets)
+    # 2026-10-29: each picked band, and with S-62 Every supported each Wi-Fi setting
+    wifi = sum(len(t.bands) * (1 + (WIFI_SETTINGS_PER_BAND if every else 0))
+               for t in targets if t.kind == "wifi")  # fmt: skip
+    wifi += sum(max(1, len(t.bands)) for t in targets if t.kind == "tablet")
+    n_cases += wifi
+    per_wifi = WIFI_JOIN_S + wait
     nics = {str(k): str(v) for k, v in (plan.get("nics") or {}).items()}
     hosts = plan.get("hosts") or {}
     server_ip = nics.get(sender) or hosts.get(sender)
+    duration = SERVER_S + 2 * wait * len(targets) + per_case * n_cases + per_wifi * wifi
     return ThroughputPlan(
-        test_type=kind, duration_s=int(SERVER_S + 2 * wait * len(targets) + per_case * n_cases)
-        + 300, sender=sender, receivers=tuple((c, 1) for c in dict.fromkeys(
-            t.device for t in targets)), seconds=seconds, wait_s=wait,
+        test_type=kind, duration_s=int(duration) + 300, sender=sender,
+        # the PCs, then each tablet as its own row (0: no TV channel), reached through its PC
+        receivers=tuple((c, 1) for c in dict.fromkeys(t.device for t in targets))
+        + tuple((tablet_name(t.serial), 0) for t in targets if t.kind == "tablet"),
+        seconds=seconds, wait_s=wait,
         threshold_pct=_ranged(s, "S-59"), protocol=protocol,
         streams=int(_ranged(s, "S-61")), cases=cases, nics=nics,
         server_ip=str(server_ip) if server_ip and server_ip != "wifi" else None,
         targets=tuple(targets), every_speed=every, directions=directions,
-        udp_pct=_ranged(s, "S-64"),
+        udp_pct=_ranged(s, "S-64"), not_run=missing,
     )  # fmt: skip
 
 
@@ -237,14 +291,24 @@ def target_cases(p: ThroughputPlan, t: Target) -> list[dict[str, Any]]:
     if p.every_speed and t.kind == "wired":
         cases.append({"phase": WAN_MODES})
         cases.append({"phase": OWN_MODES})
+    if t.kind == "tablet":  # its bands (joined by adb, then back), or its Wi-Fi as it is
+        return [{"phase": WIFI_BANDS}] if t.bands else [{"label": "Wi-Fi as connected",
+                                                         "speed_mbps": None}]  # fmt: skip
     if t.kind == "wifi" and t.bands:  # only the Wi-Fi changes, band by band (then back)
         cases.append({"phase": WIFI_BANDS})
     return cases
 
 
 UNSUPPORTED_WIFI = [
-    "Wi-Fi channel width, mode (11n/ac/ax) and band: not changed by the PC — "
-    "measured as the router and the card chose (recorded in each case)",
+    "Wi-Fi channel and security: the router's, not changed (recorded in each case); "
+    "width caps and modes: only those this card's driver offers (Windows: its advanced "
+    "settings; Linux: wpa_supplicant options), 11b alone not on Linux",
+]
+
+
+UNSUPPORTED_TABLET = [
+    "Tablet: its Wi-Fi width and mode cannot be changed by an app or adb (recorded as "
+    "joined, with the band); TCP only",
 ]
 
 
@@ -252,7 +316,7 @@ UNSUPPORTED_WIFI = [
 
 
 def _client_step(p: ThroughputPlan, t: Target, elapsed_s: float = 0.0) -> Step:
-    if not t.ip and not (t.kind == "wifi" and t.bands):
+    if not t.ip and t.kind != "tablet" and not (t.kind == "wifi" and t.bands):
         raise ZlError("RUN-014", f"The test card of {t.device} is not known",
                       "Its address on the router LAN side is needed.",
                       "Pick its card in the device row (Card).")  # fmt: skip
@@ -261,9 +325,15 @@ def _client_step(p: ThroughputPlan, t: Target, elapsed_s: float = 0.0) -> Step:
         "cases": target_cases(p, t), "seconds": p.seconds, "wait_s": p.wait_s,
         "protocol": p.protocol, "streams": p.streams, "kind": t.kind,
         "directions": list(p.directions), "udp_pct": p.udp_pct, "nic": t.nic,
+        "wifi_settings": p.every_speed,  # S-62: Every supported = the card's Wi-Fi settings too
         "bands": [{"band": b, "ssid": s, "bssid": x, "security": sec}
                   for b, s, x, sec in t.bands],
-        "unsupported": UNSUPPORTED_WIFI if t.kind == "wifi" else [],
+        "unsupported": UNSUPPORTED_WIFI if t.kind == "wifi" else (
+            UNSUPPORTED_TABLET if t.kind == "tablet" else []),
+        # a tablet's records are its own row's (the judge and report), asked through its PC
+        **({"serial": t.serial, "who": f"tablet {t.name}", "kind": "wifi",
+            "device": tablet_name(t.serial), "host": t.device}
+           if t.kind == "tablet" else {}),
         "elapsed_s": round(elapsed_s, 1),
         "judged": {"wired": t.kind == "wired", "pct": p.threshold_pct,
                    "directions": list(p.directions)},
@@ -276,7 +346,7 @@ def start_steps(p: ThroughputPlan, skip_send: bool = False) -> list[list[Step]]:
         raise ZlError("RUN-014", f"The address of {p.sender} is not known",
                       "The LAN-side PCs connect to it through the router.")  # fmt: skip
     for t in p.targets:
-        if not t.ip:
+        if not t.ip and t.kind != "tablet":  # a tablet's address is read when it measures
             _client_step(p, t)  # says which card is not known
     server = [Step(p.sender, f"{PREFIX}/server/start", {"bind": p.server_ip}, 15.0)]
     return [server, [_client_step(p, p.targets[0])]]
@@ -525,6 +595,47 @@ def device_totals(summaries: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------- screens
 
 
+def tablet_name(serial: str) -> str:
+    """A tablet's row in Devices during a throughput test."""
+    return f"tablet {serial}"
+
+
+def receiver_rows(plan: ThroughputPlan, module_data: dict[str, Any], memo: dict[str, Any]
+                  ) -> dict[str, dict[str, Any]]:  # fmt: skip
+    """2026-10-30 user ("start누르고 devices화면에 여전히 태블릿 정보는 안나오네"): each tablet
+    this PC measures is a row of its own, as in the IPTV test: waits, measures (the case
+    and the rate now), done."""
+    rows = {}
+    for target, c in _clients(module_data).items():
+        if "@tablet:" not in target:
+            continue
+        serial = target.rpartition("@tablet:")[2]
+        state = str(c.get("state") or "")
+        items = [_item("Wi-Fi tablet")]
+        color = {"done": "green", "failed": "red"}.get(state, "grey")
+        if state == "running":
+            items.append(_item(f"now: {_doing(str(c.get('doing') or ''))}"))
+            rate = c.get("live") if isinstance(c.get("live"), dict) else None
+            if rate and rate.get("mbps") is not None:
+                items.append(_item(f"{rate.get('direction')} now", rate["mbps"], "Mbps", True))
+            color = "green"
+        elif state == "queued":
+            items.append(_item("waits its turn"))
+        elif state == "done":
+            items.append(_item("done"))
+        elif c.get("error"):
+            items.append(_item(str(c["error"])[:120]))
+        done = c.get("results") or []
+        if done:
+            last = done[-1]
+            text = str(last.get("not_run") or "") or (
+                f"LAN→WAN {last.get('send')} · WAN→LAN {last.get('receive')} Mbps")  # fmt: skip
+            items.append(_item(f"last: {last.get('label')} · {text}"))
+        rows[tablet_name(serial)] = {"color": color, "why": "", "items": items,
+                                     "link_label": "Wi-Fi"}  # fmt: skip
+    return rows
+
+
 def _item(text: str, value: Any = None, unit: str = "", key: bool = False) -> dict[str, Any]:
     # "label" as every module's row (the Devices panel read it; "text" showed nothing)
     return {"label": text, "value": value, "unit": unit, "key": key}
@@ -586,7 +697,27 @@ def live_row(plan: ThroughputPlan, module_data: dict[str, Any],
     return {"color": color, "why": why, "link_label": label, "items": items, "channel": None}
 
 
-LIVE_COLUMNS: list[dict[str, Any]] = []  # cases are not seconds: the live page shows rows
+# 2026-10-30 user ("tput값을 숫자로만 보여주네. live view에서 그래프로 나오거나 하면 좋겠어.
+# 다음거 나오면 또 다음거 보여주고"): the rate every second while a case measures, one line
+# per direction on the run's clock; the cases follow one another on it
+LIVE_COLUMNS: list[dict[str, Any]] = [
+    {"key": "tx", "label": "LAN→WAN", "unit": "Mbps", "now": True, "chart": True, "digits": 1},
+    {"key": "rx", "label": "WAN→LAN", "unit": "Mbps", "now": True, "chart": True, "digits": 1},
+]  # fmt: skip
+
+
+def second_records(p: ThroughputPlan, device: str, module_data: dict[str, Any]
+                   ) -> list[tuple[tuple[str, int], dict[str, Any]]]:  # fmt: skip
+    """The rate each list measures now, as a second of its row (a tablet: its own)."""
+    out = []
+    for target, c in _clients(module_data).items():
+        live = c.get("live")
+        if not isinstance(live, dict) or not isinstance(live.get("e"), int):
+            continue
+        name = tablet_name(target.rpartition("@tablet:")[2]) if "@tablet:" in target else device
+        key = "rx" if live.get("direction") == "WAN→LAN" else "tx"
+        out.append(((name, 1), {"e": live["e"], key: live.get("mbps")}))
+    return out
 
 
 def _doing(text: str) -> str:
@@ -678,6 +809,18 @@ def link_need(plan: ThroughputPlan, device: str) -> dict[str, Any]:
     return {"bps": 0, "label": ""}  # the test finds the link's capacity itself
 
 
+# 2026-10-29 (R20261029-214745): the WAN card at 10 Mbps half duplex, filled by iperf3, was
+# also the Controller's only way to the WAN-side PC: no heartbeat answer for 10 s, "device
+# lost", the test stopped. The cases slow the links on purpose; a PC of the test counts as
+# lost only after this long without an answer.
+# (not S-42's default: a throughput rule of its own, for the PCs whose links it slows)
+SLOWED_LINK_LOST_S = 120.0
+
+
+def lost_after_s(plan: ThroughputPlan, device: str) -> float:
+    return SLOWED_LINK_LOST_S if device == plan.sender or device in plan.clients else 0.0
+
+
 def required_tools(plan: ThroughputPlan, device: str) -> list[str]:
     return ["iperf3"] if device == plan.sender or device in plan.clients else []
 
@@ -702,6 +845,10 @@ class ThroughputRun:
     preview = staticmethod(preview)  # what Start will run: the Test area
     link_need = staticmethod(link_need)
     required_tools = staticmethod(required_tools)
+    receiver_rows = staticmethod(receiver_rows)
+    second_records = staticmethod(second_records)
+    node_of = staticmethod(lambda p, d: p.node_of(d))
+    lost_after_s = staticmethod(lost_after_s)
     receiver_devices = staticmethod(lambda p: list(p.clients))
     current_channels = staticmethod(lambda data: list[int]())
     auto_channel = staticmethod(lambda p: None)

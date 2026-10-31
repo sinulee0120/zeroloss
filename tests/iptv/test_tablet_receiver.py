@@ -4,7 +4,7 @@ summarized like a PC receiver's, from the first second with packets and the PAT.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -23,6 +23,35 @@ class FakeTablets:
         self.started_app = 0
         self.paused: list[str] = []
         self.in_front = True
+        self.counters: dict[str, int] = {"hd": 0, "nd": 0, "ne": 0, "ue": 5, "ub": 5}
+        self.ssid: str | None = "TV"
+        self.held: list[str] = []
+        self.rejoined: list[tuple[str, str, str]] = []
+
+    def app_uids(self, serial: str) -> set[int]:
+        return {10123}
+
+    def wifi_status(self, serial: str) -> dict[str, Any]:
+        return {"std": "11ax", "freq": 5745, "rx_mbps": 1201, "ssid": self.ssid}
+
+    def hold_wifi(self, serial: str, ssid: str) -> list[str]:
+        self.held.append(ssid)
+        return ["ipreach disconnect off"]
+
+    def release_wifi(self, serial: str | None = None) -> list[dict[str, Any]]:
+        out = [{"what": f"{serial} ipreach disconnect", "ok": True, "detail": "put back"}]
+        self.held = []
+        return out
+
+    def rejoin(self, serial: str, ssid: str, security: str, password: str) -> dict[str, Any]:
+        self.rejoined.append((ssid, security, password))
+        self.ssid = ssid
+        return {"joined": True}
+
+    def net_counters(self, serial: str, port: int, uids: set[int]) -> dict[str, int]:
+        if self.away:
+            raise TabletError("read the receive counters", "not answering")
+        return dict(self.counters)
 
     def pause_timer_scans(self, serial: str) -> list[str]:
         self.paused = ["com.samsung.android.mcfds"]
@@ -60,6 +89,9 @@ def rec(seq: int, rx: int = 3000, pat: int = 1, lost: int = 0) -> dict[str, Any]
     return {"seq": seq, "type": "s", "e": seq - 1, "ch": 1, "rx": rx, "lost": lost, "dup": 0,
             "reo": 0, "jit": 1.0, "br": 32_000_000, "cc": 0, "p1": 0, "pat": pat, "pb": "ok",
             "pdr": 0, "pau": 0}  # fmt: skip
+
+
+CFG = TabletConfig("R1", "tablet-1", "A1", 1, "239.1.1.1", 5004, "b", cell_s=10)
 
 
 def receiver(tmp_path: Path, fake: FakeTablets) -> TabletReceiver:
@@ -174,3 +206,110 @@ def test_a_player_that_never_settles_is_measured_after_5_s(tmp_path: Path) -> No
     r._pull()
     assert r.measuring  # the playback problem then shows in the cells
     r.stop()
+
+
+def test_the_tablets_own_drops_go_on_the_second_and_the_cell(tmp_path: Path) -> None:
+    """iptv R-25 (2026-10-24, a production M2U router): one packet lost on a tablet. The
+    tablet's socket and Wi-Fi counters, read with each pull, say whether it dropped it."""
+    fake = FakeTablets()
+    r = receiver(tmp_path, fake)
+    r.start()
+    fake.records = [rec(1), rec(2), rec(3)]
+    r._pull()  # warm-up done; the counters' first read is the base
+    fake.records.append(rec(4, lost=1))
+    fake.counters = {**fake.counters, "hd": 1, "ub": 6}  # the app's socket overflowed
+    r._pull()
+    assert r.last_1s is not None
+    assert (r.last_1s["lost"], r.last_1s["hd"], r.last_1s["ub"], r.last_1s["nd"]) == (1, 1, 1, 0)
+    fake.records.append(rec(5))
+    r._pull()
+    assert r.last_1s is not None and r.last_1s["hd"] == 0  # written as 0: measured
+    fake.counters = {**fake.counters, "hd": 0}  # the socket was made again: starts over
+    fake.records.append(rec(6))
+    r._pull()
+    assert r.last_1s is not None and r.last_1s["hd"] == 0
+    r.stop()
+    cells = r.take_summaries()
+    assert cells[0]["receiver"]["host_drops"] == 1
+
+
+def test_the_wifi_standard_and_width_go_on_every_second(tmp_path: Path) -> None:
+    """2026-10-24 user: "11ax로 붙었는지 bandwidth는 80Mhz인지 … 정보가 하나도 없네"."""
+    fake = FakeTablets()
+    r = receiver(tmp_path, fake)
+    r.start()
+    r._read_wifi()
+    fake.records = [rec(1), rec(2), rec(3)]
+    r._pull()
+    assert r.last_1s is not None
+    assert (r.last_1s["wst"], r.last_1s["wbw"]) == ("11ax", 80)
+    r.stop()
+
+
+def test_the_held_wifi_is_kept_watched_joined_again_and_put_back(tmp_path: Path) -> None:
+    """TAB-019 (2026-10-31 user: "설정에서 내가 일부러 IPTV로 설정 바꿨으면 그대로 테스트동안
+    유지하도록 adb로 고쳐"): kept for the test, off it said once and joined again when
+    ZeroLoss joined it, put back at the stop."""
+    from modules.iptv.receiver.tablet import HeldWifi
+
+    fake = FakeTablets()
+    bus = EventBus()
+    seen: list[str] = []
+    bus.subscribe(lambda e: seen.append(f"{e.code} {e.text}"))
+    t = TabletReceiver(CFG, tmp_path, bus, fake, wait=lambda _s: True,  # type: ignore[arg-type]
+                       held=HeldWifi("TV", "WPA2", "secret"))  # fmt: skip
+    t.start()
+    assert fake.held == ["TV"]
+    fake.ssid = "Home"
+    t._read_wifi()
+    t._read_wifi()
+    assert fake.rejoined == [("TV", "WPA2", "secret")]  # joined at once, back on the next read
+    left = [x for x in seen if x.startswith("ZL-TAB-019")]
+    assert len(left) == 1 and "now on Home" in left[0] and "joining it again" in left[0]
+    assert any("back on Wi-Fi TV" in x for x in seen)
+    t.stop()
+    assert fake.held == [] and any("Wi-Fi setting put back" in x for x in seen)
+    assert "secret" not in repr(HeldWifi("TV", "WPA2", "secret"))
+
+
+def test_a_network_joined_by_hand_is_watched_but_not_joined_again(tmp_path: Path) -> None:
+    from modules.iptv.receiver.tablet import HeldWifi
+
+    fake = FakeTablets()
+    bus = EventBus()
+    seen: list[str] = []
+    bus.subscribe(lambda e: seen.append(f"{e.code} {e.text}"))
+    t = TabletReceiver(CFG, tmp_path, bus, fake, wait=lambda _s: True,  # type: ignore[arg-type]
+                       held=HeldWifi("TV"))  # fmt: skip
+    t.start()
+    fake.ssid = None
+    t._read_wifi()
+    assert fake.rejoined == []
+    assert any("left Wi-Fi TV, now on no network; put it back on TV on the tablet" in x
+               for x in seen)  # fmt: skip
+    t.stop()
+
+
+def test_keep_holds_the_network_it_is_on_and_an_open_one_can_be_joined_again() -> None:
+    """TAB-019 with "Wi-Fi: keep": the network at Start is held; an open one (the router's
+    TV SSID) is joined again with no password, one with a password only watched."""
+    from types import SimpleNamespace
+
+    from modules.iptv.module import IptvModule
+
+    class Keep(FakeTablets):
+        kinds: ClassVar[dict[str, str]] = {"TV": "Open", "Home": "WPA2"}
+
+        def saved_security(self, serial: str, ssid: str) -> str | None:
+            return self.kinds.get(ssid)
+
+    fake = Keep()
+    m = IptvModule()
+    m.node = SimpleNamespace(tablets=fake, bus=EventBus())
+    held = m._join_wifi("tablet-1", "A1", None)
+    assert held is not None and (held.ssid, held.security) == ("TV", "Open")
+    fake.ssid = "Home"
+    held = m._join_wifi("tablet-1", "A1", [])
+    assert held is not None and (held.ssid, held.security) == ("Home", None)
+    fake.ssid = None
+    assert m._join_wifi("tablet-1", "A1", None) is None  # on no network: nothing to hold

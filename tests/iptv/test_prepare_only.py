@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from core.events.bus import EventBus
+from core.events.bus import Event, EventBus
 from modules.iptv.sender.prepare import Job, Preparer
 
 MUX = 10_000_000
@@ -137,6 +137,7 @@ def test_a_controller_restart_between_tests_keeps_the_making() -> None:
     making = Making()
     m.preparer, m.perf = making, None  # type: ignore[assignment]
     m.senders, m.receivers, m._lock = {}, {}, threading.Lock()
+    m.tablet_rx = {}
     m.safe_stop(CONTROLLER_RESTARTED)
     assert making.cancelled == 0
     m.safe_stop("Reset All")
@@ -201,3 +202,18 @@ def test_the_sender_lists_the_videos_it_has_made(prep: Preparer, tmp_path: Path)
                      '"recipe": "old"}, "check": [], "bytes": 0}', encoding="utf-8")  # fmt: skip
     stale.with_suffix(".ts").write_bytes(b"")
     assert len(prep.made()) == 1
+
+
+def test_ffmpeg_that_cannot_start_fails_the_channel(tmp_path: Path) -> None:
+    """2026-10-24: with no ffmpeg on a new PC the worker died and the channel said
+    "making" for ever; now it fails with SND-020 and the next request can try again."""
+    b, seen = EventBus(), list[Event]()
+    b.subscribe(seen.append)
+    p = Preparer(tmp_path / "data", b, tmp_path / "procs", ffmpeg=str(tmp_path / "no-ffmpeg"))
+    p.request("HD", MUX, [2])
+    end = time.monotonic() + 10
+    while p.status()["busy"] and time.monotonic() < end:
+        time.sleep(0.05)
+    st = p.status()
+    assert [(c["ch"], c["state"]) for c in st["channels"]] == [(2, "failed")]
+    assert any(e.code == "ZL-SND-020" for e in seen)

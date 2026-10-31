@@ -10,10 +10,12 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = [ROOT / "core" / "settings" / "defaults.json", ROOT / "modules" / "iptv" / "defaults.json"]
-PLACE = {"Main": "main", "Adv": "adv", "Setup/Main": "setup", "Desktop": "desktop"}
+FILES = [ROOT / "core" / "settings" / "defaults.json", ROOT / "modules" / "iptv" / "defaults.json",
+         ROOT / "modules" / "throughput" / "defaults.json"]  # fmt: skip
+PLACE = {"Main": "main", "Adv": "adv", "Setup/Main": "setup", "Desktop": "desktop",
+         "Devices": "devices"}  # fmt: skip
 KINDS = {"choice", "int", "float", "bool", "duration", "per_quality_int", "devices", "channels",
-         "groups", "sources", "pair", "text", "wifi"}  # fmt: skip
+         "groups", "sources", "pair", "text", "wifi", "cards"}  # fmt: skip
 
 
 def table() -> dict[str, list[str]]:

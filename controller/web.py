@@ -24,6 +24,7 @@ from urllib.parse import unquote, urlparse
 
 from controller import live_page
 from core.protocol.http_server import OwnPortServer
+from core.ui_schema.design import COLORS as DESIGN
 from core.ui_schema.design import ICONS  # one place for the shapes (11-ui 1.7)
 
 WEB_PORT = 10993
@@ -32,8 +33,7 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
          ".json": "application/json", ".csv": "text/csv; charset=utf-8",
          ".pdf": "application/pdf", ".png": "image/png", ".log": "text/plain; charset=utf-8",
          ".jsonl": "text/plain; charset=utf-8"}  # fmt: skip
-COLORS = {"green": "#2e7d32", "yellow": "#b26a00", "red": "#c62828", "purple": "#6a1b9a",
-          "grey": "#616161"}  # fmt: skip
+COLORS = {k: DESIGN[k] for k in ("green", "yellow", "red", "purple", "grey")}  # one place
 
 WIRED_ONLY = ("Viewing during a test: use a wired PC (Wi-Fi viewing mixes into the test, "
               "K-22).")  # fmt: skip
@@ -100,8 +100,10 @@ class ResultsWeb:
         host: str = "0.0.0.0",
         port: int = WEB_PORT,
         live_data: Callable[[], dict[str, Any]] | None = None,
+        guide: Callable[[], str | None] | None = None,
     ) -> None:
         self.reports_dir = reports_dir
+        self._guide = guide  # the install and use guide (the screen's Help, 08 2)
         self._listing, self._live, self._access = listing, live, access
         self._live_data = live_data  # live monitor (02 12 /live) (GAP-119)
         self._networks, self._running, self.traffic = networks, running, traffic
@@ -138,6 +140,10 @@ class ResultsWeb:
             if self._live_data is not None:  # the live monitor (GAP-119)
                 return 200, TYPES[".html"], live_page.page().encode()
             return 200, TYPES[".html"], self._live_page().encode()
+        if path == "/guide" and self._guide is not None:
+            text = self._guide()
+            if text is not None:
+                return 200, TYPES[".html"], text.encode()
         if path == "/live.json" and self._live_data is not None:
             body = json.dumps(self._live_data(), ensure_ascii=False, default=str)
             return 200, "application/json; charset=utf-8", body.encode()

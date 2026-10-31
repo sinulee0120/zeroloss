@@ -157,6 +157,7 @@ def test_programs_start_only_through_process_runner() -> None:
         "core/blocks/win_wifi.py",  # `netsh wlan`, a timeout per call (15 s; join JOIN_TIMEOUT_S)
         "core/blocks/time_sync.py",  # `timedatectl` show / set-ntp, 10 s timeout
         "core/blocks/adb.py",  # `adb ...`, 20 s timeout (install 180 s, TAB-017)
+        "core/blocks/wifi_caps.py",  # `iw` / `nmcli` reads and the managed switch, 10 s timeout
         "agent/deployer/update_hold.py",  # `snap refresh --hold`, 30 s timeout (GAP-169)
         "agent/deployer/server.py",  # `apt-get install ./*.deb` of a .zlt, 900 s timeout,
         # L0 cannot use process_runner (GAP-172), refused while a test runs (INS-022)

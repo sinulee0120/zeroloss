@@ -73,10 +73,10 @@
 |----|------|------|--------|------|---------|------|
 | S-57 | Wait before and after each PC (Throughput) | Adv | 10 s | 0~300 s | 🔒 | throughput.md 1.3 (2026-09-26 사용자: PC·포트·단말마다 시작 전·끝난 뒤 대기) |
 | S-58 | Measure time per direction (Throughput) | Adv | 30 s | 5~600 s | 🔒 | throughput.md 1.3 (2026-09-26 사용자: 보내기·받기 각각) |
-| S-59 | Pass threshold (wired, Throughput) | Adv | 90 % | 1~100 % | 🔒 | throughput.md 0 (2026-10-10 레퍼런스 기본: 협상된 링크 속도의 90 %, 무선은 값만) |
+| S-59 | Pass threshold, wired (Throughput) | Adv | 90 % | 1~100 % | 🔒 | throughput.md 0 (2026-10-10 레퍼런스 기본: 협상된 링크 속도의 90 %, 무선은 값만) |
 | S-60 | Protocol (Throughput) | Adv | TCP | TCP / UDP (UDP 목표 = 링크 속도의 95 %) | 🔒 | throughput.md 0 (T-3) |
 | S-61 | Parallel connections (Throughput) | Adv | 1 | 1~16 | 🔒 | throughput.md 0 (T-3, 레퍼런스 기본 1) |
-| S-62 | Link speeds (Throughput) | Adv | Every supported | Every supported(유선 카드가 지원하는 속도·이중 방식마다, 첫 유선은 WAN 쪽 카드도, 끝나면 원복) / As it is(지금 링크 그대로) | 🔒 | throughput.md 1.1·1.3 (2026-10-16 사용자 "참고자료 유선 순차 방식") |
+| S-62 | Link speeds (Throughput) | Adv | Every supported | Every supported(유선 카드가 지원하는 속도·이중 방식마다, 첫 유선은 WAN 쪽 카드도, Wi-Fi는 대역마다 카드가 내놓는 대역폭 상한·모드마다(2026-10-29), 끝나면 원복) / As it is(지금 링크 그대로) | 🔒 | throughput.md 1.1·1.3 (2026-10-16 사용자 "참고자료 유선 순차 방식") |
 | S-63 | Directions (Throughput) | Adv | LAN→WAN, then WAN→LAN | LAN→WAN, then WAN→LAN(LAN PC 기준 보내기=업로드, 받기=-R 다운로드, 따로따로) / LAN→WAN only / WAN→LAN only | 🔒 | throughput.md 1.3 (2026-10-17 사용자 "send와 receive를 각각 iperf, iperf -R로", 레퍼런스 B→A·A→B 선택) |
 | S-64 | UDP rate (Throughput) | Adv | 95 % | 1~100 % (협상된 링크 속도 기준 -b) | 🔒 | throughput.md 0 (레퍼런스 udp_bandwidth_percent 95) |
 | S-65 | Cards to test (Throughput) | Devices | 없음 | Devices에서 PC의 카드마다 줄이 있고 사용자가 체크: 공유기 LAN 쪽 유선 카드, 또는 Wi-Fi 카드(이 Controller PC의 것도) + 2.4/5/6 GHz마다 공유기 Wi-Fi(그 카드의 스캔에서 고름, 옆 칸에 암호 — 빈칸 = 암호 없음, open 망은 "open" 표시; 02 2-10-2). 아무것도 대신 고르지 않음 | 🔒 | throughput.md 1.3 (2026-10-17 사용자 "연결된 포트가 있으면 그만큼 row가 늘어나야지 그래야 사용자가 고르지", "와이파이도 카드 뭐로 할건지 사용자가 정할거야") |

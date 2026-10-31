@@ -53,7 +53,7 @@ def test_text_and_boxes_make_a_valid_pdf(tmp_path: Path) -> None:
         text = subprocess.run(["pdftotext", str(f), "-"], capture_output=True, text=True,
                               check=True).stdout  # fmt: skip
         for want in ("ZeroLoss test report", "FAIL", "R-05", "-> shared path",
-                     "ZL-NET-013", "playback: NOT RUN", "loss or error"):  # fmt: skip
+                     "ZL-NET-013", "playback: NOT RUN", "router problem"):  # fmt: skip
             assert want in text, want
 
 

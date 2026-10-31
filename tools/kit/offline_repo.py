@@ -26,6 +26,7 @@ ROOTS = [
     "mpv",
     "vlc",
     "libxcb-cursor0",
+    "iperf3",  # the throughput test (2026-10-31 kit)
     "adduser",
     "systemd",
     # TSDuck's own dependencies (its .deb comes with the kit)

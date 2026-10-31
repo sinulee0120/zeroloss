@@ -37,7 +37,7 @@
    "value": 90,
    "doc": "90 %",
    "ui": {
-    "label": "Pass threshold (wired)",
+    "label": "Pass threshold, wired",
     "where": "adv",
     "kind": "int",
     "min": 1,
@@ -63,7 +63,7 @@
     "lock": true,
     "help": "TCP measures what a download gets. UDP sends at 95 % of the link speed and reports loss and jitter.",
     "available": true,
-    "group": "Throughput"
+    "group": "Throughput traffic"
    }
   },
   "S-61": {
@@ -78,7 +78,7 @@
     "lock": true,
     "help": "iperf3 connections at once (-P). 1 is how one download behaves; more can fill fast links.",
     "available": true,
-    "group": "Throughput"
+    "group": "Throughput traffic"
    }
   },
   "S-62": {
@@ -93,7 +93,7 @@
      "As it is"
     ],
     "lock": true,
-    "help": "Every supported: each cable is measured at every speed and duplex its card supports (and the WAN-side card's, with the first cable), then put back. As it is: only the link as it came up.",
+    "help": "Every supported: each cable is measured at every speed and duplex its card supports (and the WAN-side card's, with the first cable), and each Wi-Fi band at every width cap and mode its card offers, then put back. As it is: only the link as it came up.",
     "available": true,
     "group": "Throughput"
    }
@@ -113,7 +113,7 @@
     "lock": true,
     "help": "LAN→WAN: the LAN-side PC sends to the WAN-side PC (iperf3, upload). WAN→LAN: the WAN-side PC sends to the LAN-side PC (iperf3 -R, download). Both: two separate runs, LAN→WAN first, never at the same time.",
     "available": true,
-    "group": "Throughput"
+    "group": "Throughput traffic"
    }
   },
   "S-64": {
@@ -129,12 +129,12 @@
     "lock": true,
     "help": "UDP only: iperf3 -b at this share of the link speed the card got (1000 Mbps link, 95 %: -b 950M). TCP takes what the path gives.",
     "available": true,
-    "group": "Throughput"
+    "group": "Throughput traffic"
    }
   },
   "S-65": {
    "value": {},
-   "doc": "none (the person picks)",
+   "doc": "없음",
    "ui": {
     "label": "Cards to test",
     "where": "devices",

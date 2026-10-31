@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.blocks.process_runner import ProcessRunner, ProcState, StopError
+from core.blocks.process_runner import ProcessRunner, ProcState, StartError, StopError
 from core.blocks.ts_analyzer import TsAnalyzer
 from core.events.bus import Event, EventBus, Level
 from modules.iptv.marker import FRAME_BITS, STRIP_H, STRIP_W, Marker, read_strip, strip_filter
@@ -392,7 +392,9 @@ class Preparer:
             with self._lock:
                 job.state, job.percent, job.left_s = "cancelled", None, None
             self._event("ZL-INFO", "info", f"CH{job.ch} {job.quality} video: cancelled")
-        except (_Failed, OSError, StopError) as e:
+        # StartError: ffmpeg could not be started (not installed on a new PC, 2026-10-24):
+        # before, the worker died and the channel said "making" for ever
+        except (_Failed, OSError, StartError, StopError) as e:
             self._clear(
                 part, progress, part.with_suffix(".log")
             )  # nothing left once "failed" shows

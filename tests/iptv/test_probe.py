@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import shutil
 import socket
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from core.blocks.tool_locator import KNOWN
 from core.node import Node
 from core.protocol.client import NodeClient
 from core.protocol.envelope import ZlError
@@ -78,9 +80,19 @@ def test_probe_params_checked(client: NodeClient) -> None:
 def test_info_lists_the_module_tools(client: NodeClient) -> None:
     t0 = time.monotonic()
     tools = client.get("/v1/info")["tools"]
-    assert set(tools) == {"ffmpeg", "ffprobe", "tsp", "mpv", "vlc", "iperf3"}  # + throughput
+    assert set(tools) == {
+        "ffmpeg",
+        "ffprobe",
+        "tsp",
+        "mpv",
+        "vlc",
+        "iperf3",
+        "adb",
+    }  # + throughput, tablets
     for name in tools:
-        if shutil.which(name) or (name == "vlc" and shutil.which("cvlc")):
+        spec = KNOWN[name]  # on PATH, or where the node installs it (adb: its tool folder)
+        places = spec.windows_paths if sys.platform == "win32" else spec.linux_paths
+        if any(shutil.which(n) for n in spec.names) or any(Path(p).is_file() for p in places):
             assert tools[name]["path"] and tools[name]["version"], name
         else:
             assert tools[name] is None
@@ -88,6 +100,9 @@ def test_info_lists_the_module_tools(client: NodeClient) -> None:
     assert time.monotonic() - t0 < 5
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="card names by index (lo) are Linux"
+)
 def test_an_unknown_card_listens_on_every_card_and_names_the_one_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,6 +129,9 @@ def test_an_unknown_card_listens_on_every_card_and_names_the_one_used(
     assert none["packets"] == 0 and none["arrived_on"] is None and none["arrived_cards"] == []
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="card names by index (lo) are Linux"
+)
 def test_two_cards_on_one_lan_are_both_listed_most_first() -> None:
     from modules.iptv.probe import arrived_cards, arrived_on
 

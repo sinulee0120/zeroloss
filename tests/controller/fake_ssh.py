@@ -168,7 +168,7 @@ class FakeLinuxPC:
                 )
             self.auto_login_user = user
             return f'{{"user": "{user}", "changed": true}}\n', "", 0
-        if cmd == "dpkg -r zeroloss-agent":
+        if cmd in ("dpkg -r zeroloss-agent", "dpkg --purge zeroloss-agent"):
             return "Removing zeroloss-agent ...\n", "", 0
         if cmd.startswith("command -v "):
             missing = [x.split("||")[1].split()[1] for x in cmd.split(";")

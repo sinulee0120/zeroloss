@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.blocks.process_runner import NO_WINDOW
+
 VERSION_TIMEOUT_S = 5.0
 
 
@@ -108,7 +110,7 @@ def _run_version(spec: ToolSpec, path: str) -> str | None:
         done = subprocess.run(
             [path, *spec.version_args], capture_output=True, text=True,
             timeout=VERSION_TIMEOUT_S, check=False, stdin=subprocess.DEVNULL,
-            errors="replace",
+            errors="replace", creationflags=NO_WINDOW,
         )  # fmt: skip
     except (OSError, subprocess.SubprocessError):
         return None

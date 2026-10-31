@@ -13,6 +13,7 @@ import json
 import os
 import random
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -29,6 +30,10 @@ from agent.deployer.package import build_package, open_package
 from agent.deployer.server import Deployer
 from tests.agent.fake_node import FakeNode
 from tests.agent.test_deployer_service import Client
+
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="the node update is dpkg and systemd (Linux nodes)"
+)
 
 OLD, NEW = "20260925.1200", "20260926.0900"
 

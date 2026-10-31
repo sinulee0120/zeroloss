@@ -42,8 +42,13 @@ def test_picking_tablets_names_them_and_three_at_most() -> None:
     got = tablet_role_change(s, TABLET + "R32Y", "receiver")["receivers"]
     assert got == [{"device": "tablet-1", "ch": 1, "host": "rx", "serial": "R32Y"}]
     many = [{"device": f"tablet-{i}", "ch": 1, "host": "rx", "serial": f"S{i}"} for i in (1, 2, 3)]
-    full = tablet_role_change(screen(many), TABLET + "R32Y", "receiver")["receivers"]
-    assert [r["serial"] for r in full] == ["S1", "S2", "S3"]
+    on_usb = [TAB, *({**TAB, "serial": f"S{i}"} for i in (1, 2, 3))]
+    full = tablet_role_change(screen(many, on_usb), TABLET + "R32Y", "receiver")["receivers"]
+    assert [r["serial"] for r in full] == ["S1", "S2", "S3"]  # three on USB: no fourth
+    # 2026-10-31 user ("한대밖에 안골라지거든 태블릿 두대중"): unplugged ones give their place
+    gone = [TAB, {**TAB, "serial": "S2"}]
+    two = tablet_role_change(screen(many, gone), TABLET + "R32Y", "receiver")["receivers"]
+    assert [r["serial"] for r in two] == ["S2", "R32Y"]
 
 
 def test_channel_and_buffer_by_serial_and_pc_receiver_kept() -> None:

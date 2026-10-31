@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ZeroLoss 설치 안내</title>
 <style>
-:root { --ink:#1d1d1f; --sub:#555; --line:#ddd; --bg:#fff; --soft:#f5f6f8; --acc:#1a5fd0; --ok:#1e7d34; --warn:#a15c00; }
-@media (prefers-color-scheme: dark) { :root { --ink:#eee; --sub:#aaa; --line:#444; --bg:#17181a; --soft:#222428; --acc:#7aa7ff; --ok:#6fcf86; --warn:#f0b35a; } }
+:root { --ink:#1d1d1f; --sub:#555; --line:#ddd; --bg:#fff; --soft:#f5f6f8; --acc:#0b57d0; --ok:#0f7a4a; --warn:#9e7a00; }
+@media (prefers-color-scheme: dark) { :root { --ink:#eee; --sub:#aaa; --line:#444; --bg:#17181a; --soft:#222428; --acc:#7aa7ff; --ok:#6fcf9a; --warn:#f0c85a; } }
 body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Malgun Gothic","Apple SD Gothic Neo",sans-serif; }
 main { max-width:860px; margin:0 auto; padding:24px 16px 64px; }
 h1 { font-size:28px; margin:0 0 4px; }
@@ -25,55 +25,63 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 </head>
 <body><main>
 <h1>ZeroLoss 설치 및 사용 안내</h1>
-<p class="sub">버전 20261016.0026 · 인터넷 없이 이 키트만으로 설치됩니다. 처음부터 순서대로 따라 하세요.</p>
+<p class="sub">버전 {BUILD} · 인터넷 없이 이 키트만으로 설치됩니다. 처음부터 순서대로 따라 하세요. ZeroLoss 창 오른쪽 위 <b>[?]</b>를 누르면 이 안내서가 지금 고른 시험의 부분에서 열립니다.</p>
 
-<div class="box"><b>이 프로그램이 하는 일:</b> 공유기를 통해 IPTV 영상(UHD 35 Mbps 등)을 보내고 받아서, 패킷이 빠지는지(Loss)·흔들리는지(Jitter)를 5분 단위로 기록하고 보고서를 만듭니다.</div>
+<div class="box"><b>이 프로그램이 하는 일:</b>
+<ul>
+<li><b>IPTV test</b>: 공유기를 통해 IPTV 영상(UHD 35 Mbps 등)을 PC와 태블릿(최대 3대)으로 보내고, 패킷이 빠지는지(Loss)·흔들리는지(Jitter)를 5분 단위로 기록하고 보고서를 만듭니다.</li>
+<li><b>Throughput</b>(속도 시험): 공유기의 유선·무선 속도를 PC와 태블릿마다, 설정(속도·폭·모드)마다 보내기(TX)·받기(RX) 둘 다 잽니다.</li>
+</ul></div>
 
 <ul class="toc">
 <li><a href="#need">0. 준비물</a></li>
 <li><a href="#unzip">1. 키트 압축 풀기</a></li>
 <li><a href="#wire1">2. 선 연결 (설치용)</a></li>
 <li><a href="#linux">3. 리눅스 PC 준비 (두 대 각각)</a></li>
-<li><a href="#win">4. Windows PC에서 ZeroLoss 켜기</a></li>
+<li><a href="#win">4. Windows PC에 ZeroLoss 설치</a></li>
 <li><a href="#reg">5. 리눅스 PC 등록 (두 번)</a></li>
 <li><a href="#sample">5-1. 샘플 영상 넣기 (송신 PC 한 번)</a></li>
+<li><a href="#tablet">5-2. 태블릿 연결 (태블릿으로 시험할 때)</a></li>
 <li><a href="#wire2">6. 송신 PC 선 옮기기</a></li>
-<li><a href="#run">7. 시험 시작</a></li>
+<li><a href="#run">7. IPTV 시험</a></li>
+<li><a href="#tput">7-1. 속도 시험 (Throughput)</a></li>
 <li><a href="#result">8. 결과와 보고서 보기</a></li>
 <li><a href="#trouble">9. 문제가 생기면</a></li>
-<li><a href="#where">10. 파일이 저장되는 곳</a></li>
-<li><a href="#remove">11. 지우는 방법</a></li>
+<li><a href="#byhand">9-1. 자동으로 안 될 때 손으로 하기</a></li>
+<li><a href="#update">10. 새 버전으로 바꾸기</a></li>
+<li><a href="#where">11. 파일이 저장되는 곳</a></li>
+<li><a href="#remove">12. 지우는 방법</a></li>
 </ul>
 
 <h2 id="need">0. 준비물</h2>
 <table>
 <tr><th>무엇</th><th>설명</th></tr>
-<tr><td>Windows PC 1대</td><td>Windows 10 또는 11. 시험을 조작하고 결과를 보는 PC (아래에서 <b>Windows PC</b>)</td></tr>
+<tr><td>Windows PC 1대</td><td>Windows 10 또는 11 (64비트). 시험을 조작하고 결과를 보는 PC (아래에서 <b>Windows PC</b>)</td></tr>
 <tr><td>Ubuntu PC 2대</td><td><b>Ubuntu 24.04 Desktop</b>이 설치된 PC. 한 대는 영상을 보내는 <b>송신 PC</b>(유선 랜 포트 필요), 한 대는 받는 <b>수신 PC</b>(유선 또는 Wi-Fi)</td></tr>
 <tr><td>시험할 공유기 1대</td><td>공장 초기 설정 그대로 두면 됩니다</td></tr>
 <tr><td>랜 케이블 3개</td><td>PC 3대를 공유기에 연결</td></tr>
-<tr><td>USB 메모리 1개</td><td>8 GB 이상(샘플 영상 포함 약 5 GB). 키트를 옮기는 데 사용</td></tr>
+<tr><td>USB 메모리 1개</td><td>16 GB 이상 (샘플 영상 포함). 키트를 리눅스 PC로 옮기는 데 사용</td></tr>
+<tr><td>(선택) Android 태블릿 최대 3대</td><td>태블릿으로 IPTV를 받을 때. 데이터가 되는 USB 케이블과 충전기. 수신 PC에 <b>바로</b> 꽂습니다 (USB 허브·도킹은 자주 끊김)</td></tr>
 </table>
 <p>두 Ubuntu PC의 <b>아이디와 비밀번호</b>(로그인할 때 쓰는 것)를 알고 있어야 합니다.</p>
 
 <h2 id="unzip">1. 키트 압축 풀기</h2>
 <h3>Windows PC</h3>
 <ol>
-<li>받은 파일 <code>ZeroLoss-Kit-20261016.0026.zip</code>을 <b><code>C:\</code></b> (C 드라이브 맨 위)에 복사합니다.</li>
+<li>받은 파일 <code>ZeroLoss-Kit-{BUILD}.zip</code>을 <b><code>C:\</code></b> (C 드라이브 맨 위)에 복사합니다.</li>
 <li>파일을 마우스 오른쪽 버튼으로 누르고 <b>[모두 압축 풀기...]</b>를 누릅니다.</li>
 <li>풀 위치를 <code>C:\</code>로 바꾸고 <b>[압축 풀기]</b>를 누릅니다. (바탕화면이나 깊은 폴더에 풀면 경로가 길어 실행이 안 될 수 있습니다)</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> <code>C:\ZeroLoss-Kit-20261016.0026\</code> 폴더가 생기고 안에 아래 항목이 있습니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> <code>C:\ZeroLoss-Kit-{BUILD}\</code> 폴더가 생기고 안에 아래 항목이 있습니다.</li>
 </ol>
 <table>
 <tr><th>폴더/파일</th><th>무엇</th></tr>
 <tr><td><code>설치_및_사용_안내.html</code></td><td>지금 보는 안내서</td></tr>
-<tr><td><code>1_Windows_PC\ZeroLoss\ZeroLoss.exe</code></td><td>ZeroLoss 프로그램 (설치 필요 없음, 바로 실행)</td></tr>
-<tr><td><code>2_리눅스PC_등록.bat</code></td><td>Ubuntu PC를 ZeroLoss에 등록하는 도우미</td></tr>
-<tr><td><code>2_Linux_PC_USB\</code></td><td>Ubuntu PC 두 대에 옮길 폴더 (프로그램 일체가 들어 있음)</td></tr>
+<tr><td><code>1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code></td><td>Windows PC 설치 파일 (리눅스 PC·태블릿에 넣을 프로그램도 들어 있음)</td></tr>
+<tr><td><code>2_Linux_PC_USB\</code></td><td>Ubuntu PC 두 대에 옮길 폴더 (필요한 프로그램과 샘플 영상)</td></tr>
 </table>
 <h3>USB 메모리로 옮기기</h3>
 <ol>
-<li><code>C:\ZeroLoss-Kit-20261016.0026\2_Linux_PC_USB</code> 폴더를 통째로 USB 메모리에 복사합니다.</li>
+<li><code>C:\ZeroLoss-Kit-{BUILD}\2_Linux_PC_USB</code> 폴더를 통째로 USB 메모리에 복사합니다.</li>
 </ol>
 
 <h2 id="wire1">2. 선 연결 (설치용)</h2>
@@ -98,43 +106,57 @@ sudo bash zeroloss-linux-setup.sh</pre></li>
 </ol>
 <p><span class="warn">✖ 안 되면:</span> "설치되지 않은 것"이 나오면 화면을 사진으로 찍어 보내 주세요.</p>
 
-<h2 id="win">4. Windows PC에서 ZeroLoss 켜기</h2>
+<h2 id="win">4. Windows PC에 ZeroLoss 설치</h2>
 <ol>
-<li><code>C:\ZeroLoss-Kit-20261016.0026\1_Windows_PC\ZeroLoss\ZeroLoss.exe</code>를 두 번 누릅니다.</li>
+<li><code>C:\ZeroLoss-Kit-{BUILD}\1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code>를 두 번 누릅니다.</li>
 <li>파란 창 "Windows의 PC 보호"가 뜨면 <b>[추가 정보]</b> → <b>[실행]</b>을 누릅니다.</li>
-<li>"Windows 보안 경고(방화벽)" 창이 뜨면 체크 칸을 모두 켜고 <b>[액세스 허용]</b>을 누릅니다.</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> ZeroLoss 창이 열립니다. Devices 칸은 아직 비어 있어도 됩니다.</li>
+<li>"이 앱이 디바이스를 변경할 수 있도록 허용하시겠어요?"가 뜨면 <b>[예]</b>. 묻는 것 없이 설치가 끝납니다(1분 정도).</li>
+<li>마지막 창에서 <b>[ZeroLoss 켜기]</b>가 체크된 채로 <b>[마침]</b>을 누릅니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> ZeroLoss 창이 열립니다. Devices 칸은 아직 비어 있어도 됩니다. 바탕 화면과 시작 메뉴에 <b>ZeroLoss Controller</b>가 생깁니다.</li>
 </ol>
-<p>편하게 쓰려면 <code>ZeroLoss.exe</code>를 오른쪽 버튼 → [바탕 화면에 바로 가기 만들기] 하세요(Windows 11은 [더 많은 옵션 표시] 안에 있음).</p>
+<p>시작 메뉴에는 <b>ZeroLoss 사용 안내</b>(이 안내서)와 <b>ZeroLoss 리눅스 PC 등록</b>도 생깁니다.</p>
+<p><span class="warn">✖ "시험이 진행 중입니다"가 나오면:</span> 이 PC에서 시험이 돌고 있습니다. 시험이 끝난 뒤 다시 설치하세요. 시험은 끊기지 않습니다.</p>
 
 <h2 id="reg">5. 리눅스 PC 등록 (송신 PC 한 번, 수신 PC 한 번)</h2>
 <ol>
-<li><code>C:\ZeroLoss-Kit-20261016.0026\2_리눅스PC_등록.bat</code>를 두 번 누릅니다. 검은 창이 열립니다.</li>
-<li>물어보는 대로 입력하고 매번 <kbd>Enter</kbd>:
+<li>ZeroLoss 창 Devices 아래의 <b>[Add a Linux PC]</b>를 누릅니다.</li>
+<li>칸을 채웁니다:
 <ul>
-<li><b>IP 주소</b>: 3단계에서 적은 그 PC의 주소</li>
-<li><b>아이디</b>: 그 PC의 로그인 아이디</li>
-<li><b>이름</b>: 송신 PC면 <code>sender</code>, 수신 PC면 <code>receiver</code></li>
-<li><b>자동 로그인</b>: 수신 PC면 <code>y</code> (재부팅해도 영상 재생 화면이 뜨도록), 송신 PC면 <code>n</code></li>
+<li><b>IP address</b>: 3단계에서 적은 그 PC의 주소</li>
+<li><b>User name</b>: 그 PC의 로그인 아이디</li>
+<li><b>Password</b>: 그 PC의 비밀번호 (한 번만 쓰고 저장하지 않습니다)</li>
+<li><b>Name</b>: 송신 PC면 <code>sender</code>, 수신 PC면 <code>receiver</code></li>
+<li><b>Log this user in after a reboot</b>: 수신 PC면 체크 (재부팅해도 영상 재생 화면이 뜨도록), 송신 PC면 비워 둠</li>
 </ul></li>
-<li>그 PC의 <b>비밀번호</b>를 입력합니다. 화면에 안 보이는 것이 정상입니다.</li>
-<li>1~3분 기다립니다.</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"가 나오고, ZeroLoss 창 Devices에 그 이름이 <b>✔</b>와 함께 보입니다.</li>
+<li><b>[Add a Linux PC]</b>를 누르고 1~3분 기다립니다. 버튼에 "Installing on …"이 보입니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> "Linux PC added" 창이 뜨고, Devices에 그 이름이 <b>✔</b>와 함께 보입니다.</li>
 <li>다른 PC도 같은 방법으로 한 번 더 합니다.</li>
 </ol>
+<p>같은 일을 시작 메뉴의 <b>ZeroLoss 리눅스 PC 등록</b>(검은 창에서 묻는 대로 입력)으로도 할 수 있습니다.</p>
 <p><span class="warn">✖ 안 되면:</span> 영어 메시지를 사진으로 찍어 보내 주세요. 자주 있는 경우: IP를 잘못 입력함, 3단계를 안 함, 비밀번호 틀림.</p>
 
 <h2 id="sample">5-1. 샘플 영상 넣기 (송신 PC에서 한 번)</h2>
-<p>키트에는 시험용 영상 <b>sample_1</b>이 들어 있습니다: 원본(<code>sample_1_original.mp4</code>)과, 그 원본으로 <b>미리 만들어 둔 UHD 시험 영상</b>(<code>sample_1_cache</code>). 미리 만든 것이 있어서 <b>시험이 바로 시작</b>됩니다. 새로 만들면 몇 시간 걸립니다.</p>
+<p>키트에는 시험용 영화가 들어 있습니다(<code>sample_1</code>, <code>sample_2</code>, <code>sample_3</code>). 각각 원본(<code>sample_N_original.mp4</code>)과, 그 원본으로 <b>미리 만들어 둔 UHD 시험 영상</b>(<code>sample_N_cache</code>)입니다. 미리 만든 것이 있어서 <b>시험이 바로 시작</b>됩니다. 새로 만들면 한 편에 몇 시간 걸립니다.</p>
 <ol>
 <li><b>송신 PC</b>에서 3단계처럼 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>로 터미널을 엽니다(3단계에서 홈에 복사한 <code>2_Linux_PC_USB</code> 폴더를 씁니다).</li>
 <li>아래 두 줄을 한 줄씩 입력하고 <kbd>Enter</kbd>:
 <pre>cd ~/2_Linux_PC_USB
 sudo bash zeroloss-sample-video.sh</pre></li>
-<li>비밀번호를 입력합니다(화면에 안 보이는 것이 정상). 3~6분 기다립니다.</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"가 나옵니다. ZeroLoss 창의 Source video 목록에 <b>sample_1_original.mp4 · ✔ ready, starts at once</b>가 보입니다(7단계).</li>
+<li>비밀번호를 입력합니다(화면에 안 보이는 것이 정상). 한 편에 3~6분 걸립니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"와 함께 영화마다 채널이 나옵니다. 미리 만든 영상은 <b>UHD · 기본 비트레이트(35 Mbps) · 10분</b>짜리로 <b>sample_1은 CH1, sample_2는 CH2, sample_3은 CH3</b>용입니다. 그 채널의 Source video 목록에 <b>sample_N_original.mp4 · ✔ ready, starts at once</b>가 보입니다(7단계). 다른 채널·HD·영화 전체 길이는 처음 한 번 만들어야 합니다.</li>
 </ol>
 <p><span class="warn">✖ "ZeroLoss가 아직 이 PC에 없습니다"가 나오면:</span> 5단계(등록)를 먼저 하세요.</p>
+
+<h2 id="tablet">5-2. 태블릿 연결 (태블릿으로 시험할 때)</h2>
+<ol>
+<li>태블릿에서 <b>설정 → 휴대전화 정보(태블릿 정보) → 소프트웨어 정보</b>의 <b>빌드번호</b>를 7번 누릅니다 ("개발자 모드를 켰습니다").</li>
+<li><b>설정 → 개발자 옵션 → USB 디버깅</b>을 켭니다.</li>
+<li>태블릿을 USB 케이블로 <b>수신 PC</b>에 바로 꽂습니다. 태블릿에 "USB 디버깅을 허용하시겠습니까?"가 뜨면 <b>[이 컴퓨터에서 항상 허용]</b>을 체크하고 <b>[허용]</b>.</li>
+<li>태블릿을 시험할 공유기의 Wi-Fi에 연결합니다(태블릿 설정 → Wi-Fi). <span class="warn">MAC 주소를 등록해야 하는 공유기(예: IPTV 전용 Wi-Fi)</span>는 그 태블릿의 MAC을 공유기에 먼저 등록하세요. ZeroLoss가 연결에 실패하면 등록할 MAC을 화면에 알려 줍니다.</li>
+<li>ZeroLoss 창 Devices 위의 <b>[Refresh]</b>를 누릅니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> 수신 PC 아래에 <b>tablet-1</b> 줄이 생기고 배터리·Wi-Fi(신호·5 GHz·80 MHz 등)가 보입니다. "The ZeroLoss app is not on this tablet"이 보이거나 위에 <b>[Update PCs to build …]</b>가 보이면 누릅니다. 태블릿에 이 버전의 앱이 바로 설치됩니다.</li>
+</ol>
+<p>시험 중에 태블릿을 바꾸거나 더 꽂았으면 <b>[Refresh]</b>를 누르세요. 뽑은 태블릿은 목록에서 빠집니다.</p>
 
 <h2 id="wire2">6. 송신 PC 선 옮기기</h2>
 <ol>
@@ -144,47 +166,67 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 </ol>
 <div class="wire">  [송신 PC]    ──랜선── 공유기 WAN 포트
   [Windows PC] ──랜선── 공유기 LAN 포트
-  [수신 PC]    ──랜선── 공유기 LAN 포트   (무선 시험이면 랜선 대신 공유기 Wi-Fi)</div>
-<h3>무선(Wi-Fi) 시험을 할 때</h3>
+  [수신 PC]    ──랜선── 공유기 LAN 포트   (무선 시험이면 랜선 대신 공유기 Wi-Fi)
+  [태블릿 1~3] ──USB── 수신 PC,  Wi-Fi ── 공유기</div>
+<h3>PC로 무선(Wi-Fi) 시험을 할 때</h3>
 <ol>
 <li>수신 PC 화면 오른쪽 위를 눌러 <b>Wi-Fi</b>에서 시험할 공유기 이름을 고르고 Wi-Fi 비밀번호를 넣어 연결합니다.</li>
 <li>수신 PC의 랜선은 꽂아 두어도 됩니다(조작용). 시험은 Wi-Fi로 받습니다.</li>
 </ol>
 
-<h2 id="run">7. 시험 시작</h2>
+<h2 id="run">7. IPTV 시험</h2>
 <ol>
-<li>왼쪽 <b>Test</b>에서 고릅니다: Test type = <b>PC receiver test</b>, Video quality = <b>UHD</b>(또는 HD), Duration = 시험 시간(예: 10m, 1h, 100h).</li>
-<li><b>Source video</b>의 CH1에서 <b>sample_1_original.mp4 · ✔ ready, starts at once</b>를 고릅니다(5-1단계를 했을 때).
+<li>왼쪽 <b>Test</b>에서 고릅니다: Test type = <b>IPTV test</b>, Video quality = <b>UHD</b>(또는 HD), Duration = 시험 시간(예: 10m, 1h, 100h).</li>
+<li><b>Source video</b>의 채널마다 영상을 고릅니다(5-1단계를 했으면 <b>sample_N_original.mp4 · ✔ ready, starts at once</b>).
 <ul>
 <li><b>✔ ready, starts at once</b>: 미리 만든 영상이 있어 바로 시작합니다.</li>
-<li><b>made first (takes a while)</b>: 먼저 만들어야 합니다(UHD는 몇 시간). 고르는 순간 만들기 시작하고, 아래에 진행률이 보입니다.</li>
-<li>미리 만든 것은 <b>CH1 · UHD · 기본 비트레이트(35 Mbps) · 10분</b>짜리 하나입니다. HD, 다른 채널, 영화 전체(Advanced의 길이 설정)는 처음 한 번 만들어야 합니다. 한 번 만든 것은 다시 만들지 않습니다.</li>
+<li><b>made first (takes a while)</b>: 먼저 만들어야 합니다(UHD는 몇 시간). 고르는 순간 만들기 시작하고, 아래에 진행률이 보입니다. 한 번 만든 것은 다시 만들지 않습니다.</li>
 </ul></li>
-<li>오른쪽 <b>Devices</b> 줄을 확인합니다:
+<li>오른쪽 <b>Devices</b> 줄을 정합니다:
 <ul>
 <li>sender 줄: <b>Sender</b></li>
 <li>receiver 줄: <b>Receiver</b>, <b>CH1</b>, <b>Wired</b>(유선) 또는 <b>Wireless</b>(무선)</li>
+<li>tablet 줄(있을 때): <b>Receiver</b>와 채널(CH1~3, 같은 채널도 됨). <b>Wi-Fi: keep …</b>는 지금 붙어 있는 Wi-Fi를 그대로 씁니다. 다른 Wi-Fi로 시험하려면 그 칸에서 고르세요([Scan]으로 다시 찾기). 안 쓰는 태블릿은 <b>Not used</b>.</li>
 </ul></li>
 <li>장비 이름 앞이 <b>○</b>(응답 없음)이면, 그 줄의 IP 상자 ▼를 눌러 다른 주소를 고르거나 직접 입력하고 <kbd>Enter</kbd>.</li>
-<li><b>[Start]</b>를 누릅니다. 처음 1~2분은 점검합니다. 처음 시험할 때는 시험 영상을 만드느라 더 걸릴 수 있습니다.</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> 아래 Status에 <b>"Running normally"</b>, 수신 줄에 <b>Playing · Jitter · Loss 0</b>이 보입니다.</li>
+<li><b>[Start]</b>를 누르면 "Start the test?" 창에 무엇을 시험하는지 나옵니다(채널마다 받는 장비·영화·태블릿 Wi-Fi). 맞으면 <b>[Yes]</b>. 처음 1~2분은 점검합니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> 아래 Status에 <b>"Running normally"</b>, 수신 줄마다 <b>Playing · Jitter · Loss 0</b>이 보입니다. 태블릿 줄에는 Wi-Fi 신호(RSSI)·밴드·폭·11ax 등이 보입니다.</li>
 </ol>
-<p>시험 중에는 PC들을 끄거나 선을 빼지 마세요. 시험이 끝나면 PC들은 원래 상태로 돌아갑니다.</p>
+<p>시험 중에는 PC들을 끄거나 선을 빼지 마세요. 창을 닫아도 시험은 계속 돕니다. 시험이 끝나면 PC들은 원래 상태로 돌아갑니다.</p>
+
+<h2 id="tput">7-1. 속도 시험 (Throughput)</h2>
+<p>공유기를 지나는 속도를 잽니다. 6단계처럼 송신 PC가 WAN 포트에 꽂혀 있어야 합니다(<b>WAN side PC</b>). 나머지 PC는 <b>LAN side PC</b>로 잽니다.</p>
+<table>
+<tr><th>Test type</th><th>하는 일</th></tr>
+<tr><td><b>Throughput · Wired</b></td><td>LAN 쪽 PC의 유선 랜카드마다, 속도(10/100/1000 Mbps…)·이중 설정마다 TX/RX</td></tr>
+<tr><td><b>Throughput · Wi-Fi</b></td><td>Wi-Fi 카드와 태블릿마다, 밴드(2.4/5/6 GHz)마다, 폭(20/40/80/160 MHz)·모드(11ax/ac/n, a/b/g) 설정마다 TX/RX</td></tr>
+<tr><td><b>Throughput · All</b></td><td>위 둘 다</td></tr>
+</table>
+<ol>
+<li>Test type을 고릅니다. Devices의 PC마다 잴 카드에 체크합니다(Windows PC 자신도 <b>this PC · measured as a LAN-side PC</b>로 잴 수 있습니다).</li>
+<li>Wi-Fi 카드는 밴드마다 공유기의 Wi-Fi 이름을 고르고, 옆 칸에 비밀번호를 넣습니다(빈칸 = 암호 없음). 비밀번호는 이 PC에 암호화해 저장되고 다시 보이지 않습니다.</li>
+<li>태블릿은 밴드마다 고른 Wi-Fi(<b>암호 없는 Open</b>)에 ZeroLoss가 붙였다가, 끝나면 원래 Wi-Fi로 돌려놓습니다.</li>
+<li><b>[Start]</b>. 케이스마다 Live 화면에 TX/RX 그래프가 나오고, 다음 케이스로 넘어가면 다음 그래프가 나옵니다.</li>
+</ol>
+<div class="box">Windows PC 자신의 Wi-Fi(이 PC의 인터넷)를 재면 <b>맨 마지막에</b> 재고, 끝나면 원래 Wi-Fi로 돌아옵니다. 그동안 이 PC의 인터넷이 잠깐 끊깁니다. Windows가 "변경을 허용할까요?"라고 물으면 <b>[예]</b>(랜카드·Wi-Fi 설정을 바꾸고 끝나면 되돌립니다).</div>
+<p>카드가 지원하지 않는 설정은 회색 <b>NOT RUN</b>과 이유로 남고, 나머지는 그대로 잽니다.</p>
 
 <h2 id="result">8. 결과와 보고서 보기</h2>
-<p>5분마다 칸이 하나씩 생깁니다.</p>
+<p>5분마다 칸이 하나씩 생깁니다. 오래 시험하면 칸이 화면에 다 들어오도록 여러 칸이 한 칸(테두리)으로 합쳐 보입니다. Live view에서는 아직 판정 중인 5분 칸의 손실이 회색 밑줄로 보이고, 판정이 나면 빨강(공유기) 또는 파랑(송신·수신 쪽)으로 바뀝니다.</p>
 <table>
 <tr><th>색</th><th>뜻</th></tr>
 <tr><td>🟢 초록</td><td>이 5분 동안 문제 없음</td></tr>
-<tr><td>🟡 노랑</td><td>빠진 것은 없지만 주의(예: 흔들림이 평소보다 큼)</td></tr>
-<tr><td>🔴 빨강</td><td>패킷이 빠졌거나 흔들림이 너무 큼 → <b>FAIL</b></td></tr>
-<tr><td>🟣 보라</td><td>빠졌지만 받는 PC나 도구 쪽 원인 (공유기 탓 아님)</td></tr>
+<tr><td>🟡 노랑</td><td>빠진 것은 없지만 주의 (예: 흔들림이 기준보다 큼, 받는 쪽 재생 끊김). 도착 지연 변동은 유선 40 ms(DVB), <b>Wi-Fi로 받는 장비는 100 ms</b>를 넘을 때 노랑</td></tr>
+<tr><td>🔴 빨강</td><td><b>공유기 탓</b>으로 패킷이 빠졌거나 흔들림이 너무 큼 → <b>FAIL</b>. 빨강은 공유기 문제일 때만 나옵니다</td></tr>
+<tr><td>🔵 파랑(보라)</td><td>문제가 있었지만 <b>송신 PC나 받는 장비 쪽</b> 원인 (공유기 탓 아님)</td></tr>
 <tr><td>⚪ 회색</td><td>자료 없음 (장비 끊김 등)</td></tr>
 </table>
 <ul>
+<li>칸에 마우스를 올리면 그 5분의 값과 이유가 나옵니다.</li>
 <li>정해진 시간이 지나면 저절로 끝납니다. 중간에 끝내려면 <b>[Stop]</b>.</li>
 <li>끝나면 결과 창이 뜹니다: <b>PASS</b>(문제 없이 끝까지) / <b>FAIL</b>(빨강 있음) / <b>INCOMPLETE</b>(중간에 멈춤·자료 부족).</li>
 <li><b>[Show report]</b> 또는 위의 <b>[Reports]</b> 버튼으로 보고서를 엽니다. 손실이 난 순간의 <b>화면 사진</b>과 <b>패킷 파일(pcap)</b>, 원인 분석 문장이 함께 들어 있습니다.</li>
+<li>보고서 맨 아래 <b>Results table (for email)</b>: <b>[Copy table]</b>을 누르고 메일이나 문서에 붙여 넣으면 결과표가 선과 함께 그대로 들어갑니다.</li>
 <li>보고서 폴더: <code>C:\ZeroLoss\Reports\R날짜-시간\</code> — <code>report.html</code>(브라우저로 열기), <code>report.pdf</code>. 이 폴더를 통째로 보내면 됩니다.</li>
 </ul>
 
@@ -195,6 +237,8 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <tr><td>장비 앞이 ○ (not answering)</td><td>그 PC가 켜져 있고 선이 꽂혀 있는지 확인 → IP 상자에서 다른 주소를 고르거나 그 PC의 주소(<code>hostname -I</code>)를 직접 입력</td></tr>
 <tr><td>위에 "N problems" / Action Required</td><td>눌러서 안내를 따릅니다. 해결되면 저절로 사라집니다.</td></tr>
 <tr><td>sender가 "router LAN side"</td><td>6단계: 송신 PC 랜선이 공유기 WAN 포트에 있는지 확인, 1~2분 기다림</td></tr>
+<tr><td>태블릿 줄이 안 생김 / PC 줄에 "tablet(s) on its USB not seen by adb"</td><td>[Refresh]. 그래도 없으면 USB 케이블을 바꾸거나 수신 PC에 바로 꽂기(허브·도킹 말고), 태블릿의 "USB 디버깅 허용" 창 확인</td></tr>
+<tr><td>태블릿이 Wi-Fi에 못 붙음 ("Register this tablet's MAC …")</td><td>화면에 나온 MAC을 공유기에 등록하고 다시 [Start]. 태블릿은 무작위 MAC이 아니라 원래 MAC으로 붙습니다</td></tr>
 <tr><td>무선 시험인데 연결 실패</td><td>수신 PC를 시험할 공유기 Wi-Fi에 직접 연결한 뒤 다시 [Start]</td></tr>
 <tr><td>수신 PC에 영상 창이 안 보임</td><td>수신 PC가 화면에 로그인되어 있어야 합니다 (5단계 자동 로그인 y)</td></tr>
 <tr><td>그래도 안 됨</td><td>ZeroLoss 창과 Problems 창을 사진으로 찍어 보내 주세요</td></tr>
@@ -205,31 +249,41 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <table>
 <tr><th>보이는 것</th><th>먼저 (버튼)</th><th>손으로</th></tr>
 <tr><td>송신 PC가 ○ (Cannot reach) — 이 PC에서 10.0.0.x로 가는 길이 없음</td><td>Action Required의 <b>[Add the route]</b> → Windows가 물으면 [예]</td><td>관리자 명령 프롬프트에서 <code>route add 10.0.0.0 mask 255.255.255.0 192.168.45.1</code> (끝의 주소 = 이 PC 랜카드의 공유기 주소). 재부팅하면 다시 해야 합니다</td></tr>
-<tr><td>"… has build …" (PC마다 버전이 다름)</td><td><b>[Update PCs]</b></td><td>그 PC로 키트의 <code>packages</code> 폴더 .deb 파일을 옮겨, 그 폴더의 터미널에서 <code>sudo apt install ./zeroloss-agent_*.deb</code></td></tr>
+<tr><td>"… has build …" (PC마다 버전이 다름)</td><td><b>[Update PCs]</b></td><td>그 PC로 <code>C:\Program Files\ZeroLoss\Controller\packages</code> 폴더의 .deb 파일을 옮겨, 그 폴더의 터미널에서 <code>sudo apt install ./zeroloss-agent_*.deb</code></td></tr>
 <tr><td>랜카드 속도가 원래대로 안 돌아옴 (Action Required "Put a card setting back by hand")</td><td>손으로 고친 뒤 <b>[Fixed, check again]</b> (그냥 계속하려면 [Continue anyway])</td><td>Windows: 장치 관리자 → 네트워크 어댑터 → 그 카드 → 고급 → 속도 및 이중 = <b>자동 협상</b>. 리눅스: <code>sudo ethtool -s 카드이름 autoneg on</code>. 또는 그 랜선을 뽑았다 다시 꽂기</td></tr>
-<tr><td>Wi-Fi가 원래 망으로 안 돌아옴 (같은 창)</td><td>손으로 고친 뒤 <b>[Fixed, check again]</b></td><td>그 PC 화면 오른쪽 위 Wi-Fi 메뉴에서 원래 망을 고르기 (또는 <code>nmcli connection up id 원래망이름</code>)</td></tr>
+<tr><td>Wi-Fi 설정(폭·모드)이 원래대로 안 돌아옴 (같은 창)</td><td>손으로 고친 뒤 <b>[Fixed, check again]</b></td><td>Windows: 장치 관리자 → 네트워크 어댑터 → 그 Wi-Fi 카드 → 고급 → 채널 폭·무선 모드 = 원래 값(보통 <b>자동</b>). 리눅스: Wi-Fi를 껐다 켜기</td></tr>
+<tr><td>Wi-Fi가 원래 망으로 안 돌아옴 (PC 또는 태블릿)</td><td>손으로 고친 뒤 <b>[Fixed, check again]</b></td><td>PC: 화면 오른쪽 위 Wi-Fi 메뉴에서 원래 망을 고르기 (또는 <code>nmcli connection up id 원래망이름</code>). 태블릿: 설정 → Wi-Fi에서 원래 망을 고르기</td></tr>
 <tr><td>이 PC 랜카드 속도 케이스가 회색 "administrator approval was declined"</td><td>다음 시험 때 Windows가 "변경을 허용할까요?"라고 물으면 <b>[예]</b></td><td>회색 케이스만 빠지고 나머지는 정상입니다</td></tr>
 <tr><td>"Could not hold this PC's time sync" (SYS-012, 경고)</td><td>그대로 진행해도 됩니다 (판정은 시계 보정을 빼고 함)</td><td>그 리눅스 PC에서 시험 전 <code>sudo timedatectl set-ntp false</code>, 끝나고 <code>sudo timedatectl set-ntp true</code></td></tr>
 <tr><td>"The sender PC has Wi-Fi on …" 팝업 (NET-025)</td><td>원하면 송신 PC의 Wi-Fi를 끄고 [Done] — ZeroLoss는 끄지 않습니다</td><td>송신 PC 화면 오른쪽 위 메뉴 → Wi-Fi 끄기. 시험이 끝나면 다시 켜기</td></tr>
 <tr><td>무선 밴드 목록이 비거나 "Scan failed"</td><td>줄 밑에 적힌 이유대로 (예: older ZeroLoss → [Update PCs]) 한 뒤 <b>[Scan]</b></td><td>SSID를 몰라도 됨: 그 PC를 시험할 Wi-Fi에 손으로 붙이면 그 망으로 잽니다</td></tr>
-<tr><td>송신 PC가 늦게 보냄 (보라 "sender trouble", SND-025)</td><td>시험 중에는 송신 PC에서 다른 무거운 일(영상 변환, 업데이트, 큰 복사)을 하지 않기</td><td>송신 PC가 뜨거우면(90 °C 넘음) 운영체제가 CPU를 잠깐씩 쉬게 해 송신이 멈춥니다 — 통풍, 덮개 열기. 쓰지 않는 Wi-Fi는 끄는 것을 권합니다(팝업 안내)</td></tr>
+<tr><td>송신 PC가 늦게 보냄 (파랑 "sender trouble", SND-025)</td><td>시험 중에는 송신 PC에서 다른 무거운 일(영상 변환, 업데이트, 큰 복사)을 하지 않기</td><td>송신 PC가 뜨거우면(90 °C 넘음) 운영체제가 CPU를 잠깐씩 쉬게 해 송신이 멈춥니다 — 통풍, 덮개 열기. 쓰지 않는 Wi-Fi는 끄는 것을 권합니다(팝업 안내)</td></tr>
+<tr><td>태블릿이 adb 목록에서 사라짐</td><td><b>[Refresh]</b></td><td>USB를 뽑았다 다시 꽂기. 수신 PC의 USB-C 도킹은 자주 끊기니 PC에 바로 꽂기</td></tr>
 <tr><td>모든 PC 설정을 원래대로 돌리고 싶음</td><td>시험이 끝난 뒤 <b>[Reset All]</b> (시험 중엔 회색: 먼저 Stop)</td><td>응답 없는 PC는 그 PC를 다시 켠 뒤 [Reset All]</td></tr>
 <tr><td>ZeroLoss 창이 멈춘 것 같음</td><td>창을 닫고 다시 열기 — <b>시험은 계속 돕니다</b></td><td>그래도 이상하면 [Reset All]</td></tr>
 </table>
 
-<h2 id="where">10. 파일이 저장되는 곳</h2>
+<h2 id="update">10. 새 버전으로 바꾸기</h2>
+<ol>
+<li>시험이 끝난 뒤, 새 키트의 <code>ZeroLoss-Controller-Setup-새버전.exe</code>를 실행합니다. 설정·보고서는 그대로 이어집니다.</li>
+<li>ZeroLoss 창에 <b>[Update PCs to build …]</b>가 보이면 누릅니다. 리눅스 PC와 태블릿 앱이 같은 버전으로 바뀝니다(몇 분).</li>
+</ol>
+
+<h2 id="where">11. 파일이 저장되는 곳</h2>
 <table>
 <tr><th>PC</th><th>위치</th><th>내용</th></tr>
-<tr><td>Windows</td><td><code>C:\ZeroLoss-Kit-20261016.0026\1_Windows_PC\ZeroLoss\</code></td><td>프로그램</td></tr>
+<tr><td>Windows</td><td><code>C:\Program Files\ZeroLoss\Controller\</code></td><td>프로그램 (<code>packages\</code>: 리눅스 PC·태블릿에 넣는 파일)</td></tr>
 <tr><td>Windows</td><td><code>C:\ZeroLoss\Reports\</code></td><td>시험 보고서 (시험마다 한 폴더)</td></tr>
-<tr><td>Windows</td><td><code>C:\ProgramData\ZeroLoss\Controller\</code></td><td>장비 목록, 설정, 기록</td></tr>
+<tr><td>Windows</td><td><code>C:\ProgramData\ZeroLoss\Controller\</code></td><td>장비 목록, 설정, 기록 (<code>logs\</code>)</td></tr>
 <tr><td>Ubuntu</td><td><code>/opt/zeroloss/</code></td><td>프로그램</td></tr>
-<tr><td>Ubuntu</td><td><code>/var/lib/zeroloss/</code></td><td>시험 자료, 기록</td></tr>
+<tr><td>Ubuntu</td><td><code>/var/lib/zeroloss/</code></td><td>시험 자료, 영상(<code>media/</code>), 기록</td></tr>
+<tr><td>태블릿</td><td>앱 <b>ZeroLoss</b></td><td>수신 앱</td></tr>
 </table>
 
-<h2 id="remove">11. 지우는 방법</h2>
+<h2 id="remove">12. 지우는 방법</h2>
 <ul>
-<li><b>Ubuntu PC</b>: 터미널에서 <code>sudo apt purge zeroloss-agent</code> (ZeroLoss가 바꾼 설정도 원래대로 돌아갑니다)</li>
-<li><b>Windows PC</b>: ZeroLoss 창을 닫고 <code>C:\ZeroLoss-Kit-20261016.0026</code>과 <code>C:\ProgramData\ZeroLoss</code> 폴더를 지웁니다. 보고서가 필요 없으면 <code>C:\ZeroLoss</code>도 지웁니다.</li>
+<li><b>태블릿</b>: ZeroLoss 창 Devices의 그 태블릿 줄 <b>[Remove…]</b> → [Yes]. 또는 태블릿 설정 → 애플리케이션 → <b>ZeroLoss</b> → <b>삭제</b>. 개발자 옵션의 USB 디버깅도 끄고 싶으면 끕니다.</li>
+<li><b>Ubuntu PC</b>: 그 PC 줄의 <b>[Remove…]</b> → 아이디·비밀번호 입력 → [Remove]. 시험 자료까지 지우려면 "Also delete its test data"를 체크합니다. 또는 그 PC의 터미널에서 <code>sudo apt purge zeroloss-agent</code> (ZeroLoss가 바꾼 설정도 원래대로 돌아갑니다)</li>
+<li><b>Windows PC</b>: <b>설정 → 앱 → 설치된 앱 → ZeroLoss Controller → 제거</b>. 마지막에 "시험 보고서와 설정도 지울까요?"를 묻습니다. <b>[아니요]</b>(기본)를 누르면 보고서와 설정이 남습니다. 시험이 진행 중이면 제거하지 않습니다.</li>
 </ul>
 </main></body></html>

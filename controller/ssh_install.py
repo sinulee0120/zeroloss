@@ -150,41 +150,7 @@ class LinuxInstaller:
         seen = self.known_hosts.check(t.host, key, accept_new)
         result["host_key"] = {"sha256": key.get_fingerprint("sha256"), "status": seen}
         self._step(steps, "host_key", seen)
-        try:
-            conn = await asyncio.wait_for(
-                asyncssh.connect(
-                    t.host,
-                    t.ssh_port,
-                    username=t.user,
-                    password=t.password,
-                    known_hosts=([key], [], []),
-                    client_keys=None,
-                    agent_path=None,
-                    preferred_auth="password,keyboard-interactive",
-                ),
-                CONNECT_TIMEOUT_S,
-            )
-        except asyncssh.PermissionDenied:
-            if t.user == "root":
-                raise ZlError(
-                    "INS-008",
-                    "root may not log in over SSH",
-                    "Ubuntu blocks root password logins.",
-                    "Use a sudo account (the same account you log in with) instead of root.",
-                ) from None
-            raise ZlError(
-                "INS-007",
-                f"SSH login failed for {t.user}@{t.host}",
-                "The user name or password is wrong.",
-                "Check them and try again (up to 3 times).",
-            ) from None
-        except (OSError, asyncssh.Error, TimeoutError) as e:
-            raise ZlError(
-                "DSC-014",
-                f"Cannot reach {t.host} over SSH",
-                str(e),
-                "Check the PC, its cable and that SSH is running.",
-            ) from None
+        conn = await _login(t, key)
         async with conn:
             self._step(steps, "login")
             sudo = "" if t.user == "root" else "sudo -S -p '' "
@@ -409,6 +375,46 @@ class LinuxInstaller:
             dep.close()
 
 
+async def _login(t: Target, key: asyncssh.SSHKey) -> asyncssh.SSHClientConnection:
+    """SSH with the password, the host key already checked (install and removal)."""
+    try:
+        conn = await asyncio.wait_for(
+            asyncssh.connect(
+                t.host,
+                t.ssh_port,
+                username=t.user,
+                password=t.password,
+                known_hosts=([key], [], []),
+                client_keys=None,
+                agent_path=None,
+                preferred_auth="password,keyboard-interactive",
+            ),
+            CONNECT_TIMEOUT_S,
+        )
+    except asyncssh.PermissionDenied:
+        if t.user == "root":
+            raise ZlError(
+                "INS-008",
+                "root may not log in over SSH",
+                "Ubuntu blocks root password logins.",
+                "Use a sudo account (the same account you log in with) instead of root.",
+            ) from None
+        raise ZlError(
+            "INS-007",
+            f"SSH login failed for {t.user}@{t.host}",
+            "The user name or password is wrong.",
+            "Check them and try again (up to 3 times).",
+        ) from None
+    except (OSError, asyncssh.Error, TimeoutError) as e:
+        raise ZlError(
+            "DSC-014",
+            f"Cannot reach {t.host} over SSH",
+            str(e),
+            "Check the PC, its cable and that SSH is running.",
+        ) from None
+    return conn
+
+
 def newest_deb(folder: Path) -> Path:
     """The newest ``zeroloss-agent_<build>_amd64.deb`` the Controller holds (06 11.3)."""
     debs = sorted(folder.glob("zeroloss-agent_*_amd64.deb"))
@@ -437,3 +443,36 @@ def newest_modules(folder: Path) -> list[Path]:
 def _last(text: str) -> str:
     lines = [x for x in text.strip().splitlines() if x.strip()]
     return lines[-1][:200] if lines else ""
+
+
+class LinuxRemover:
+    """06 7 / 2026-10-31 (the remove buttons): ZeroLoss off a Linux PC over SSH, the same
+    login as the install; its test data stays unless ``purge`` (06 1 5). The PC leaves
+    the device list only when the package is gone."""
+
+    def __init__(self, known_hosts: KnownHosts, devices: DeviceList) -> None:
+        self.known_hosts, self.devices = known_hosts, devices
+
+    def remove(self, name: str, t: Target, purge: bool) -> dict[str, Any]:
+        out = asyncio.run(self._remote(t, purge))
+        self.devices.remove(name)
+        return {"name": name, "host": t.host, "purged": purge, **out}
+
+    async def _remote(self, t: Target, purge: bool) -> dict[str, Any]:
+        installer = LinuxInstaller(self.known_hosts, Path(), [], self.devices, "")
+        key = await installer._host_key(t)
+        self.known_hosts.check(t.host, key, False)  # the key it was installed with
+        conn = await _login(t, key)
+        async with conn:
+            sudo = "" if t.user == "root" else "sudo -S -p '' "
+            if sudo:
+                await installer._sudo_ok(conn, t)
+            how = "--purge" if purge else "-r"
+            r = await conn.run(f"{sudo}dpkg {how} zeroloss-agent",
+                               input=t.password + "\n" if sudo else None, check=False)  # fmt: skip
+            if r.exit_status != 0:
+                raise ZlError("INS-028", f"Removal failed on {t.host}",
+                              _last(str(r.stdout or "") + str(r.stderr or "")),
+                              "Read the line above, then remove it on that PC: "
+                              "sudo apt purge zeroloss-agent")  # fmt: skip
+        return {"removed": True}

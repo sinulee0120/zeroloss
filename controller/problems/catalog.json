@@ -944,8 +944,13 @@
   },
   "ZL-TAB-018": {
    "what": "A tablet scans for Wi-Fi by itself on a timer",
-   "why": "An app on the tablet (e.g. Samsung Context Engine) makes the Wi-Fi leave the channel for seconds every 30 minutes; the live stream meanwhile is lost. The router is not the cause.",
+   "why": "An app on the tablet (e.g. Samsung Context Engine) takes the Wi-Fi away from the TV stream for seconds every 30 minutes; the live stream meanwhile is lost. The router is not the cause.",
    "fix": "The tool pauses that app during the test and puts it back after. If it could not, the test goes on; Reset All tries to put it back again."
+  },
+  "ZL-TAB-019": {
+   "what": "A tablet left the Wi-Fi it was kept on",
+   "why": "Android moved the tablet to another saved network (a TV network has no internet, so Android may drop it and not go back by itself). The seconds away count as that tablet's loss.",
+   "fix": "The tool joins it again when it can (a network it joined, or an open one). Otherwise put the tablet back on that network in its Settings, Wi-Fi."
   }
  }
 }

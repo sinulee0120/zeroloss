@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from collections.abc import Iterator, Sequence
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -177,7 +178,7 @@ def test_join_asks_adb_and_waits_for_the_address(tmp_path: Path) -> None:
     t = Tablets(Adb(lambda: "adb", fake), tmp_path / "x.apk")
     got = t.join_wifi("A1", "Lab 5G", "WPA2", "secret12")
     assert got == {"joined": True, "ssid": "Lab 5G", "ip": "192.168.45.77"}
-    assert "-s A1 shell cmd wifi connect-network Lab 5G wpa2 secret12" in fake.calls
+    assert "-s A1 shell cmd wifi connect-network Lab 5G wpa2 secret12 -r none" in fake.calls
     assert t.join_wifi("A1", "Lab 5G", "WPA2", "secret12")["joined"] is False  # on it already
 
 
@@ -279,3 +280,166 @@ def test_a_forward_left_by_an_earlier_run_is_used_and_extras_removed(tmp_path: P
     assert fake.forwards == 0  # no new one
     assert "-s A1 forward --remove tcp:41001" in fake.calls
     assert not any("tcp:41002" in c for c in fake.calls)  # another tablet's stays
+
+
+NET = """Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
+Udp: 1000 0 7 20 6 0 0 40 0
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+  12: 00000000:138C 00000000:0000 07 00000000:00000000 00:00000000 00000000 10123        0 111 2 0000000000000000 3
+  13: 00000000:138C 00000000:0000 07 00000000:00000000 00:00000000 00000000 10999        0 112 2 0000000000000000 50
+  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+  40: 00000000000000000000000000000000:138C 00000000000000000000000000000000:0000 07 00000000:00000000 00:00000000 00000000 10123        0 113 2 0000000000000000 2
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+  wlan0: 172000 126000    1    4    0     0          0         0   5000    300    0    0    0     0       0          0
+    lo: 10 1 0 0 0 0 0 0 10 1 0 0 0 0 0 0
+"""  # noqa: E501 (the files as the tablets print them)
+
+
+def test_receive_counters_are_the_apps_own_sockets_and_the_wifi_card() -> None:
+    """R-25: made-up output in the shape the tablets give (/proc/net/*)."""
+    from core.blocks.tablets import parse_net_counters, parse_uids
+
+    assert parse_uids("package:com.zeroloss.receiver uid:10123,2310123") == {10123, 2310123}
+    got = parse_net_counters(NET, 5004, {10123})
+    assert got == {"ue": 7, "ub": 6, "hd": 5, "ne": 1, "nd": 4}  # 3 + 2: v4 and v6 sockets
+    assert "hd" not in parse_net_counters(NET, 5004, set())  # no uid: no socket counted
+
+
+def test_wifi_standard_and_a_width_only_when_the_rate_says_it() -> None:
+    """2026-10-24: made-up status in the shape the tablets print (cmd wifi status)."""
+    from core.blocks.tablets import parse_wifi_status, width_from_rate
+
+    out = ('WifiInfo: SSID: "ZL_TEST", BSSID: 02:00:5e:00:00:01, Wi-Fi standard: 11ax, '
+           "RSSI: -32, Link speed: 1201Mbps, Tx Link speed: 1201Mbps, Rx Link speed: 1201Mbps, "
+           "Frequency: 5745MHz, Net ID: 8")  # fmt: skip
+    assert parse_wifi_status(out) == {"std": "11ax", "freq": 5745, "rx_mbps": 1201, "ssid": None}
+    on = 'Wifi is connected to "ZL_TEST" ' + out
+    assert parse_wifi_status(on)["ssid"] == "ZL_TEST"  # TAB-019 watches it
+    assert width_from_rate("11ax", 1201) == 80  # HE 2x2 MCS 11
+    assert width_from_rate("11ax", 2402) == 160
+    assert width_from_rate("11ax", 287) is None  # 2x20 or 1x40: not known
+    assert width_from_rate("11ax", 864) is None  # below a top rate: not known
+    assert width_from_rate("11ac", 867) == 80
+    assert width_from_rate(None, 1201) is None
+
+
+def test_back_forgets_each_added_network_once_and_a_tablet_on_none_stays_on_none() -> None:
+    """receiverPC 2026-10-29 (Android 17): a saved network is two rows with one id, the
+    second ending in a carriage return; a tablet that was on no Wi-Fi is back once ours
+    are forgotten."""
+    from core.blocks.tablets import Tablets
+
+    rows = ("Network Id      SSID                         Security type\n"
+            "0            ZL_OWN                          open\n"
+            "0            ZL_OWN                          owe\r\n"
+            "1            ZL_OPEN_5G                      open\n"
+            "1            ZL_OPEN_5G                      owe\r\n")  # fmt: skip
+    calls: list[list[str]] = []
+
+    class Adb:
+        def shell(self, serial: str, args: list[str], timeout: float = 10.0) -> str:
+            calls.append(args)
+            return rows if args[-1] == "list-networks" else "Wifi is not connected"
+
+    tabs = Tablets(Adb(), Path("x.apk"))  # type: ignore[arg-type]
+    assert tabs.back_wifi("T1", None, ["ZL_OPEN_5G"]) == {"back": True, "ssid": None, "ip": None}
+    assert [c for c in calls if "forget-network" in c] == [["cmd", "wifi", "forget-network", "1"]]
+
+
+def test_the_wifi_is_held_recorded_first_and_put_back_after_a_restart(tmp_path: Path) -> None:
+    """TAB-019 (2026-10-31): Android's ipreach disconnect and its network selection while
+    associated are off for the test, recorded on the PC before they change, and put back
+    by the next run of this service too. Android 17 says the state as true / false."""
+
+    class Reach(FakeAdb):
+        state = "true"
+        override = "0"
+
+        def __call__(self, argv: Sequence[str], timeout: float) -> tuple[int, str]:
+            cmd = " ".join(argv[1:])
+            if "ipreach" in cmd or "network-selection" in cmd:
+                self.calls.append(cmd)
+                if "get-ipreach" in cmd:
+                    return 0, f"IPREACH_DISCONNECT state is {self.state}"
+                if "set-ipreach" in cmd:
+                    self.state = {"enabled": "true", "disabled": "false"}[cmd.rsplit(" ", 1)[-1]]
+                else:
+                    self.override = cmd.rsplit(" ", 1)[-1]
+                return 0, ""
+            return super().__call__(argv, timeout)
+
+    fake = Reach(1, "")
+    t = Tablets(Adb(lambda: "adb", fake), tmp_path / "x.apk")
+    said = t.hold_wifi("A1", "TV")
+    assert said == ["ipreach disconnect off", "no switching to another saved network"]
+    assert fake.state == "false" and fake.override == "2"
+    assert "-s A1 shell cmd wifi set-network-selection-config enabled enabled -a 2" in fake.calls
+    assert (tmp_path / "wifi-held.json").is_file()
+    again = Tablets(Adb(lambda: "adb", fake), tmp_path / "x.apk")  # after a restart
+    assert [r["ok"] for r in again.release_wifi()] == [True, True]
+    assert fake.state == "true" and fake.override == "0"
+    assert not (tmp_path / "wifi-held.json").exists()
+    fake.state = "false"  # the person had it off: left so, only the selection held
+    assert t.hold_wifi("A1", "TV") == ["no switching to another saved network"]
+    assert [r["what"] for r in t.release_wifi("A1")] == ["A1 network selection"]
+    assert fake.state == "false"
+
+
+def test_how_a_network_is_saved() -> None:
+    """Made-up names in the shape Android 17 lists them (an open one twice: open, owe)."""
+    from core.blocks.tablets import parse_saved_security
+
+    rows = [
+        ("Network Id", "SSID", "Security type"),
+        ("0", "HomeNet", "wpa2-psk"),
+        ("0", "HomeNet", "wpa3-sae"),
+        ("7", "ZL_TV", "open"),
+        ("7", "ZL_TV", "owe"),
+    ]
+    # the second row of a network ends in a carriage return (receiverPC, Android 17)
+    out = "".join(
+        f"{a:<8}{b:<29}{c}" + (chr(13) if c in ("wpa3-sae", "owe") else "") + chr(10)
+        for a, b, c in rows
+    )
+    assert parse_saved_security(out, "ZL_TV") == "Open"
+    assert parse_saved_security(out, "HomeNet") == "WPA2"
+    assert parse_saved_security(out, "Other") is None
+
+
+def test_the_app_comes_off_a_tablet_and_only_the_app(tmp_path: Path) -> None:
+    """06 7 (2026-10-31, the remove buttons)."""
+
+    class Off(FakeAdb):
+        def __call__(self, argv: Sequence[str], timeout: float) -> tuple[int, str]:
+            cmd = " ".join(argv[1:])
+            if " uninstall " in f" {cmd} ":
+                self.calls.append(cmd)
+                return 0, "Success\n"
+            return super().__call__(argv, timeout)
+
+    fake = Off(1, "")
+    t = Tablets(Adb(lambda: "adb", fake), tmp_path / "x.apk")
+    assert t.uninstall_app("A1") == {"removed": True}
+    assert [c for c in fake.calls if "uninstall" in c] == ["-s A1 uninstall com.zeroloss.receiver"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="sysfs names have colons")
+def test_a_tablet_on_usb_that_adb_does_not_list_is_counted(tmp_path: Path) -> None:
+    """receiverPC 2026-10-31: on USB through a flaky dock, missing from adb, and the screen
+    said nothing. Made-up sysfs: two devices offer an adb interface, adb lists one."""
+    from core.blocks.tablets import usb_adb_devices
+
+    def iface(name: str, cls: str, sub: str, proto: str) -> None:
+        d = tmp_path / name
+        d.mkdir()
+        for f, v in (("bInterfaceClass", cls), ("bInterfaceSubClass", sub),
+                     ("bInterfaceProtocol", proto)):  # fmt: skip
+            (d / f).write_text(v + "\n")
+
+    iface("1-1:1.0", "06", "01", "01")  # its MTP side
+    iface("1-1:1.1", "ff", "42", "01")  # adb
+    iface("1-2:1.1", "ff", "42", "01")  # adb, a second tablet
+    iface("1-3:1.0", "08", "06", "50")  # a USB stick
+    assert usb_adb_devices(tmp_path) == 2
+    assert usb_adb_devices(tmp_path / "none") == 0

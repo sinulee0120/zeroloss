@@ -35,7 +35,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:17px;margin:20px 0 8px}h3{font-siz
 .card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
 .card .l{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card.bad{border-left-color:var(--red)}.card.ok{border-left-color:var(--green)}
+.card.bad{border-left-color:var(--red)}.card.side{border-left-color:var(--purple)}.card.judging{border-left-color:var(--muted)}.card.warn{border-left-color:var(--yellow)}.card.ok{border-left-color:var(--green)}
 .dev{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:16px}
 .why{font-size:13px;color:var(--muted);margin:4px 0 0}
 .charts{display:grid;grid-template-columns:1fr;gap:8px;min-width:0}
@@ -48,7 +48,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:17px;margin:20px 0 8px}h3{font-siz
 .boxes{display:flex;flex-wrap:wrap;gap:2px}.box{width:20px;height:20px;border-radius:3px;color:#fff;font-size:12px;line-height:20px;text-align:center}
 .wide{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
 td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
-td.bad{color:var(--red);font-weight:700}.boxb{display:inline-block;color:#fff;border-radius:4px;padding:1px 8px;white-space:nowrap}td.warn{color:var(--warnline);font-weight:700}td.txt{text-align:left;white-space:normal}
+td.bad{color:var(--red);font-weight:700}td.side{color:var(--purple);font-weight:700}td.judging{font-weight:700;text-decoration:underline dotted var(--muted)}.boxb{display:inline-block;color:#fff;border-radius:4px;padding:1px 8px;white-space:nowrap}td.warn{color:var(--warnline);font-weight:700}td.txt{text-align:left;white-space:normal}
 .stale{color:var(--red);font-weight:700}a{color:var(--chart)}
 .filter{margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.filter input[type=text],.filter input:not([type]){min-width:0}
 </style></head><body>
@@ -67,7 +67,7 @@ td.bad{color:var(--red);font-weight:700}.boxb{display:inline-block;color:#fff;bo
 <p class="meta"><a href="/">Reports</a> · updates every second</p>
 <script>
 var ICON=__ICONS__,COLOR={green:"var(--green)",yellow:"var(--yellow)",red:"var(--red)",purple:"var(--purple)",grey:"var(--grey)"};
-var NAME={green:"OK",yellow:"Warning",red:"Problem",purple:"Tool or receiver side",grey:"No data"};
+var NAME={green:"OK",yellow:"Warning",red:"Problem",purple:"Sender or receiver side",grey:"No data"};
 var WORSE=["green","grey","yellow","purple","red"];
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;}
 function hms(s){s=Math.max(0,Math.floor(s||0));var h=Math.floor(s/3600),m=Math.floor(s%3600/60),z=s%60;return h+"h "+(m<10?"0":"")+m+"m "+(z<10?"0":"")+z+"s";}
@@ -77,6 +77,29 @@ function isBad(c,v){if(v===null||v===undefined)return false;if(c.text)return c.o
 /* a warning column (GAP-132): counted, shown amber, does not fail the test */
 function isWarn(c,v){return !!c.warn&&v!==null&&v!==undefined&&v>0;}
 function cls(c,v){return isBad(c,v)?"bad":(isWarn(c,v)?"warn":"");}
+/* 2026-10-31 user ("702 lost라고 빨갛게 lost라고 적으면 라우터가 놓친것도 아닌데 라우터 이슈처럼
+   보임 다른 색깔로 바꿔"): red is the router's only. A loss whose seconds all sit in 5-minute
+   boxes judged sender or receiver side (purple) shows in that color; until judged, red */
+var CELL=300;
+function boxAt(cells,e){for(var i=0;i<(cells||[]).length;i++){var b=cells[i],a=b.start_elapsed_s!==undefined&&b.start_elapsed_s!==null?b.start_elapsed_s:b.index*CELL;
+ if(e>=a&&e<a+(b.duration_s||CELL))return b.color;}return null;}
+/* the class of trouble in these seconds: "bad" (red) when a box of them is red or not judged
+   yet, else "side" when one is purple, else "warn" (a yellow box: a warning, not the router) */
+function judged(cells,es){var cs=es.map(function(e){return boxAt(cells,e);});
+ if(cs.some(function(x){return x==="red"||x==="grey";}))return "bad";
+ /* 2026-10-31: the box still running is not judged yet: said so, not red before its time */
+ if(!cs.length||cs.some(function(x){return x===null||x===undefined;}))return "judging";
+ return cs.indexOf("purple")>=0?"side":"warn";}
+function boxCls(color){return color==="purple"?"side":color==="red"||color==="grey"?"bad":"warn";}
+function lossCls(c,v,cells,es){var k=cls(c,v);return k!=="bad"?k:(c.receiver?"warn":judged(cells,es));}
+var FILL={bad:"var(--red)",side:"var(--purple)",warn:"var(--warnline)",judging:"var(--muted)"};
+function lossFill(cells,e){return FILL[judged(cells,[e])];}
+/* one second: red / blue only for the network columns, the receiver's own player amber */
+function secCls(cols,cells,r,e){if(cols.some(function(c){return !c.receiver&&isBad(c,num(c,r[c.key]));}))return judged(cells,[e]);
+ return cols.some(function(c){var v=num(c,r[c.key]);return isBad(c,v)||isWarn(c,v);})?"warn":"";}
+function hits(c,recs){return recs.filter(function(x){var y=num(c,x[c.key]);return y!==null&&isBad(c,y);}).map(function(x){return x.e;});}
+function boxStart(b){return b.start_elapsed_s!==undefined&&b.start_elapsed_s!==null?b.start_elapsed_s:b.index*CELL;}
+function boxVal(b,k){return ((b.values||[]).filter(function(x){return x.key===k;})[0]||{}).value;}
 function agg(c,recs,how){var vals=[];recs.forEach(function(r){var v=num(c,r[c.key]);if(v!==null&&!c.text)vals.push(v);});if(!vals.length)return null;
  if(how==="sum")return vals.reduce(function(a,b){return a+b;},0);if(how==="max")return Math.max.apply(null,vals);if(how==="min")return Math.min.apply(null,vals);
  return vals.reduce(function(a,b){return a+b;},0)/vals.length;}
@@ -87,7 +110,7 @@ function card(label,c,v){var d=el("div","card"+(isBad(c,v)?" bad":(v!==null&&c.b
 var PENDING=[];
 function nice(v){if(v<=0)return 1;var p=Math.pow(10,Math.floor(Math.log10(v))),n=v/p;return (n<=1?1:n<=2?2:n<=5?5:10)*p;}
 function hhmmss(e){return T0===null?"t+"+e+" s":new Date(T0+e*1000).toLocaleTimeString();}
-function chart(c,recs,lines,bads){var box=el("div","chart"),head=el("div","l");var last=recs.length?num(c,recs[recs.length-1][c.key]):null;
+function chart(c,recs,lines,bads,cells,tick){var box=el("div","chart"),head=el("div","l");var last=recs.length?num(c,recs[recs.length-1][c.key]):null;
  head.appendChild(el("span",null,c.label+(c.unit?" ("+c.unit+")":"")+" · last 10 min"));head.appendChild(el("b",null,fmt(c,last)));box.appendChild(head);
  var ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");box.appendChild(svg);var tip=el("div","tip");box.appendChild(tip);
  PENDING.push(function(){var W=Math.max(240,svg.clientWidth||box.clientWidth-16),H=170,L=46,R=8,T=8,B=22,PW=W-L-R,PH=H-T-B;
@@ -106,8 +129,8 @@ function chart(c,recs,lines,bads){var box=el("div","chart"),head=el("div","l");v
    add("text",{x:tx,y:H-6,"text-anchor":k===0?"start":k===4?"end":"middle","font-size":11,fill:"var(--muted)"}).textContent=hhmmss(Math.round(te));}
   (keep.length?keep:[]).forEach(function(y){if(y<=hi){var ly=Y(y);add("line",{x1:L,x2:L+PW,y1:ly,y2:ly,stroke:"var(--warnline)","stroke-width":1.5,"stroke-dasharray":"6 4"});
    add("text",{x:L+PW-4,y:ly-4,"text-anchor":"end","font-size":11,fill:"var(--warnline)"}).textContent="warning "+y+" "+(c.unit||"");}});
-  bads.forEach(function(e){add("rect",{x:X(e)-1,y:T+PH-4,width:2,height:4,fill:"var(--red)"});});
-  if(c.bad){recs.forEach(function(r){var v=num(c,r[c.key]);if(v>0)add("rect",{x:X(r.e)-1.5,y:Y(v),width:3,height:T+PH-Y(v),fill:"var(--red)"});});}
+  bads.forEach(function(e){add("rect",{x:X(e)-1,y:T+PH-4,width:2,height:4,fill:FILL[tick[e]]||FILL.bad});});
+  if(c.bad){recs.forEach(function(r){var v=num(c,r[c.key]);if(v>0)add("rect",{x:X(r.e)-1.5,y:Y(v),width:3,height:T+PH-Y(v),fill:c.receiver?FILL.warn:lossFill(cells,r.e)});});}
   else{var pts=[];recs.forEach(function(r){var v=num(c,r[c.key]);if(v!==null)pts.push(X(r.e).toFixed(1)+","+Y(v).toFixed(1));});
    add("polyline",{points:pts.join(" "),fill:"none",stroke:"var(--chart)","stroke-width":1.6});}
   add("line",{x1:L,x2:L,y1:T,y2:T+PH,stroke:"var(--muted)","stroke-width":1});add("line",{x1:L,x2:L+PW,y1:T+PH,y2:T+PH,stroke:"var(--muted)","stroke-width":1});
@@ -119,6 +142,12 @@ function chart(c,recs,lines,bads){var box=el("div","chart"),head=el("div","l");v
    tip.style.left=Math.min(b.width-160,Math.max(0,(ev.clientX-b.left)+12))+"px";});
   hit.addEventListener("mouseleave",function(){cur.setAttribute("opacity",0);tip.style.display="none";});});
  return box;}
+/* 2026-10-24 user ("태블릿 두대는 여전히 앱화면에 RSSI가 안나오네", "11ax로 붙었는지 bandwidth는
+   80Mhz인지, 5Ghz등 정보가 하나도 없네"): a tablet has no card in the plan; its own newest
+   second says the Wi-Fi, in the parts and order the module gives (view.wifi) */
+function wifiLine(last,parts){var bits=[];parts.forEach(function(p){var v=last[p.key];
+ if(v===undefined||v===null||v==="")return;bits.push([p.label,v,p.unit].filter(function(x){return x!==undefined&&x!==null&&x!=="";}).join(" "));});
+ return bits.length?"Receives on: Wi-Fi (its own) · "+bits.join(" · "):"";}
 function present(cols,recs){return cols.filter(function(c){return recs.some(function(r){return r[c.key]!==undefined&&r[c.key]!==null;});});}
 function trouble(cols,r){return cols.some(function(c){var v=num(c,r[c.key]);return isBad(c,v)||isWarn(c,v);});}
 /* GAP-129: the boxes by the date and time on the clock ("14:30", "10-09 14:30",
@@ -170,7 +199,7 @@ function multiChart(c,series,lines){var box=el("div","chart"),head=el("div","l")
    tip.style.display="block";tip.style.left=Math.min(Math.max(0,b.width-320),Math.max(0,(ev.clientX-b.left)+12))+"px";});
   hit.addEventListener("mouseleave",function(){cur.setAttribute("opacity",0);tip.style.display="none";});});
  return box;}
-function strips(series,cols){var box=el("div","chart");box.appendChild(el("div","l","Each second, last 10 min: red = problem, amber = warning, blank = fine"));
+function strips(series,cols,cellsOf){var box=el("div","chart");box.appendChild(el("div","l","Each second, last 10 min: red = router problem, blue = sender or receiver side, grey = being judged, amber = warning, blank = fine"));
  var ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");box.appendChild(svg);
  PENDING.push(function(){var W=Math.max(240,svg.clientWidth||box.clientWidth-16),RH=16,L=110,R=8,T=4,H=T+series.length*(RH+4)+20,PW=W-L-R;
   svg.setAttribute("viewBox","0 0 "+W+" "+H);svg.setAttribute("height",H);
@@ -179,8 +208,8 @@ function strips(series,cols){var box=el("div","chart");box.appendChild(el("div",
   var e0=Math.min.apply(null,es),e1=Math.max.apply(null,es),span=Math.max(1,e1-e0+1);function X(e){return L+(e-e0)/span*PW;}
   series.forEach(function(s,i){var y=T+i*(RH+4);add("text",{x:4,y:y+RH-4,"font-size":12,fill:"var(--fg)"}).textContent=s.name;
    add("rect",{x:L,y:y,width:PW,height:RH,fill:"var(--line)",opacity:0.35});
-   s.recs.forEach(function(r){var bad=cols.some(function(c){return isBad(c,num(c,r[c.key]));}),warn=!bad&&cols.some(function(c){return isWarn(c,num(c,r[c.key]));});
-    if(bad||warn)add("rect",{x:X(r.e),y:y,width:Math.max(1,PW/span),height:RH,fill:bad?"var(--red)":"var(--warnline)"});});});
+   s.recs.forEach(function(r){var k=secCls(cols,cellsOf[s.r.device],r,r.e-(s.r.e_shift||0));
+    if(k)add("rect",{x:X(r.e),y:y,width:Math.max(1,PW/span),height:RH,fill:FILL[k]});});});
   for(var k=0;k<=4;k++){var te=e0+(span-1)*k/4;add("text",{x:X(te),y:H-4,"text-anchor":k===0?"start":k===4?"end":"middle","font-size":11,fill:"var(--muted)"}).textContent=hhmmss(Math.round(te));}});
  return box;}
 function together(d){var eps=[];d.receivers.forEach(function(r){var s=r.e_shift||0;(r.episodes||[]).forEach(function(x){
@@ -204,10 +233,11 @@ function overview(d,allCols,lines){var box=document.getElementById("ov");box.tex
   var sh=el("td"),cb=el("input");cb.type="checkbox";cb.checked=!HIDE[s.key];cb.addEventListener("change",function(){HIDE[s.key]=!cb.checked;render(window.LAST);});sh.appendChild(cb);sh.appendChild(swatch(i));tr.appendChild(sh);
   var nm=el("td","txt",s.name);if(row.why)nm.title=row.why;tr.appendChild(nm);
   var last=s.recs.length?s.recs[s.recs.length-1]:{};
-  nowCols.forEach(function(c){var v=num(c,last[c.key]);tr.appendChild(el("td",cls(c,v)+(c.text?" txt":""),v===null?"":fmt(c,v).replace(" "+c.unit,"")));});t.appendChild(tr);});
+  var own=(d.cells||{})[s.r.device],at=last.e!==undefined?[last.e-(s.r.e_shift||0)]:[];
+  nowCols.forEach(function(c){var v=num(c,last[c.key]);tr.appendChild(el("td",lossCls(c,v,own,at)+(c.text?" txt":""),v===null?"":fmt(c,v).replace(" "+c.unit,"")));});t.appendChild(tr);});
  w.appendChild(t);sec.appendChild(w);
  var shown=series.filter(function(s){return !HIDE[s.key];});
- var ch=el("div","charts");cols.forEach(function(c){if(c.chart)ch.appendChild(multiChart(c,shown,lines[c.key]));});ch.appendChild(strips(shown,cols));sec.appendChild(ch);
+ var ch=el("div","charts");cols.forEach(function(c){if(c.chart)ch.appendChild(multiChart(c,shown,lines[c.key]));});ch.appendChild(strips(shown,cols,d.cells||{}));sec.appendChild(ch);
  var tg=together(d).filter(function(g){return (F.from===null||g.b>=F.from)&&(F.to===null||g.a<F.to);});
  sec.appendChild(el("h3",null,"Trouble, all receivers together ("+tg.length+", newest first)"));
  if(!tg.length)sec.appendChild(el("p","why","None so far."));
@@ -218,7 +248,7 @@ function overview(d,allCols,lines){var box=document.getElementById("ov");box.tex
  sec.appendChild(el("p","why","The side is a hint from timing only; colors and the verdict do not change by it."));
  box.appendChild(sec);box.appendChild(el("h2",null,"Each receiver"));}
 function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state==="RUNNING")T0=Date.now()-d.elapsed_s*1000;
- var allCols=(d.view&&d.view.columns)||[],cell=(d.view&&d.view.cell_s)||300,lines=(d.view&&d.view.lines)||{};
+ var allCols=(d.view&&d.view.columns)||[],cell=(d.view&&d.view.cell_s)||300,lines=(d.view&&d.view.lines)||{};CELL=cell;
  var meta=document.getElementById("meta"),prog=document.getElementById("prog"),badge=document.getElementById("badge");
  meta.textContent=(d.run_id||"no run")+" · "+d.state+(d.quality?" · "+d.quality:"")+(d.planned_s?" · "+hms(d.elapsed_s)+" of "+hms(d.planned_s):"");
  prog.style.width=d.planned_s?Math.min(100,100*d.elapsed_s/d.planned_s).toFixed(1)+"%":"0";
@@ -245,7 +275,7 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
    cs.forEach(function(c){var tr=el("tr"),ic=el("td");
     tr.title=(c.values||[]).filter(function(v){return v.detail&&v.value!==null&&v.value!==undefined;})
      .map(function(v){return v.label+": "+v.value+(v.unit?" "+v.unit:"");}).join("\n");var bx=el("span","boxb",ICON[c.color]||"");bx.style.background=COLOR[c.color]||COLOR.grey;ic.appendChild(bx);tr.appendChild(ic);
-    main(c).forEach(function(v){var x=v.value===null||v.value===undefined?"":String(v.value);tr.appendChild(el("td",(v.bad?"bad":"")+(typeof v.value==="number"?"":" txt"),x));});
+    main(c).forEach(function(v){var x=v.value===null||v.value===undefined?"":String(v.value);tr.appendChild(el("td",(v.bad?boxCls(c.color):"")+(typeof v.value==="number"?"":" txt"),x));});
     tr.appendChild(el("td","txt",(c.reasons||[]).join("; ")));tb.appendChild(tr);});
    w.appendChild(tb);sec.appendChild(w);root.appendChild(sec);});
   if(!any)root.appendChild(el("p","meta",Object.keys(d.senders||{}).length&&d.state==="RUNNING"
@@ -261,7 +291,7 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
    /* GAP-149: how the frames arrive (the reference's M2U finding); absent = not measured */
    +(r.arrives?" · arrives as "+(r.arrives.form==="unicast"?"unicast to this PC (the router converts multicast: M2U)"
      :r.arrives.form==="multicast"?"real multicast":"mixed multicast and unicast"):""))
-   :"Receives on: not known yet"));  // wired or Wi-Fi, always shown (GAP-127)
+   :wifiLine(last,(d.view&&d.view.wifi)||[])||"Receives on: not known yet"));  // wired or Wi-Fi, always shown (GAP-127)
   var cells=(d.cells||{})[r.device]||[],badBoxes=cells.filter(function(c){return c.color!=="green";});
   var said=badBoxes.map(function(c){return (c.reasons||[]).join("; ");});
   if(row.why&&said.indexOf(row.why)<0)dev.appendChild(el("p","why",row.why));  // each reason once
@@ -271,16 +301,18 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
   dev.appendChild(el("h3",null,"Values (t+"+(last.e!==undefined?last.e:"?")+" s · this 5-minute box "+hms(idx*cell)+" to "+hms((idx+1)*cell)+", "+open.length+" s so far)"));
   var vw=el("div","wide"),vt=el("table"),vh=el("tr");["","Now","This 5-min box","Last 10 min","Whole test"].forEach(function(x){vh.appendChild(el("th",null,x));});vt.appendChild(vh);
   cols.forEach(function(c){var tr=el("tr");tr.appendChild(el("td",null,c.label+(c.unit?" ("+c.unit+")":"")));
-   function cellOf(v){var td=el("td",cls(c,v)+(c.text?" txt":""),v===null||v===undefined?"":fmt(c,v).replace(" "+c.unit,""));return td;}
+   function cellOf(v,es){var td=el("td",lossCls(c,v,cells,es)+(c.text?" txt":""),v===null||v===undefined?"":fmt(c,v).replace(" "+c.unit,""));return td;}
    var how=c.cell||(c.total?"sum":null);
-   tr.appendChild(cellOf(c.now?num(c,last[c.key]):null));
-   tr.appendChild(cellOf(how&&!c.text?agg(c,open,how):null));
-   tr.appendChild(cellOf(how&&!c.text?agg(c,recs,c.total?"sum":how):null));
-   tr.appendChild(cellOf(c.key===((cols.filter(function(x){return x.label==="Lost";})[0]||{}).key)&&tot!==null?Number(tot):null));
+   tr.appendChild(cellOf(c.now?num(c,last[c.key]):null,last.e!==undefined?[last.e]:[]));
+   tr.appendChild(cellOf(how&&!c.text?agg(c,open,how):null,hits(c,open)));
+   tr.appendChild(cellOf(how&&!c.text?agg(c,recs,c.total?"sum":how):null,hits(c,recs)));
+   tr.appendChild(cellOf(c.key===((cols.filter(function(x){return x.label==="Lost";})[0]||{}).key)&&tot!==null?Number(tot):null,
+    cells.filter(function(b){return boxVal(b,"lost")>0;}).map(boxStart)));
    vt.appendChild(tr);});
   vw.appendChild(vt);var split=el("div","split");split.appendChild(vw);dev.appendChild(split);
-  var ch=el("div","charts");cols.forEach(function(c){if(c.chart)ch.appendChild(chart(c,recs,lines[c.key],bads));});split.appendChild(ch);
-  dev.appendChild(el("p","why",bads.length?"Red marks under the charts: "+bads.length+" second(s) with trouble in the last 10 minutes.":"No second with trouble in the last 10 minutes."));
+  var tick={};recs.forEach(function(x){var k=secCls(cols,cells,x,x.e);if(k)tick[x.e]=k;});
+  var ch=el("div","charts");cols.forEach(function(c){if(c.chart)ch.appendChild(chart(c,recs,lines[c.key],bads,cells,tick));});split.appendChild(ch);
+  dev.appendChild(el("p","why",bads.length?"Marks under the charts: "+bads.length+" second(s) with trouble in the last 10 minutes (red = router side, blue = sender or receiver side, as its 5-minute box was judged; grey = its box is not judged yet).":"No second with trouble in the last 10 minutes."));
   /* GAP-138 (user: "when was the whole-test loss? older than 10 minutes I can only guess"):
      every stretch with trouble since the start, from the Controller, newest first */
   /* GAP-147: the reference board's whole-run cards (boxes by color, loss bursts, peaks) */
@@ -288,11 +320,14 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
    cells.forEach(function(c){n[c.color]=(n[c.color]||0)+1;var v=function(k){return ((c.values||[]).filter(function(x){return x.key===k;})[0]||{}).value;};
     var j=v("jitter_max"),p=v("loss_pct"),b=v("bitrate_avg");if(j!==null&&j!==undefined&&(jm===null||j>jm))jm=j;
     if(p!==null&&p!==undefined&&(lp===null||p>lp))lp=p;if(b!==null&&b!==undefined)br.push(b);});
-   var eps=r.episodes||[],lostEps=eps.filter(function(e){return (e.values||{})[lostKey]>0||(e.what||[]).some(function(w){return w.indexOf("no ")===0;});});
+   var lk=(cols.filter(function(x){return x.label==="Lost";})[0]||{}).key;  // lostKey is set further down
+   var eps=r.episodes||[],lostEps=eps.filter(function(e){return (e.values||{})[lk]>0||(e.what||[]).some(function(w){return w.indexOf("no ")===0;});});
+   var epCls=judged(cells,lostEps.map(function(e){return e.start_e;}));
+   var lpCls=judged(cells,cells.filter(function(b){return boxVal(b,"loss_pct")>0;}).map(boxStart));
    var cw=el("div","cards");function card(l,v,cls){var d=el("div","card"+(cls?" "+cls:""));d.appendChild(el("div","l",l));d.appendChild(el("div","v",v));cw.appendChild(d);}
-   card("Problem boxes",String(n.red),n.red?"bad":"");card("Warning boxes",String(n.yellow));card("Tool or receiver side",String(n.purple));
-   card("OK boxes",String(n.green));card("Loss bursts",r.episodes===undefined?"—":String(lostEps.length),lostEps.length?"bad":"");
-   card("Peak jitter",jm===null?"—":jm+" ms");card("Peak loss",lp===null?"—":lp+" %",lp?"bad":"");
+   card("Problem boxes",String(n.red),n.red?"bad":"");card("Warning boxes",String(n.yellow));card("Sender or receiver side",String(n.purple));
+   card("OK boxes",String(n.green));card("Loss bursts",r.episodes===undefined?"—":String(lostEps.length),lostEps.length?epCls:"");
+   card("Peak jitter",jm===null?"—":jm+" ms");card("Peak loss",lp===null?"—":lp+" %",lp?lpCls:"");
    card("Avg bitrate",br.length?(Math.round(br.reduce(function(a,b){return a+b;},0)/br.length*100)/100)+" Mbps":"—");
    dev.appendChild(el("h3",null,"This test so far (5-minute boxes; \u2014 = not measured)"));dev.appendChild(cw);})();
   if(r.episodes!==undefined){  // an older Controller sends none: say nothing rather than "None"
@@ -303,7 +338,7 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
   else{var ew=el("div","wide"),et=el("table"),eh=el("tr");["Began","Run time","Length","Lost","What","Around then"].forEach(function(x){eh.appendChild(el("th",null,x));});et.appendChild(eh);
    eps.slice().reverse().slice(0,200).forEach(function(x){var tr=el("tr");tr.appendChild(el("td",null,wall(x.start_e)));tr.appendChild(el("td",null,hms(x.start_e)));
     tr.appendChild(el("td",null,(x.end_e-x.start_e+1)+" s"));var lv=lostKey!==undefined?x.values[lostKey]:undefined;
-    tr.appendChild(el("td",lv>0?"bad":"",lv===undefined?"":String(lv)));tr.appendChild(el("td","txt",(x.what||[]).join(", ")));
+    tr.appendChild(el("td",lv>0?judged(cells,[x.start_e]):"",lv===undefined?"":String(lv)));tr.appendChild(el("td","txt",(x.what||[]).join(", ")));
     tr.appendChild(el("td","txt",(x.evidence||[]).concat(x.notes||[]).join(" · ")));et.appendChild(tr);});
    ew.appendChild(et);dev.appendChild(ew);}}
   if(cells.length){dev.appendChild(el("h3",null,"5-minute boxes"));var bx=el("div","boxes");
@@ -321,14 +356,14 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
     var tr=el("tr");tr.appendChild(el("td",null,wall(t0)));tr.appendChild(el("td",null,hms(t0)));
     var bd=el("td");var bs=el("span","boxb",(ICON[c.color]||"")+" "+(NAME[c.color]||c.color));bs.style.background=COLOR[c.color]||COLOR.grey;bd.appendChild(bs);tr.appendChild(bd);
     vcols.forEach(function(vc){var v=((c.values||[]).filter(function(x){return x.key===vc.key;})[0]||{}).value;
-     tr.appendChild(el("td",vc.bad&&v>0?"bad":"",v===null||v===undefined?"":String(v)));});
+     tr.appendChild(el("td",vc.bad&&v>0?boxCls(c.color):"",v===null||v===undefined?"":String(v)));});
     if(hasSeq){var sv=SEQ.map(function(k){var x=((c.values||[]).filter(function(y){return y.key===k;})[0]||{}).value;return x===null||x===undefined?"-":x;});
      tr.appendChild(el("td",sv.some(function(x){return x>0;})?"warn":"",sv.join("/")));}
     tr.appendChild(el("td","txt",(c.reasons||[]).join("; ")||(c.color==="green"?"":"no reason recorded")));bt.appendChild(tr);});
    bw.appendChild(bt);dev.appendChild(bw);}
   function table(title,rows){dev.appendChild(el("h3",null,title));var w=el("div","wide"),t=el("table"),hr=el("tr");hr.appendChild(el("th",null,"t+s"));
   cols.forEach(function(c){hr.appendChild(el("th",null,c.label));});t.appendChild(hr);
-  rows.forEach(function(x){var tr=el("tr");tr.appendChild(el("td",null,String(x.e)));cols.forEach(function(c){var v=num(c,x[c.key]);var td=el("td",cls(c,v)+(c.text?" txt":""),v===null?"":fmt(c,v).replace(" "+c.unit,""));tr.appendChild(td);});t.appendChild(tr);});
+  rows.forEach(function(x){var tr=el("tr");tr.appendChild(el("td",null,String(x.e)));cols.forEach(function(c){var v=num(c,x[c.key]);var td=el("td",lossCls(c,v,cells,[x.e])+(c.text?" txt":""),v===null?"":fmt(c,v).replace(" "+c.unit,""));tr.appendChild(td);});t.appendChild(tr);});
   w.appendChild(t);dev.appendChild(w);}
   var recent=recs.slice(-60),cut=recent.length?recent[0].e:Infinity;
   table("Last 60 seconds (newest first)",recent.slice().reverse());

@@ -47,6 +47,10 @@ IPTV 시험과 같게 **Test type만 고르고 Start**. 레퍼런스(RealTest `C
   | 대역 ↔ 모드 | 11ac는 5 GHz만, 11ax의 6 GHz는 6E 단말만, 11be는 7 단말만 |
   | 대역 ↔ 대역폭 | 2.4 GHz는 20/40 MHz, 320 MHz는 6 GHz만 |
   | 지역(국가 코드) | 공유기·단말의 규제 지역에서 허용된 채널만 쓰이므로 후보는 그 결과 |
+- **구현(2026-10-29 사용자 "전에는 설정 변경 무선에서 안하고 그냥 1회 테스트하고 말았잖아", "a/b/g/n/ac/be/bn설정 변경은 안되나?", "연결된 컴퓨터들에 따라 윈도우,리눅스별로"):** 고른 대역마다 Auto 케이스 다음에 그 카드가 그 대역에서 내놓는 설정을 **하나씩** 케이스로 잰다(대역폭 상한 → 모드 상한 → a/b/g 단독), 케이스마다 원래대로 되돌리고(안 되면 Action Required, SAFETY) 그 대역 망에 다시 붙은 뒤 다음.
+  - **Windows**(`core/blocks/win_wifi_caps.py`): 드라이버 고급 속성(Intel: `ChannelWidth24`·`ChannelWidth52`·`ChannelWidth6` "20 MHz | 자동", `IEEE11nMode` "비활성 | 11n | 11ac | 11ax(| 11be)", `WirelessMode` 11a/11b/11g). a/b/g 단독 = `IEEE11nMode` 비활성 + `WirelessMode` 그 하나. 바꾸기는 유선 속도와 같은 관리자 도우미(Windows가 한 번 물음, 허용 항목만). 확인: Wi-Fi API(언어 무관)의 PHY 종류 = 요청 모드, 대역폭 상한은 수신 속도가 그 폭의 최대 이하.
+  - **Linux**(`core/blocks/wifi_caps.py`): 드라이버에 폭·모드 항목이 없어 **wpa_supplicant 망 옵션**: 20 MHz `disable_ht40`, 11n `disable_vht/he/eht`, 11ac `disable_he/eht`, 11ax `disable_eht`, 11a·11g 단독 `disable_ht`. 케이스 동안 NetworkManager가 카드를 놓고(`managed no`) 우리 wpa_supplicant가 같은 AP에 붙음, 주소는 방금 받은 것 그대로, 끝나면 `managed yes`(재시작 뒤에도 기록 파일로 되돌림). 확인: `iw dev <카드> link`의 폭(MHz)·표준(HE/VHT/MCS). 카드 능력은 `iw phy`(HT40·VHT·HE·EHT). 11b 단독은 받는 쪽에서 고정할 수 없어 안 함(지원 안 됨으로 적음). 암호는 0600 파일로만, 명령줄에 안 씀.
+  - **11bn**: 드라이버가 그 값을 내놓으면 같은 규칙으로 케이스가 생긴다(지금 카드엔 없음).
 - **바꾸는 방법(PC, 드라이버가 노출하는 것만):** Windows는 무선 어댑터 고급 속성(선호 대역·대역폭·모드 항목, 어댑터마다 이름이 다름)과 `netsh wlan`, Linux는 `nmcli`(연결의 대역)·`iw`·`wpa_supplicant` 연결 옵션. 항목 이름·허용 값은 툴이 읽어 지도로 만든다(공유기 UI와 달리 PC라 로그인 없음). 구현 전 원문 확인(G-07).
 - **바꾼 값을 확인하고 잰다**(1.0): 바꾼 뒤 단말에서 관측한 대역·대역폭·모드(`link_monitor`의 1초 Wi-Fi 값, 유선의 링크 속도 되읽기에 해당)가 설정과 같을 때만 잰다. 다르면(예: 공유기가 그 폭을 안 줌) 그 조합은 `NOT RUN` + 이유.
 - **원복:** 한 축을 다 돌면, 그리고 중단·장애·정지 때 **Auto로 되돌리고 되읽어 확인**한다(유선 NIC 속도 원복과 같은 규칙). 원복 실패는 FAULT + Action Required(F22). 노드가 재시작돼도 설정이 남지 않도록 바꾼 값은 복구 기록에 적는다.
@@ -86,4 +90,10 @@ IPTV 시험과 같게 **Test type만 고르고 Start**. 레퍼런스(RealTest `C
 - 설정별 요약(대역·대역폭별 비교 등). 재지 못한 조합은 `NOT RUN` + 이유.
 
 ## 6. 정할 것 (20장 4절 T-1~T-6)
-T-1·T-3·T-5는 0장으로 정함(2026-10-10). 남은 것: T-4(태블릿·폰), T-6 무선 축 곱하기(지금은 한 번에 한 축).
+T-1·T-3·T-5는 0장으로 정함(2026-10-10). **T-4(태블릿) 구현(2026-10-29 사용자 "구현부터 다 해", "연결된 wifi만 하면 돼", "2G 5G 6G변경도 해야하네", "open으로 할거야", "지금 유선 연결된 공유기의 무선에 연결해서 테스트하면돼"):**
+- Devices에서 PC 줄 아래 그 PC의 USB에 꽂힌 태블릿마다 줄(`tablet:<serial>`, S-65)이 있고 사람이 체크한다. 체크하면 대역마다 그 태블릿 스캔의 망을 고른다(SSID로, 태블릿 스캔은 AP를 안 알려줌). 안 고르면 지금 붙은 Wi-Fi 그대로 한 번.
+- 순서: 유선 카드 → Wi-Fi 카드 → 태블릿, 하나씩. 태블릿은 그 PC 노드를 통해 같은 `ClientJob`으로 돈다(Action Required·원복 규칙 같음).
+- 재기: 앱이 iperf3 프로토콜을 직접 말하는 클라이언트(`Iperf3Client.kt`)로 WAN 쪽 같은 `iperf3 -s`에 TCP로 보내기 → 받기(-R), 소켓은 Wi-Fi 망에 묶음(모바일 데이터 있는 태블릿도 Wi-Fi로). 노드는 adb로 `/v1/throughput/start`·`status`를 부르고 iperf3 JSON 모양으로 돌려준다. UDP는 안 함.
+- 대역: adb `cmd wifi connect-network`로 그 대역 망에 붙고, 끝나면 **테스트가 추가한 망만** `forget-network` → 태블릿이 자기 저장 망으로 스스로 돌아감, 그 SSID로 돌아왔는지 확인(안 되면 Action Required).
+- 대역폭·모드: 앱·adb로 못 바꿈 → 붙은 대역·표준·폭(속도로 확실할 때만)을 케이스에 기록.
+남은 것: T-6 무선 축 곱하기(지금은 한 번에 한 축).

@@ -21,12 +21,15 @@ from core.blocks.link_monitor import nic_of
 from core.blocks.nic_bytes import bytes_of
 from core.blocks.nic_speed import Mode, NicSpeed, caps
 from core.blocks.process_runner import ProcessRunner, ProcState, StartError, StopError
+from core.blocks.wifi_caps import WifiCaps
 from core.blocks.win_nic_speed import WinNicSpeed
+from core.blocks.win_wifi_caps import WinWifiCaps
 from core.events.bus import Event
 from core.lifecycle.state_flow import State
 from core.protocol.envelope import Request, ZlError
-from modules.throughput.client import ClientConfig, ClientJob
+from modules.throughput.client import OWN_MODES, ClientConfig, ClientJob
 from modules.throughput.iperf import PORT, server_argv
+from modules.throughput.tablet import TabletIperf
 
 PREFIX = "/v1/modules/throughput"
 
@@ -55,6 +58,7 @@ class ThroughputModule:
         # speed changes, with the way back on disk: ethtool (Linux) or the driver's
         # Speed & Duplex through an administrator helper (Windows, the Controller PC)
         self.cards: NicSpeed | WinNicSpeed | None = None
+        self.wifi_caps: WinWifiCaps | WifiCaps | None = None  # set at attach, per OS
         self.wan_nic: str | None = None  # the WAN-side card (server)
         self.link: dict[str, Any] = {}  # the WAN-side card's last step (heartbeat)
         self._wan_modes: list[Mode] = []
@@ -78,6 +82,13 @@ class ThroughputModule:
         custody = Path(node.data_dir) / "throughput-cards.json"
         cards = WinNicSpeed(custody) if sys.platform == "win32" else NicSpeed(custody)
         self.cards = cards
+        # the Wi-Fi card's width cap and mode per case (throughput.md 1.2), per OS: the
+        # driver's own items through the same administrator helper (Windows), or our own
+        # wpa_supplicant with the options (Linux)
+        self.wifi_caps = (
+            WinWifiCaps(Path(node.data_dir) / "throughput-wifi-caps.json", cards)
+            if isinstance(cards, WinNicSpeed) else WifiCaps(Path(node.data_dir) / "wifi-case")
+        )  # fmt: skip
         # the Wi-Fi network each card was on before its bands (a restart or Reset All
         # puts it back; 2026-10-22 user: "reset all누르면 모든 장비들 설정 원래대로")
         self.wifi_kept = Path(node.data_dir) / "throughput-wifi.json"
@@ -93,6 +104,8 @@ class ThroughputModule:
     def _restore_at_start(self) -> None:
         assert self.cards is not None
         self._told(self.cards.restore_all())
+        if self.wifi_caps is not None:
+            self._told(self.wifi_caps.restore_all())
         self._told(self._wifi_restore())
 
     def restore_settings(self) -> list[dict[str, Any]]:
@@ -100,6 +113,9 @@ class ThroughputModule:
         was -- wired speed and duplex, the Wi-Fi network -- and says so."""
         out = []
         results = dict(self.cards.restore_all()) if self.cards is not None else {}
+        caps = getattr(self, "wifi_caps", None)  # set at attach
+        if caps is not None:
+            results.update(caps.restore_all())
         results.update(self._wifi_restore())
         for nic, back in results.items():
             ok = bool(back.get("ok"))
@@ -192,7 +208,7 @@ class ThroughputModule:
         if not isinstance(cases, list) or not cases:
             raise ZlError("DSC-012", "Request rejected", detail="params.cases must be a list")
         # a picked Wi-Fi card may be on no network at the start: its name and bands do
-        wifi_only = bool(p.get("nic")) and bool(p.get("bands"))
+        wifi_only = (bool(p.get("nic")) and bool(p.get("bands"))) or bool(p.get("serial"))
         for key in ("server",) if wifi_only else ("server", "bind"):
             if not isinstance(p.get(key), str) or not p.get(key):
                 raise ZlError("DSC-012", "Request rejected", detail=f"params.{key} must be str")
@@ -211,12 +227,33 @@ class ThroughputModule:
             unsupported=[str(x) for x in p.get("unsupported") or []],
             bands=[dict(b) for b in p.get("bands") or [] if isinstance(b, dict)],
             nic=str(p.get("nic") or ""),
+            wifi_settings=bool(p.get("wifi_settings", True)),
+            who=str(p.get("who") or ""),
         )  # fmt: skip
         target = str(p.get("target") or cfg.bind)
+        serial = str(p.get("serial") or "")  # T-4: a tablet on this PC's USB measures
         with self._lock:
             if target in self.clients:  # asked again on the Controller's next round
                 return {"cases": len(cfg.cases), "again": True}
+            if serial:
+                tab = TabletIperf(self.node.tablets, serial)
+                host = str(p.get("host") or cfg.device)  # Action Required goes to this PC
+                tjob = ClientJob(cfg, tab.run, tab.read_link, wifi=tab if cfg.bands else None,
+                                 tell=self._teller(host, target))  # fmt: skip
+                tab.live = lambda v: tjob._set(live={**v, "e": tjob.run_second()} if v else None)
+                tjob._offset = float(p.get("elapsed_s", 0.0))
+                self.clients[target] = tjob
+                tjob.start()
+                self._busy()
+                return {"cases": len(cfg.cases)}
             self.node.reach_sender(cfg.server, cfg.bind)  # GAP-158: iperf3 -c over the router
+            changes = any(c.get("phase") == OWN_MODES for c in cfg.cases) or (
+                cfg.kind == "wifi" and cfg.wifi_settings and bool(cfg.bands))  # fmt: skip
+            if isinstance(self.cards, WinNicSpeed) and changes:
+                # Windows asks for the administrator at once, while the person who pressed
+                # Start is at the PC (2026-10-29: asked mid-test, nobody answered)
+                threading.Thread(target=self.cards.prepare, name="throughput-admin",
+                                 daemon=True).start()  # fmt: skip
             job = ClientJob(cfg, self._run_iperf, self._read_link, card=self._card_control(),
                             wifi=self._wifi_control(cfg.server), read_bytes=bytes_of,
                             tell=self._teller(cfg.device, target))  # fmt: skip
@@ -297,6 +334,7 @@ class ThroughputModule:
         if wifi is None or not getattr(wifi, "supported", False):
             return None
         card: Any = wifi  # known here (the nested class does not see the narrowing)
+        caps: Any = self.wifi_caps
 
         module = self
 
@@ -315,7 +353,25 @@ class ThroughputModule:
                 except ZlError as e:
                     return {"why": f"{e.what}: {e.why}".strip(": ")}
                 reach = node.wan_reach.ensure(server, nic)
-                return {**got, "route": reach.get("done")}
+                out = {**got, "route": reach.get("done")}
+                near = module._near_24(nic) if got.get("band") == "2.4GHz" else ""
+                if near:
+                    out["note"] = near
+                return out
+
+            def options(self, nic: str, band: str) -> list[dict[str, Any]]:
+                return list(caps.options(nic, band))
+
+            def set_option(self, nic: str, option: dict[str, Any],
+                           net: dict[str, Any]) -> dict[str, Any]:  # fmt: skip
+                got = dict(caps.set_option(nic, option, net))
+                if got.get("link"):
+                    got["ip"] = got.get("ip") or card.ip_of(nic) or net.get("ip")
+                    node.wan_reach.ensure(server, nic)  # a reconnect drops the route
+                return got
+
+            def restore_option(self, nic: str) -> dict[str, Any]:
+                return dict(caps.restore(nic))
 
             def back(self, nic: str, connection: str | None) -> dict[str, Any]:
                 got = dict(card.back(nic, connection))
@@ -327,6 +383,20 @@ class ThroughputModule:
                 return got
 
         return Wifi()
+
+    def _near_24(self, nic: str) -> str:
+        """2026-10-29 (receiverPC): the T460's internet Wi-Fi on ch 6 dropped for 2 min while
+        its test card ran a 2.4 GHz case on ch 7 a few cm away. Another Wi-Fi card of this
+        PC on 2.4 GHz is said (and warned once), never touched."""
+        for x in self.node.links:
+            w = x.wifi
+            if x.nic != nic and w is not None and w.band == "2.4GHz":
+                text = (f"this PC's other Wi-Fi card {x.nic} (ch {w.channel}) is on 2.4 GHz too "
+                        "and may drop during the 2.4 GHz cases")  # fmt: skip
+                said = {"module": "throughput", "nic": x.nic}
+                self.node.bus.publish(Event("ZL-NET-016", "warn", text, data=said))
+                return text
+        return ""
 
     def _card_control(self) -> Any:
         """This PC's wired card for the list (client.CardControl)."""

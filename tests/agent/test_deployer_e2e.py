@@ -24,6 +24,10 @@ from core.protocol.client import NodeClient
 from tests.agent.conftest import REPO, module_package
 from tests.agent.test_deployer_service import Client
 
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="the Deployer runs on the Linux nodes"
+)
+
 
 def free_port() -> int:
     with socket.socket() as s:

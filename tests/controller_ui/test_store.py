@@ -123,7 +123,8 @@ def test_screen_edits_show_at_once_and_only_between_tests() -> None:
                         "roles": {"why": None}, "plan": {"quality": "UHD"}}))  # fmt: skip
     assert st.plan_ok and st.choice["quality"] == "UHD"
     assert st.apply(("edit", {"quality": "HD"})) and st.choice["quality"] == "HD"
-    assert st.plan is None and st.not_ready_why == "Saving…"
+    # 2026-10-31: the plan is kept while the change is saved (Start no longer flickers grey)
+    assert st.plan == {"quality": "UHD"} and st.not_ready_why == ""
     assert not st.apply(("edit", {"quality": "HD"}))  # the same value: no redraw
     st.apply(("status", Status(True, run={"state": "RUNNING"})))
     assert not st.apply(("edit", {"quality": "UHD"})) and st.choice["quality"] == "HD"

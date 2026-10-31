@@ -16,6 +16,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from core.blocks.process_runner import NO_WINDOW
+
 TIMEOUT_S = 20.0
 INSTALL_TIMEOUT_S = 180.0  # an APK of ~11 MB over USB 2, with the package check
 SERIAL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\-]{0,63}$")  # never an option ("-s")
@@ -31,7 +33,7 @@ def run_command(argv: Sequence[str], timeout: float) -> tuple[int, str]:
     try:
         done = subprocess.run(
             list(argv), capture_output=True, text=True, timeout=timeout, check=False,
-            stdin=subprocess.DEVNULL, errors="replace",
+            stdin=subprocess.DEVNULL, errors="replace", creationflags=NO_WINDOW,
         )  # fmt: skip
     except FileNotFoundError as e:
         return 127, str(e)
@@ -123,6 +125,11 @@ class Adb:
             if len(parts) == 3 and parts[1].startswith("tcp:") and parts[1][4:].isdigit():
                 rows.append((parts[0], int(parts[1][4:]), parts[2]))
         return rows
+
+    def uninstall(self, serial: str, package: str) -> str:
+        """Only the package named (the ZeroLoss app, 06 7)."""
+        return self._adb(["-s", check_serial(serial), "uninstall", package],
+                         "remove the app", INSTALL_TIMEOUT_S)  # fmt: skip
 
     def install(self, serial: str, apk: str) -> str:
         """-r keeps the app's data, -g grants its runtime permissions at once."""

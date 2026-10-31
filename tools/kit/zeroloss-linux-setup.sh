@@ -21,14 +21,16 @@ echo "deb [trusted=yes] file:$TMP/repo ./" > "$TMP/sources.list"
 OPTS=(-o "Dir::Etc::SourceList=$TMP/sources.list" -o "Dir::Etc::SourceParts=/nonexistent"
       -o "Dir::State::Lists=$TMP/lists" -o "APT::Get::List-Cleanup=0" -o "DPkg::Lock::Timeout=600")
 apt-get "${OPTS[@]}" update -qq
+EXTRA=""  # iperf3 for the throughput test, when this kit's offline/ has it
+if ls "$TMP"/repo/iperf3_*.deb >/dev/null 2>&1; then EXTRA="iperf3"; fi
 echo "[2/3] 프로그램을 설치합니다 (몇 분 걸립니다)..."
 DEBIAN_FRONTEND=noninteractive apt-get "${OPTS[@]}" install -y -q --no-install-recommends \
-  openssh-server ffmpeg mpv vlc libxcb-cursor0 "$TMP"/repo/tsduck_*.deb
+  openssh-server ffmpeg mpv vlc libxcb-cursor0 $EXTRA "$TMP"/repo/tsduck_*.deb
 systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 || true
 rm -rf "$TMP"
 echo "[3/3] 확인..."
 MISSING=""
-for t in ffmpeg ffprobe tsp mpv vlc sshd; do command -v $t >/dev/null || [ -x /usr/sbin/$t ] || MISSING="$MISSING $t"; done
+for t in ffmpeg ffprobe tsp mpv vlc sshd $EXTRA; do command -v $t >/dev/null || [ -x /usr/sbin/$t ] || MISSING="$MISSING $t"; done
 echo
 if [ -n "$MISSING" ]; then
   echo "설치되지 않은 것:$MISSING  (이 화면을 사진으로 찍어 보내 주세요)"

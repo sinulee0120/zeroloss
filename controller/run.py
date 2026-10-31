@@ -381,10 +381,10 @@ class RunController:
             host = self._node(name)
             if host == name or name in out or host not in self._watch:
                 continue
+            first = [{"label": f"CH{ch}", "value": None, "unit": "", "key": False}] if ch else []
             waiting = {"color": "grey", "why": "", "link_label": "Wi-Fi",
-                       "items": [{"label": f"CH{ch}", "value": None, "unit": "", "key": False},
-                                 {"label": "Waiting to start", "value": None, "unit": "",
-                                  "key": False}]}  # fmt: skip
+                       "items": [*first, {"label": "Waiting to start", "value": None,
+                                          "unit": "", "key": False}]}  # fmt: skip
             out[name] = self._relayed_row(host, self._watch[host], waiting)
         return out
 
@@ -819,7 +819,8 @@ class RunController:
         problems. The page draws what the module describes; Core names no field."""
         view_of = getattr(self._rules, "live_view", None)
         view = view_of(self._plan) if view_of and self._plan is not None else {"columns": []}
-        keys = {"e", *(str(c["key"]) for c in view.get("columns") or [])}
+        keys = {"e", *(str(c["key"]) for c in view.get("columns") or []),
+                *(str(c["key"]) for c in view.get("wifi") or [])}  # fmt: skip
         receivers = []
         for (device, ch), held in sorted(dict(self._seconds).items()):
             kept = dict(held)  # a copy: the run thread adds a second while we read
@@ -900,7 +901,8 @@ class RunController:
             if str(plan.get("module")) == "throughput" and self.own is not None:
                 me, links = self.own()
                 cards[me.name] = links
-            plan = {**plan, "hosts": hosts, "cards": cards, "nics": nics}
+            plan = {**plan, "hosts": hosts, "cards": cards, "nics": nics,
+                    **self._tablets_present(plan)}  # fmt: skip
             self._rules = load_run_entry(self.modules_dir, str(plan.get("module", "")))
             self._plan = self._rules.validate(plan)
             self._raw_plan = plan
@@ -1621,6 +1623,8 @@ class RunController:
 
     def module_command(self, device: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
         """A person's answer to a module's question during the test (Action Required)."""
+        if self._plan is not None:
+            device = self._node(device)  # a tablet's question goes to the PC it hangs on
         if self.state is not RunState.RUNNING or device not in self._watch:
             raise ZlError("RUN-012", "That test is no longer running", f"It is {self.state}.")
         step = SimpleNamespace(device=device, path=path, params=params, timeout_s=15.0)
@@ -1769,6 +1773,34 @@ class RunController:
                             "asked again", step.device)  # fmt: skip
         return bool(done and done(self._plan, data))
 
+    def _tablets_present(self, plan: dict[str, Any]) -> dict[str, Any]:
+        """2026-10-30 user ("고쳐"): a tablet ticked for the test but not on its PC's USB
+        was measured anyway (every case "device not found") and stopped the test on an
+        Action Required. Which tablets each PC has now, for the module to leave the
+        others out (said in the result). Only PCs with a tablet ticked are asked."""
+        ticked = (plan.get("settings") or {}).get("S-65")
+        hosts = [
+            d
+            for d, cards in (ticked or {}).items()
+            if isinstance(cards, dict) and any(str(k).startswith("tablet:") for k in cards)
+        ]
+        if not hosts:
+            return {}
+        present: dict[str, list[str]] = {}
+        for name in hosts:
+            try:
+                dev = self.devices.get(name)
+                got = NodeClient(dev.host, dev.port, self.boot_id, dev.name).get(
+                    "/v1/tablets", timeout_s=15.0)  # fmt: skip
+            except ZlError:
+                continue  # not known: the module keeps its tablets (they say why later)
+            present[name] = [
+                str(t.get("serial"))
+                for t in got.get("tablets") or []
+                if isinstance(t, dict) and t.get("state") == "device"
+            ]
+        return {"tablets_present": present}
+
     def _came_back(self, away_s: float) -> None:
         """GAP-130: the Controller PC slept or stalled. The PCs went on under their hold
         (S-56); their silence while we were away is ours, so each gets WAKE_GRACE_S to
@@ -1787,7 +1819,12 @@ class RunController:
                 hb = self._heartbeat(w)
             except ZlError:
                 silent = now - w.last_ok
-                if silent >= self.lost_s:
+                # a module that slows the links itself (throughput: a 10 Mbps half-duplex
+                # case filled the only way to the WAN-side PC, 2026-10-29 "no answer for
+                # 10 s" stopped the test) gives its PCs longer before they count as lost
+                longer = getattr(self._rules, "lost_after_s", None)
+                limit = max(self.lost_s, float(longer(self._plan, name))) if longer else self.lost_s
+                if silent >= limit:
                     return f"{name}: no answer for {silent:.0f} s"
                 if silent >= self.suspect_s and not w.suspect:
                     w.suspect = True

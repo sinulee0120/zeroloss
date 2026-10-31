@@ -16,6 +16,10 @@ MIN_PACKETS = 1000
 MIN_BITRATE_BPS = 100_000
 DEFAULT_JITTER_WARN_MS = float(DEFAULTS["S-23"])
 PDV_WARN_MS = 40.0  # DVB TS 102 034 7.2.1.1: network jitter max 40 ms peak-to-peak
+# A Wi-Fi receiver (2026-10-31): the radio's own aggregation and power save add delay
+# variation on a healthy router -- 9 h with no loss on two tablets ranged 40-82 ms and
+# coloured 104 of 108 boxes yellow. DVB's 40 ms is for the network; Wi-Fi is warned above this
+PDV_WARN_WIFI_MS = 100.0
 
 
 @dataclass(frozen=True)
@@ -26,8 +30,10 @@ class CellInput:
     bitrate_avg_bps: float = 0.0
     lost: int = 0  # includes packets that arrived after the reorder window
     host_drops: int = 0  # receiver's own socket/NIC drops in the same cell
+    scan_lost: int = 0  # lost in seconds the receiver itself scanned for Wi-Fi (R-25)
     jitter_max_ms: float = 0.0
     pdv_pp_ms: float | None = None  # transit delay range in the cell (RFC 5481 PDV)
+    wireless: bool = False  # the receiver takes the stream over Wi-Fi (its own PDV limit)
     p1_errors: int = 0  # TR 101 290 priority 1, including missing PAT
     # 05 5.3 "문제 구간으로 나누기": what happened inside trouble windows (Controller-made)
     sender_s: int = 0  # seconds of this cell inside a sender trouble window (purple)
@@ -62,7 +68,10 @@ def judge_cell(c: CellInput, jitter_warn_ms: float = DEFAULT_JITTER_WARN_MS) -> 
     # the receiver's own drops explain what is left; the rest is the network's (red).
     in_windows = min(c.lost, c.sender_lost + c.link_lost)
     rest = c.lost - in_windows
-    receiver_loss = min(rest, c.host_drops)
+    # R-25 (2026-10-24, user "빨간색은 오직 라우터 문제일때만"): a tablet scanning for
+    # Wi-Fi leaves the channel by its own choice; what it lost then is its own
+    scan_loss = min(rest, c.scan_lost)
+    receiver_loss = scan_loss + min(rest - scan_loss, c.host_drops)
     network_loss = rest - receiver_loss
     p1 = max(0, c.p1_errors - c.sender_p1 - c.link_p1)
     jitter = c.jitter_max_ms if c.jitter_outside_ms is None else c.jitter_outside_ms
@@ -78,8 +87,10 @@ def judge_cell(c: CellInput, jitter_warn_ms: float = DEFAULT_JITTER_WARN_MS) -> 
         red.append("no reception (below 1,000 packets or 100 kbps)")
 
     purple = []
-    if receiver_loss > 0:
-        purple.append(f"receiver-side drops {receiver_loss}")
+    if scan_loss > 0:
+        purple.append(f"lost {scan_loss} while the receiver scanned for Wi-Fi")
+    if receiver_loss > scan_loss:
+        purple.append(f"receiver-side drops {receiver_loss - scan_loss}")
     if c.sender_s > 0 and (c.sender_lost or c.sender_p1 or short
                            or c.jitter_max_ms > JITTER_LIMIT_MS):  # fmt: skip
         purple.append(f"sender trouble for {c.sender_s} s (lost {c.sender_lost}, "
@@ -123,8 +134,9 @@ def judge_cell(c: CellInput, jitter_warn_ms: float = DEFAULT_JITTER_WARN_MS) -> 
         yellow.insert(0, f"TR 101 290 P1 errors {p1} without packet loss")
     if c.jitter_max_ms > jitter_warn_ms:
         yellow.insert(0, f"jitter {c.jitter_max_ms:.1f} ms > {jitter_warn_ms:.0f} ms warning")
-    if c.pdv_pp_ms is not None and c.pdv_pp_ms > PDV_WARN_MS:
-        what = f"delay variation {c.pdv_pp_ms:.1f} ms > {PDV_WARN_MS:.0f} ms (DVB)"
+    limit, basis = (PDV_WARN_WIFI_MS, "Wi-Fi") if c.wireless else (PDV_WARN_MS, "DVB")
+    if c.pdv_pp_ms is not None and c.pdv_pp_ms > limit:
+        what = f"delay variation {c.pdv_pp_ms:.1f} ms > {limit:.0f} ms ({basis})"
         if c.sender_s > 0:  # the sender PC itself sent late then: not the router's
             # (2026-10-23: the pacer stalled 171 ms at 11:40:23, SND-025 was told, the cell
             # still said "delay variation 174.5 ms" yellow -- user: "공유기 문제가 아닌데

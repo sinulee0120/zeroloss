@@ -756,3 +756,98 @@ def test_movies_made_already_come_first_and_one_is_the_default() -> None:
     assert [o[1] for o in opts][:2] == ["Generated", "b.mp4"]  # made one right after Generated
     assert ready_source(answer, "UHD", 2, 35, False) == "b.mp4"
     assert ready_source(answer, "UHD", 1, 35, False) is None  # none made for CH1
+
+
+def test_a_long_test_fits_older_hours_merged() -> None:
+    """2026-10-25 user: 9 hours of 5-min results, only the newest few were shown."""
+    from controller.ui.view import CellView, fit_cells
+
+    cells = [CellView("green", "✔", f"c{i}") for i in range(108)]  # 9 h
+    cells[30] = CellView("red", "✖", "loss 1")
+    cells += [CellView("green", "✔", "now")] * 5  # the hour going on
+    out = fit_cells(cells, 40)
+    assert len(out) == 9 + 5 and [c.merged for c in out[:9]] == [12] * 9
+    assert out[2].color == "red" and "loss 1" in out[2].tooltip and "Hours 2-3" in out[2].tooltip
+    assert all(c.merged == 1 for c in out[9:])
+    assert fit_cells(cells[:20], 40) == cells[:20]  # fits: as it was
+    days = [CellView("green", "✔", "")] * (100 * 12)  # 100 h on a narrow window
+    assert len(fit_cells(days, 10)) <= 10
+
+
+def test_a_throughput_pc_row_lists_its_tablets_to_tick() -> None:
+    """Throughput T-4 (2026-10-29): each tablet on a PC's USB is a line under that PC;
+    ticked, a band network per band from the tablet's own scan (Open ones say "open")."""
+    from controller.ui.view import tablet_lines
+
+    side = {"tablets": [{"serial": "T1", "state": "device", "model": "SM-X930",
+                         "wifi_ip": "192.168.45.120", "wifi_ssid": "home-5g",
+                         "networks": [{"ssid": "ZL_OPEN_2G", "band": "2.4GHz", "rssi_dbm": -40,
+                                       "security": "Open"}]},
+                        {"serial": "T9", "state": "unauthorized"}]}  # fmt: skip
+    (line,) = tablet_lines(side, {})
+    assert line.nic == "tablet:T1" and not line.ticked and line.bands == ()
+    assert line.label == "Tablet SM-X930 · 192.168.45.120 · Wi-Fi home-5g"
+    mine = {"tablet:T1": {"bands": {"2.4GHz": {"ssid": "ZL_OPEN_2G", "security": "Open"}}}}
+    (line,) = tablet_lines(side, mine)
+    two = next(b for b in line.bands if b[0] == "2.4GHz")
+    assert two[2] == "ZL_OPEN_2G" and two[3] == "open" and two[1][0][1] == "ZL_OPEN_2G"
+
+
+def test_a_tablet_line_stays_the_same_when_only_the_signal_moves() -> None:
+    """2026-10-30 user ("여전히 태블릿의 scan버튼은 안눌려"): the line was drawn again every
+    few seconds as the signal changed, and the Scan under the mouse went with it."""
+    from controller.ui.view import tablet_lines
+
+    def side(rssi: int, order: int) -> dict[str, Any]:
+        nets = [
+            {"ssid": "ZL_OPEN_5G", "band": "5GHz", "rssi_dbm": rssi, "security": "Open"},
+            {"ssid": "ZL_HOME_5G", "band": "5GHz", "rssi_dbm": rssi - 9, "security": "WPA2"},
+        ]
+        return {"tablets": [{"serial": "T1", "state": "device", "model": "SM-X930",
+                             "wifi_ip": "192.168.45.120", "wifi_ssid": "home-5g",
+                             "networks": nets[::order]}]}  # fmt: skip
+
+    mine = {"tablet:T1": {"bands": {"5GHz": {"ssid": "ZL_OPEN_5G", "security": "Open"}}}}
+    assert tablet_lines(side(-40, 1), mine) == tablet_lines(side(-47, -1), mine)
+
+
+def test_update_pcs_shows_while_a_tablet_lacks_this_builds_app() -> None:
+    """2026-10-31: every PC was on the build, the tablets on the old app, and the button was
+    hidden until Start installed it."""
+    from controller.ui.view import tablets_behind
+
+    def setup(*apps: dict[str, object]) -> dict[str, object]:
+        rows = [{"serial": f"S{i}", "state": "device", "app": a} for i, a in enumerate(apps)]
+        return {"sides": {"rx": {"tablets": rows}}}
+
+    new = {"installed": True, "version": "20261031.1049"}
+    old = {"installed": True, "version": "20261031.0048"}
+    assert not tablets_behind(setup(new, new), "20261031.1049")
+    assert tablets_behind(setup(new, old), "20261031.1049")
+    assert tablets_behind(setup({"installed": False}), "20261031.1049")
+    assert not tablets_behind(None, "20261031.1049")
+
+
+def test_the_start_question_says_what_will_run() -> None:
+    """2026-10-31: the Start question named only the test type."""
+    from controller.ui.view import start_summary
+
+    iptv = {"module": "iptv", "quality": "UHD", "duration_s": 3600,
+            "devices": {"sender": "tx", "receivers": [
+                {"device": "tablet-1", "ch": 2, "wifi": {"ssid": "ZL_TV"}},
+                {"device": "rx", "ch": 1}]},
+            "settings": {"S-48": {"1": "a.mp4", "2": "b.mp4"}}}  # fmt: skip
+    assert start_summary(iptv, "IPTV test").splitlines() == [
+        "IPTV test · UHD · 1h 00m", "Sender: tx", "CH1 → rx · a.mp4",
+        "CH2 → tablet-1 · Wi-Fi ZL_TV (kept) · b.mp4"]  # fmt: skip
+    bands = {"5GHz": {"ssid": "ZL_5G"}}
+    tput = {"module": "throughput", "devices": {"sender": "tx"},
+            "settings": {"S-65": {"controller": {"Ethernet": {}},
+                                  "rx": {"wlan0": {"bands": bands}}}}}  # fmt: skip
+    assert start_summary(tput, "Throughput · All").splitlines() == [
+        "Throughput · All",
+        "WAN side PC: tx",
+        "this PC · Ethernet",
+        "rx · wlan0 (5GHz ZL_5G)",
+    ]
+    assert start_summary(None, "IPTV test") == "IPTV test"

@@ -10,6 +10,7 @@ different ones, each its own TabletReceiver keyed by its device name.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.blocks.tablets import TabletError, Tablets
+from core.blocks.tablets import TabletError, Tablets, width_from_rate
 from core.events.bus import Event, EventBus, Level
 from core.records.recorder import Recorder
 from modules.iptv import record_keys as k
@@ -29,6 +30,11 @@ SETTLED_OK_S = 2  # 05 2.1-2: playback "ok" this many seconds in a row ends warm
 SETTLE_MAX_S = 5  # ... or this long after the picture began, whatever it shows
 FRONT_EVERY_S = 10  # how often the app is asked whether its screen is in front (TAB-016)
 APP_KEYS_DROPPED = ("type", "seq", "e")  # the app's own numbering; ours starts at measuring
+# iptv R-25: the tablet's receive counters (hd nd ne ue ub, as on a PC) read through adb
+# with each pull; their rise goes on the newest second of that pull (at most a second off,
+# the cell sums them)
+COUNTER_KEYS = ("hd", "nd", "ne", "ue", "ub")
+WIFI_EVERY_S = 10  # the standard and width (wst wbw) are read this often, and at start
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,20 @@ class TabletConfig:
     buffer_ms: int = 1000  # S-25 or this tablet's own (02 plan devices.receivers[].buffer_ms)
 
 
+@dataclass(frozen=True)
+class HeldWifi:
+    """The network the tablet stays on for the test (TAB-019): the one picked for it, or
+    the one it was on at Start. With its security and password when ZeroLoss joined it,
+    so it can be joined again; none known for a network the person joined by hand."""
+
+    ssid: str
+    security: str | None = None
+    password: str = ""
+
+    def __repr__(self) -> str:  # never the password in a log
+        return f"HeldWifi({self.ssid!r}, {self.security!r})"
+
+
 class TabletReceiver:
     def __init__(
         self,
@@ -53,8 +73,10 @@ class TabletReceiver:
         bus: EventBus,
         tablets: Tablets,
         wait: Callable[[float], bool] | None = None,
+        held: HeldWifi | None = None,
     ) -> None:
         self.cfg = cfg
+        self.held = held
         self.bus = bus
         self.tablets = tablets
         self.records_dir = data_dir / "raw" / cfg.device
@@ -77,6 +99,11 @@ class TabletReceiver:
         self._ticks = 0
         self._ok_run = 0  # warm-up: seconds of playback "ok" in a row
         self._showing_s = 0  # warm-up: seconds since the player showed a picture
+        self._uids: set[int] = set()
+        self._counted: dict[str, int] | None = None  # the last read, cumulative
+        self._rise: dict[str, int] = {}  # risen since, not yet on a second
+        self._wifi: dict[str, Any] = {}  # wst / wbw, put on every second until read again
+        self._off: str | None = None  # the network Android moved it to (TAB-019), said once
 
     # ---------------------------------------------------------------- start / stop
 
@@ -89,6 +116,7 @@ class TabletReceiver:
             # it measured but showed nothing, pb "none"); measuring goes on behind anyway
             self.tablets.ensure_app(c.serial)  # this build's app (Update PCs brought it)
             self._pause_scans()
+            self._hold_wifi()
             self.tablets.start_app(c.serial)
             self._wait_app()
             self.tablets.call(c.serial, "POST", "/v1/receiver/start", params)
@@ -96,6 +124,10 @@ class TabletReceiver:
         except TabletError as e:
             raise _start_error(c, e) from e
         self._after = int(status.get("last_seq") or 0)  # records from before this start stay
+        try:
+            self._uids = self.tablets.app_uids(c.serial)
+        except TabletError:
+            self._uids = set()  # no socket drops then; the other counters still come
         self.state = "RUNNING"
         self._thread = threading.Thread(target=self._pull_loop, name=f"iptv-{c.device}",
                                         daemon=True)  # fmt: skip
@@ -113,6 +145,34 @@ class TabletReceiver:
         if paused:
             self._event("ZL-INFO", "info", f"{self.cfg.device}: timer Wi-Fi scan paused for "
                         f"the test ({', '.join(paused)})")  # fmt: skip
+
+    def _hold_wifi(self) -> None:
+        """TAB-019 (2026-10-31 user: "설정에서 내가 일부러 IPTV로 설정 바꿨으면 그대로 테스트동안
+        유지하도록 adb로 고쳐"): Android does not leave the held network by itself during the
+        test; a tablet that refuses still runs, watched every WIFI_EVERY_S."""
+        if self.held is None:
+            return
+        try:
+            changed = self.tablets.hold_wifi(self.cfg.serial, self.held.ssid)
+        except TabletError as e:
+            self._event("ZL-TAB-019", "warn", f"{self.cfg.device}: {e.what}: {e.why}. It is "
+                        f"watched and said if it leaves {self.held.ssid}")  # fmt: skip
+            return
+        text = f"{self.cfg.device}: kept on Wi-Fi {self.held.ssid} for the test"
+        self._event("ZL-INFO", "info", text + (f" ({', '.join(changed)})" if changed else ""))
+        if self.held.security is None:  # joined by hand with a password ZeroLoss lacks
+            again = f"pick {self.held.ssid} in its row with its password"
+            self._event("ZL-INFO", "info", f"{self.cfg.device}: to have it joined again "
+                        f"if it leaves, {again}")  # fmt: skip
+
+    def _release_wifi(self) -> None:
+        for r in self.tablets.release_wifi(self.cfg.serial):
+            if r["ok"]:
+                self._event("ZL-INFO", "info", f"{self.cfg.device}: Wi-Fi setting put back "
+                            f"({r['what'].split(' ', 1)[-1]})")  # fmt: skip
+            else:
+                self._event("ZL-TAB-019", "warn", f"{self.cfg.device}: {r['what']} not put "
+                            f"back ({r['detail']}); Reset All tries again")  # fmt: skip
 
     def _resume_scans(self) -> None:
         back = self.tablets.resume_timer_scans(self.cfg.serial)
@@ -149,6 +209,7 @@ class TabletReceiver:
         except TabletError as e:
             self._event("ZL-TAB-017", "warn", f"{self.cfg.device}: stop on the tablet: {e.why}")
         self._resume_scans()
+        self._release_wifi()
         with self._lock:
             self.summaries += [self._shape(p) for p in self._summarizer.flush()]
         if self._recorder is not None:
@@ -175,6 +236,8 @@ class TabletReceiver:
             if self._away:
                 self._away = False
                 self._event("ZL-INFO", "info", f"{self.cfg.device}: the tablet answers again")
+            if self._ticks % WIFI_EVERY_S == 0:
+                self._read_wifi()
             self._ticks += 1
             if self.cfg.play and self._ticks % FRONT_EVERY_S == 0:
                 self._keep_in_front()
@@ -196,9 +259,60 @@ class TabletReceiver:
 
     def _pull(self) -> None:
         got = self.tablets.call(self.cfg.serial, "GET", f"/v1/records?after={self._after}")
-        for r in got.get("records") or []:
+        self._count()
+        records = got.get("records") or []
+        for i, r in enumerate(records):
             self._after = max(self._after, int(r.get("seq") or 0))
+            if i == len(records) - 1 and self.measuring:
+                r = {**r, **{key: int(r.get(key) or 0) + n for key, n in self._rise.items()}}
+                self._rise = {}
             self._take(r)
+
+    def _read_wifi(self) -> None:
+        """2026-10-24 user ("11ax로 붙었는지 bandwidth는 80Mhz인지 … 정보가 하나도 없네")."""
+        try:
+            got = self.tablets.wifi_status(self.cfg.serial)
+        except TabletError:
+            return
+        width = width_from_rate(got.get("std"), got.get("rx_mbps"))
+        self._wifi = {key: v for key, v in ((k.WIFI_STD, got.get("std")), (k.WIFI_BW, width))
+                      if v is not None}  # fmt: skip
+        self._watch_wifi(got.get("ssid"))
+
+    def _watch_wifi(self, on: str | None) -> None:
+        """TAB-019: off the held network is said once, and it is joined again when ZeroLoss
+        knows how (it joined it); back on it is said too."""
+        held = self.held
+        if held is None:
+            return
+        if on == held.ssid:
+            if self._off is not None:
+                self._off = None
+                self._event("ZL-INFO", "info", f"{self.cfg.device}: back on Wi-Fi {held.ssid}")
+            return
+        if self._off is None:
+            self._off = on or "no network"
+            how = "joining it again" if held.security else (
+                f"put it back on {held.ssid} on the tablet (Settings, Wi-Fi)")  # fmt: skip
+            self._event("ZL-TAB-019", "warn", f"{self.cfg.device}: left Wi-Fi {held.ssid}, now "
+                        f"on {self._off}; {how}")  # fmt: skip
+        if held.security:
+            with contextlib.suppress(TabletError):  # said above; tried again at the next read
+                self.tablets.rejoin(self.cfg.serial, held.ssid, held.security, held.password)
+
+    def _count(self) -> None:
+        """Read the counters and keep their rise since the last read (a counter that went
+        down, as when the app's socket was made again, starts over)."""
+        try:
+            now = self.tablets.net_counters(self.cfg.serial, self.cfg.port, self._uids)
+        except TabletError:
+            return
+        if self._counted is not None and self.measuring:
+            for key in COUNTER_KEYS:  # written even when 0: measured, not missing (02 7)
+                if key in now and key in self._counted:
+                    up = max(0, now[key] - self._counted[key])
+                    self._rise[key] = self._rise.get(key, 0) + up
+        self._counted = now
 
     def _take(self, r: dict[str, Any]) -> None:
         """One second from the app. Measuring starts at the first second with packets and
@@ -217,7 +331,9 @@ class TabletReceiver:
             self._recorder = Recorder(self.records_dir, c.run_id, c.device, c.build, header)
             self._event("ZL-INFO", "info", f"{self.cfg.device}: warm-up done, measuring")
         rec = {key: v for key, v in r.items() if key not in APP_KEYS_DROPPED}
-        rec = {"e": self._e, **rec}
+        rec = {"e": self._e, **self._wifi, **rec}
+        if int(rec.get(k.WIFI_SCANS) or 0) and int(rec.get(k.LOST) or 0):  # R-25
+            rec[k.SCAN_LOST] = int(rec[k.LOST])
         self._e += 1
         self.lost_total += int(rec.get(k.LOST, 0) or 0)
         assert self._recorder is not None

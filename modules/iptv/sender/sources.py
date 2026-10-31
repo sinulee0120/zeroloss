@@ -15,6 +15,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from core.blocks.process_runner import NO_WINDOW
 from modules.iptv.sender.commands import QUALITIES
 
 VIDEO_EXT = (".mp4", ".mkv", ".mov", ".m4v", ".ts")
@@ -60,7 +61,8 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> dict[str, Any]:
     argv = [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
             str(path)]  # fmt: skip
     try:
-        done = subprocess.run(argv, capture_output=True, timeout=PROBE_TIMEOUT_S, check=False)
+        done = subprocess.run(argv, capture_output=True, timeout=PROBE_TIMEOUT_S, check=False,
+                              creationflags=NO_WINDOW)  # fmt: skip
         info = json.loads(done.stdout.decode("utf-8", errors="replace") or "{}")
     except (OSError, subprocess.SubprocessError, ValueError) as e:
         return {"error": f"ffprobe failed: {type(e).__name__}"}
@@ -89,7 +91,8 @@ def av_end_gap(path: Path, length_s: float, ffprobe: str = "ffprobe") -> float |
                 "-select_streams", stream, "-show_entries", "packet=pts_time,duration_time",
                 "-of", "csv=p=0", str(path)]  # fmt: skip
         try:
-            done = subprocess.run(argv, capture_output=True, text=True, timeout=60, check=False)
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=60, check=False,
+                                  creationflags=NO_WINDOW)  # fmt: skip
         except (OSError, subprocess.SubprocessError):
             return None
         end = None

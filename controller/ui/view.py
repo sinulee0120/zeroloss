@@ -53,6 +53,7 @@ class CellView:
     color: str
     icon: str
     tooltip: str
+    merged: int = 1  # 5-min results in this box (more than 1: an older stretch, worst shown)
 
 
 def _num(v: Any) -> str:
@@ -332,6 +333,38 @@ def cell_rows(status: Status) -> dict[str, list[CellView]]:
             text = "\n".join(x for x in (tip, vals, reasons) if x)
             out[name].append(CellView(color, ICONS.get(color, ICONS["grey"]), text))
     return out
+
+
+WORST = ("red", "purple", "grey", "yellow", "green")  # a merged box shows the first found
+MERGE_CELLS = (12, 72, 288)  # 1 h, 6 h, 24 h of 5-min results
+
+
+def fit_cells(cells: list[CellView], fit: int) -> list[CellView]:
+    """2026-10-25 user ("5분 결과 아이콘이 우측으로만 늘어나서 다 보이질 않아. 9시간을
+    했는데. 몇개밖에 안보여"): the whole test always fits. When the 5-min results do not,
+    older whole hours (then 6 h, then days) become one box each, its worst color; the hour
+    still going on stays one box per result."""
+    if len(cells) <= fit:
+        return cells
+    sizes = [*MERGE_CELLS, -(-len(cells) // max(1, fit))]
+    for size in sizes:
+        whole = len(cells) // size * size
+        tail = cells[whole:] if size in MERGE_CELLS else []
+        if size not in MERGE_CELLS:
+            whole = len(cells)
+        boxes = [_merge(cells[i : i + size], i, size) for i in range(0, whole, size)]
+        if len(boxes) + len(tail) <= fit or size == sizes[-1]:
+            return boxes + tail
+    return cells  # not reached
+
+
+def _merge(part: list[CellView], first: int, size: int) -> CellView:
+    color = next(c for c in WORST if any(x.color == c for x in part))
+    counts = ", ".join(f"{n} {c}" for c in WORST if (n := sum(x.color == c for x in part)))
+    span = TEXT["cells_merged"].format(a=first * 5 // 60, b=(first + len(part)) * 5 // 60)
+    worst = next((x.tooltip for x in part if x.color == color), "") if color != "green" else ""
+    tip = "\n".join(x for x in (f"{span}: {counts}", worst) if x)
+    return CellView(color, ICONS.get(color, ICONS["grey"]), tip, merged=len(part))
 
 
 @dataclass(frozen=True)
@@ -855,6 +888,7 @@ def card_options(links: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
 
 
 WIFI_BANDS = ("2.4GHz", "5GHz", "6GHz")
+TABLET_CARD = "tablet:"  # S-65: a tablet line under its PC, "tablet:<serial>" (throughput T-4)
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
@@ -958,7 +992,50 @@ def card_lines(name: str, s: dict[str, Any], is_wan: bool, lan: set[str], ticked
             note = TEXT["wifi_no_band"]  # 2026-10-22: the bands were skipped without a word
         out.append(CardLine(nic, label, tickable, tick, wifi, tuple(bands),
                             f"{name}|{nic}" in busy, note))  # fmt: skip
+    if not is_wan:
+        out.extend(tablet_lines(s, mine, {b.split("|", 1)[1] for b in busy
+                                          if b.startswith(f"{name}|")}))  # fmt: skip
     return tuple(out)
+
+
+def tablet_lines(s: dict[str, Any], mine: dict[str, Any],
+                 scanning: set[str] | None = None) -> list[CardLine]:  # fmt: skip
+    """2026-10-29 (throughput T-4): each tablet on this PC's USB is a line to tick, its
+    Wi-Fi as it is, or a band network per band from the tablet's own scan (by SSID: the
+    tablet's scan names no access point)."""
+    out = []
+    for t in s.get("tablets") or []:
+        if not isinstance(t, dict) or t.get("state") != "device" or not t.get("serial"):
+            continue
+        nic = TABLET_CARD + str(t["serial"])
+        on = str(t.get("wifi_ssid") or "")
+        label = (f"Tablet {t.get('model') or t['serial']} · {t.get('wifi_ip') or 'no address'} · "
+                 f"Wi-Fi {on or 'not connected'}")  # fmt: skip
+        tick = nic in mine
+        bands: list[tuple[str, tuple[tuple[str, str, bool, str], ...], str, str, str]] = []
+        if tick:
+            chosen = _as_dict(_as_dict(mine.get(nic)).get("bands"))
+            # 2026-10-30 user ("여전히 태블릿의 scan버튼은 안눌려"): the signal changed every few
+            # seconds, the line was drawn again and the Scan under the mouse went with it.
+            # Only what stays: SSID and security, by name
+            nets = sorted((n for n in t.get("networks") or [] if isinstance(n, dict)),
+                          key=lambda n: str(n.get("ssid")))  # fmt: skip
+            for band in WIFI_BANDS:
+                opts = [(TEXT["wifi_band_item_tablet"].format(
+                    ssid=n.get("ssid"), security=security_of(n.get("security")).lower()),
+                    str(n.get("ssid")), True, "")
+                    for n in nets if n.get("band") == band]  # fmt: skip
+                pick = _as_dict(chosen.get(band))
+                ssid = str(pick.get("ssid") or "")
+                if ssid and not any(o[1] == ssid for o in opts):
+                    opts.insert(0, (TEXT["wifi_band_kept"].format(ssid=ssid, bssid="-"), ssid,
+                                    True, ""))  # fmt: skip
+                open_ = str(pick.get("security") or "Open") == "Open"
+                box = "" if not ssid else "open" if open_ else "empty"
+                bands.append((band, tuple(opts), ssid, box, ssid))
+        out.append(CardLine(nic, label, True, tick, True, tuple(bands),
+                            nic in (scanning or set())))  # fmt: skip
+    return out
 
 
 def security_of(seen: Any) -> str:
@@ -989,7 +1066,7 @@ def ticks_change(
     elif band:
         bands = dict(_as_dict(cards.setdefault(nic, {}).get("bands")))
         if net:
-            bands[band] = {"ssid": net.get("ssid"), "bssid": net.get("bssid"),
+            bands[band] = {"ssid": net.get("ssid"), "bssid": net.get("bssid") or "",
                            "security": security_of(net.get("security"))}  # fmt: skip
         else:
             bands.pop(band, None)
@@ -1024,9 +1101,11 @@ def setup_rows(
         cards = (links or {}).get(name) or s.get("links")  # a test's, else the setup's
         side = "direct" if direct and side in ("wan", "lan") else side
         said = TEXT[f"side_{side}"]
-        relays = sum(1 for x in (roles.get("receivers") or []) if x.get("host") == name)
+        relays = sum(1 for x in (roles.get("receivers") or []) if x.get("host") == name)  # on USB
         if tablet_test and relays:  # Not used here still relays them (tablets only)
             said = f"{said} · {TEXT['relays_tablets'].format(n=relays)}"
+        if s.get("usb_unseen"):  # on its USB, missing from adb (receiverPC 2026-10-31)
+            said = f"{said} · {TEXT['usb_unseen'].format(n=s['usb_unseen'])}"
         rows.append(SetupRowView(
             name, said, role, int(r.get("ch") or 1),
             str(r.get("network") or "Wired"), bool(s.get("reachable")),
@@ -1129,6 +1208,19 @@ def tablet_why(t: dict[str, Any]) -> str:
     return ""
 
 
+def tablets_behind(setup: dict[str, Any] | None, build: str) -> bool:
+    """A tablet on a PC's USB without this build's app (2026-10-31: the rows showed the old
+    app and Update PCs was hidden, since every PC was on this build already)."""
+    for side in ((setup or {}).get("sides") or {}).values():
+        for t in (side or {}).get("tablets") or []:
+            if not isinstance(t, dict) or t.get("state") != "device":
+                continue
+            app = t.get("app") or {}
+            if not app.get("installed") or (build and app.get("version") != build):
+                return True
+    return False
+
+
 def _serials(side: dict[str, Any]) -> set[str]:
     return {str(t.get("serial")) for t in side.get("tablets") or [] if isinstance(t, dict)}
 
@@ -1142,6 +1234,13 @@ def _kept_other(setup: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(r) for r in saved if r.get("serial")]
 
 
+def tablets_present(setup: dict[str, Any]) -> set[str]:
+    """The tablets on the PCs' USB now (adb state "device")."""
+    return {str(t.get("serial")) for s in (setup.get("sides") or {}).values()
+            if isinstance(s, dict) for t in s.get("tablets") or []
+            if isinstance(t, dict) and t.get("state") == "device"}  # fmt: skip
+
+
 def tablet_role_change(setup: dict[str, Any], name: str, role: str) -> dict[str, Any]:
     """Pick or drop a tablet (Receiver / Not used). A picked tablet gets the first free
     name tablet-1..3, which stays its name in the records and reports."""
@@ -1149,6 +1248,11 @@ def tablet_role_change(setup: dict[str, Any], name: str, role: str) -> dict[str,
     every = [dict(r) for r in (setup.get("roles") or {}).get("receivers") or []]
     pcs = [r for r in every if not r.get("serial")]  # the PC receiver stays as it is
     mine = [r for r in every if r.get("serial") and r.get("serial") != serial]
+    if role == "receiver" and len(mine) >= TABLETS_MAX:
+        # 2026-10-31 user ("태블릿 첫번째꺼 선택을 못하니 왜", "reciever선택도 안되고"): a
+        # tablet unplugged since still held a place; one not on USB now gives its place up
+        present = tablets_present(setup)
+        mine = [r for r in mine if r.get("serial") in present]
     if role == "receiver" and len(mine) < TABLETS_MAX:
         host = next((h for h, s in (setup.get("sides") or {}).items()
                      if isinstance(s, dict) and serial in _serials(s)), None)  # fmt: skip
@@ -1518,3 +1622,42 @@ def reports_view(listing: dict[str, Any] | None, error: str = "") -> ReportsView
     if not rows:
         notes.append(TEXT["reports_none"])
     return ReportsView(tuple(rows), tuple(notes))
+
+
+def start_summary(plan: dict[str, Any] | None, test: str) -> str:
+    """The Start question says what will run (2026-10-31: a throughput test ran without
+    this PC's Wi-Fi because its tick was missed): the test, then each sender, receiver or
+    measured card with its channel, video and Wi-Fi."""
+    if not plan:
+        return test or "the test"
+    lines = [" · ".join(x for x in (test, str(plan.get("quality") or ""),
+                                    hms(float(plan.get("duration_s") or 0))) if x)]  # fmt: skip
+    dev = plan.get("devices") or {}
+    settings = plan.get("settings") or {}
+    if plan.get("module") == "throughput":
+        lines = [test]  # its length is its cases', and it sends no video
+        if dev.get("sender"):
+            lines.append(TEXT["start_wan"].format(pc=dev["sender"]))
+        for pc, cards in (settings.get("S-65") or {}).items():
+            for nic, how in (cards or {}).items():
+                bands = ", ".join(f"{b} {v.get('ssid')}" for b, v in
+                                  ((how or {}).get("bands") or {}).items() if v)  # fmt: skip
+                name = nic.replace("tablet:", "tablet ")
+                where = TEXT["this_pc"] if pc == "controller" else pc
+                lines.append(f"{where} · {name}" + (f" ({bands})" if bands else ""))
+        return "\n".join(lines)
+    if dev.get("sender"):
+        lines.append(TEXT["start_sender"].format(pc=dev["sender"]))
+    files = settings.get("S-48") or {}
+    for r in sorted(dev.get("receivers") or [], key=lambda x: (int(x.get("ch") or 0),
+                                                               str(x.get("device")))):  # fmt: skip
+        ch = int(r.get("ch") or 0)
+        bits = [f"CH{ch} → {r.get('device')}"]
+        wifi = (r.get("wifi") or {}).get("ssid")
+        if wifi:
+            bits.append(TEXT["start_wifi"].format(ssid=wifi))
+        movie = files.get(str(ch))
+        if movie:
+            bits.append(str(movie))
+        lines.append(" · ".join(bits))
+    return "\n".join(lines)

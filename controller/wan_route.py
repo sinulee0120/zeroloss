@@ -28,6 +28,7 @@ from typing import Any
 
 from core.blocks.discovery import default_route_nics
 from core.blocks.link_monitor import ipv4_of
+from core.blocks.process_runner import NO_WINDOW
 
 WAN_B = "10.0.0.0/24"  # 07 3 table, B
 NO_ROUTE_ENV = "ZEROLOSS_NO_ROUTE_CHANGES"  # automatic tests never touch the PC's network
@@ -35,7 +36,8 @@ NO_ROUTE_ENV = "ZEROLOSS_NO_ROUTE_CHANGES"  # automatic tests never touch the PC
 
 def _run(argv: list[str]) -> tuple[int, str]:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=15, check=False)
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=15, check=False,
+                              creationflags=NO_WINDOW)  # fmt: skip
     except (OSError, subprocess.SubprocessError) as e:
         return 1, str(e)
     return done.returncode, (done.stdout + done.stderr).strip()
@@ -129,7 +131,7 @@ def _win_read(probe: str) -> dict[str, Any]:
     try:
         done = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                                WIN_READ], capture_output=True, encoding="utf-8", timeout=15,
-                              check=False, env=env)  # fmt: skip
+                              check=False, env=env, creationflags=NO_WINDOW)  # fmt: skip
         got = json.loads(done.stdout or "{}")
     except (OSError, subprocess.SubprocessError, ValueError):
         return {}

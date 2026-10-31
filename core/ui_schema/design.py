@@ -24,15 +24,20 @@ COLORS = {
     "border": "#c8c8c8",
     "primary": "#1f5fbf",
     "on_primary": "#ffffff",
-    # cell colors, report (clear) and live screen (muted normal, decided 2026-09-24)
-    "green": "#2e7d32",
-    "green_live": "#cfe8d0",
-    "yellow": "#b26a00",
-    "red": "#c62828",
-    "purple": "#6a1b9a",
-    "grey": "#616161",
+    # cell colors, report (clear) and live screen (muted normal, decided 2026-09-24).
+    # 2026-10-24 user ("보라색도 빨간색처럼 보여 … 색맹도 고려하고"): red is the router
+    # only; the sender's or receiver's side ("purple" by name) is blue and OK is bluish
+    # green, so no pair meets on the red-green axis; shapes differ too. Chosen by a search:
+    # every pair at least dE 20 apart in normal, protan, deutan and tritan vision
+    # (Machado 2009 simulation; the old set had pairs at 13) and white text at 3:1 or more
+    "green": "#0f7a4a",
+    "green_live": "#cfe9db",
+    "yellow": "#9e7a00",
+    "red": "#a41919",
+    "purple": "#0b57d0",
+    "grey": "#4f5b62",
     "on_cell": "#ffffff",
-    "on_green_live": "#1b5e20",
+    "on_green_live": "#0b4d2c",
 }
 
 # yellow is a note that does not change the verdict: no exclamation mark, which reads as

@@ -148,3 +148,15 @@ def test_a_wifi_card_that_dropped_is_not_a_wired_link_left_down() -> None:
     assert j.checks("t460") == []
     j.update("t460", [wifi], 4.0)
     assert j.checks("t460") == []
+
+
+def test_a_card_with_no_cable_and_no_address_since_the_start_is_not_judged() -> None:
+    """2026-10-31 user ("t460은 왜 또 link down이야"): a USB dock's own LAN port, no cable."""
+    j = judge()
+    dock = {"nic": "enx00e04c36006c", "ip": None, "up": False, "link_mbps": None}
+    j.update("rx", [wired(1000, nic="enp0s31f6"), dock], 1.0)
+    assert [c["nic"] for c in j.checks("rx")] == ["enp0s31f6"]
+    j.update("rx", [wired(1000, nic="enp0s31f6"), {**dock, "up": True, "ip": "10.0.0.9",
+                                                   "link_mbps": 1000}], 2.0)  # fmt: skip
+    j.update("rx", [wired(1000, nic="enp0s31f6"), {**dock, "up": False}], 3.0)
+    assert levels(j, "rx") == ["ok", "down"]  # once up, a drop is real

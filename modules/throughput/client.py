@@ -83,6 +83,8 @@ class ClientConfig:
     unsupported: list[str] = field(default_factory=list)  # settings this PC cannot change
     bands: list[dict[str, Any]] = field(default_factory=list)  # WIFI_BANDS: band, ssid, bssid
     nic: str = ""  # the card by name (a picked Wi-Fi card may have no address at the start)
+    wifi_settings: bool = True  # S-62 Every supported: each band's width caps and modes too
+    who: str = ""  # a tablet measured through this PC: its name before every case label
 
 
 @dataclass
@@ -269,6 +271,11 @@ class ClientJob:
         except Exception as e:  # the list never dies silently: the screen says why
             self._set(state="failed", error=repr(e), doing="")
 
+    def run_second(self) -> int:
+        """The run's clock in whole seconds (every PC's live rate on one time line: the live
+        graph, 2026-10-30 user "tput값을 숫자로만 보여주네 … 그래프로")."""
+        return int(self._offset + self.clock() - self._t0)
+
     def _keep(self, record: dict[str, Any]) -> None:
         with self._lock:
             record["index"] = self._count
@@ -299,7 +306,7 @@ class ClientJob:
             "duration_s": 0.0,
             "partial": False,
             "case": {
-                "label": str(case.get("label") or ""),
+                "label": " · ".join(x for x in (self.cfg.who, str(case.get("label") or "")) if x),
                 "requested_mbps": case.get("speed_mbps"),
                 "negotiated_mbps": base,
                 "duplex": duplex,
@@ -344,6 +351,17 @@ class ClientJob:
                     break
                 self._set(doing=f"{nic}: {m.label}")
                 got = card.set_mode(nic, m)
+                while "approval was declined" in str(got.get("why") or "") and hasattr(
+                    card, "allow_again"
+                ):  # 2026-10-29: refused or not answered in time -- the person chooses
+                    choice = self._ask_person(
+                        f"{nic} (administrator approval)", str(got["why"]),
+                        "Press Fixed, check again and choose Yes when Windows asks "
+                        "\"Allow changes?\".")  # fmt: skip
+                    if choice != "retry":
+                        break
+                    card.allow_again()
+                    got = card.set_mode(nic, m)
                 setting = {"side": "LAN-side PC", "requested": m.label, **got}
                 ok = got.get("readback_ok") and got.get("link")
                 why = None if ok else (got.get("why") or "the card did not take the setting")
@@ -369,6 +387,7 @@ class ClientJob:
         if wifi is None or not nic or not self.cfg.bands:
             return True
         before = wifi.connection_of(nic)
+        stopped = False  # a setting not put back (SAFETY) or a stop: the list ends
         try:
             for b in self.cfg.bands:
                 if self._stop.is_set():
@@ -388,6 +407,9 @@ class ClientJob:
                 _, mbps, _ = self.read_link(self._bind) if why is None else ("", None, None)
                 self._keep(self._case({"label": label, "speed_mbps": None, "band": band},
                                       mbps, setting, why))  # fmt: skip
+                if why is None and not self._wifi_settings(nic, b, str(got["ip"])):
+                    stopped = True
+                    break
         finally:
             self._bind = ""
             self._set(doing=f"{nic}: back on {before or 'its network'}")
@@ -395,11 +417,53 @@ class ClientJob:
                    "or nmcli on Linux).")  # fmt: skip
             done, back = self._put_back_or_ask(nic, lambda: wifi.back(nic, before), "back",
                                                fix, to=before or "its network")  # fmt: skip
-        if not done:
+        if not done or stopped:
             return False
         if back.get("ip") and back["ip"] != self.cfg.bind:
             self._bind = str(back["ip"])  # the router gave it another address on the way back
         return self._settled()
+
+    def _wifi_settings(self, nic: str, b: dict[str, Any], ip: str) -> bool:
+        """On one band, this PC's own Wi-Fi settings one at a time (throughput.md 1.2,
+        2026-10-29 user: "전에는 설정 변경 무선에서 안하고 그냥 1회 테스트하고 말았잖아"):
+        each width cap and mode the card offers on that band, measured only when the card
+        joined as asked, each put back before the next. False = stop."""
+        wifi: Any = self.wifi  # options / set_option / restore_option: a card that has them
+        offered = getattr(wifi, "options", None)
+        if wifi is None or offered is None or not self.cfg.wifi_settings:
+            return True
+        band, ssid = str(b.get("band")), str(b.get("ssid"))
+        net = {"ssid": ssid, "bssid": str(b.get("bssid") or ""), "ip": ip,
+               "security": str(b.get("security") or "Open"),
+               "password": str(b.get("password") or "")}  # fmt: skip
+        for opt in offered(nic, band):
+            if self._stop.is_set():
+                return False
+            label = f"Wi-Fi {band} · {opt['label']}"
+            self._set(doing=f"{nic}: {band} {opt['label']}")
+            got = dict(wifi.set_option(nic, opt, net))
+            got.pop("password", None)
+            setting = {"side": "LAN-side PC", "requested": f"{band} {opt['label']}", **got}
+            ok = got.get("readback_ok") and got.get("link") and not got.get("why")
+            why = None if ok else (got.get("why") or "the card did not take the setting")
+            if why is None:
+                self._bind = str(got.get("ip") or ip)
+                if not self._settled():
+                    return False
+            _, mbps, _ = self.read_link(self._bind) if why is None else ("", None, None)
+            self._keep(self._case({"label": label, "speed_mbps": None, "band": band},
+                                  mbps or got.get("rx_mbps"), setting, why))  # fmt: skip
+            fix = (f"Set {nic}'s Wi-Fi settings back by hand (Windows: Device Manager > the "
+                   "card > Advanced: channel width and wireless modes as before; Linux: "
+                   f"nmcli device set {nic} managed yes).")  # fmt: skip
+            done, _ = self._put_back_or_ask(nic, lambda: wifi.restore_option(nic), "ok", fix,
+                                            to="its own settings")  # fmt: skip
+            if not done:
+                return False
+            again = wifi.join_band(nic, ssid, net["bssid"], net["security"], net["password"])
+            if again.get("ip"):
+                self._bind = str(again["ip"])
+        return True
 
     def _ask(self, what: str) -> dict[str, Any] | None:
         """Ask the Controller to do ``what`` on the WAN-side PC; None = stopped."""
@@ -478,7 +542,7 @@ class ClientJob:
             mbps = rate_mbps(prev, cur, now - prev_t, receive) if prev and cur else None
             if mbps is not None:
                 self._set(live={"direction": direction, "mbps": round(mbps, 1),
-                                "s": int(now - start)})  # fmt: skip
+                                "s": int(now - start), "e": self.run_second()})  # fmt: skip
             prev, prev_t = cur, now
 
 

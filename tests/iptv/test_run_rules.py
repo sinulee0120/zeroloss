@@ -333,3 +333,14 @@ def test_live_view_names_only_real_record_keys() -> None:
     assert view["cell_s"] == p.cell_s and view["lines"]["jit"] == [p.jitter_warn_ms]
     assert all(c["key"] in known and c["label"] for c in view["columns"])
     assert {"jit", "br", "lost", "cc", "p1", "pb"} <= {c["key"] for c in view["columns"]}
+
+
+def test_a_tablets_wifi_shows_from_its_own_seconds() -> None:
+    """2026-10-24 user: no RSSI, band, width or 11ax shown for the tablets (they have no
+    card in the plan; their seconds carry it)."""
+    from modules.iptv.run import wifi_text
+
+    rec = {"rssi": -31, "wbd": "5GHz", "wch": 149, "wbw": 80, "wst": "11ax", "wlm": 1201}
+    assert wifi_text(rec) == "Wi-Fi 5GHz · ch 149 · 80 MHz · 11ax · -31 dBm · 1201 Mbps"
+    assert wifi_text({"rssi": -40}) == "Wi-Fi -40 dBm"  # what it has, nothing made up
+    assert wifi_text({"wbd": "5GHz"}) == ""  # no signal reading: not on Wi-Fi now

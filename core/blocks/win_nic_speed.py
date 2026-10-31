@@ -32,8 +32,13 @@ from pathlib import Path
 from typing import Any
 
 from core.blocks.nic_speed import Mode
+from core.blocks.process_runner import NO_WINDOW
 
 KEYWORD = "*SpeedDuplex"
+# the only settings the elevated helper may change: the wired speed, and a Wi-Fi card's
+# channel width and 802.11n/ac/ax mode (win_wifi_caps; Intel's names)
+ALLOWED = (KEYWORD, "ChannelWidth24", "ChannelWidth52", "ChannelWidth6", "IEEE11nMode",
+           "WirelessMode")  # fmt: skip
 LINK_WAIT_S = 45.0  # reference link_timeout_seconds: a Windows driver renegotiates slowly
 HELPER_WAIT_S = 60.0  # the person reads the Windows question
 STEP_WAIT_S = 30.0  # one setting by the helper
@@ -67,10 +72,13 @@ while ($true) {
     $out = Join-Path $Dir ($f.Name -replace '^req-', 'res-')
     try {
       $r = Get-Content -Raw -Encoding UTF8 $f.FullName | ConvertFrom-Json
-      $p = Get-NetAdapterAdvancedProperty -Name ([string]$r.nic) -RegistryKeyword '*SpeedDuplex'
+      $k = [string]$r.keyword
+      if ($k -eq '') { $k = '*SpeedDuplex' }
+      if (@(__ALLOWED__) -notcontains $k) { throw 'not a setting this helper may change' }
+      $p = Get-NetAdapterAdvancedProperty -Name ([string]$r.nic) -RegistryKeyword $k
       if (@($p.ValidRegistryValues) -notcontains [string]$r.value) {
         throw 'not one of the card''s own values' }
-      Set-NetAdapterAdvancedProperty -Name ([string]$r.nic) -RegistryKeyword '*SpeedDuplex' `
+      Set-NetAdapterAdvancedProperty -Name ([string]$r.nic) -RegistryKeyword $k `
         -RegistryValue ([string]$r.value) -Confirm:$false
       '{"ok":true}' | Set-Content -Encoding UTF8 $out
     } catch {
@@ -97,7 +105,7 @@ def _ps(script: str, data: dict[str, Any]) -> Any:
     p = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=PS_TIMEOUT_S,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # fmt: skip
+                       creationflags=NO_WINDOW)  # fmt: skip
     if p.returncode != 0:
         raise OSError((p.stderr or p.stdout).strip().splitlines()[-1] if (p.stderr or p.stdout)
                       else f"PowerShell exit {p.returncode}")  # fmt: skip
@@ -243,7 +251,7 @@ class WinNicSpeed:
 
     # ------------------------------------------------------------------ the helper
 
-    def _apply(self, nic: str, value: str) -> str | None:
+    def _apply(self, nic: str, value: str, keyword: str = KEYWORD) -> str | None:
         """Set one value through the elevated helper; None = done, else why not."""
         if self._declined:
             return "administrator approval was declined (Windows asked once)"
@@ -256,7 +264,8 @@ class WinNicSpeed:
         req = self.dir / f"req-{rid}.json"
         res = self.dir / f"res-{rid}.json"
         tmp = self.dir / f"tmp-{rid}"
-        tmp.write_text(json.dumps({"nic": nic, "value": value}), encoding="utf-8")
+        tmp.write_text(json.dumps({"nic": nic, "value": value, "keyword": keyword}),
+                       encoding="utf-8")  # fmt: skip
         tmp.replace(req)
         end = self.clock() + STEP_WAIT_S
         while self.clock() < end:
@@ -285,7 +294,8 @@ class WinNicSpeed:
         for f in folder.glob("*"):
             f.unlink(missing_ok=True)
         script = folder / "helper.ps1"
-        body = HELPER.replace("  Start-Sleep -Milliseconds 200",
+        allowed = ",".join(f"'{k}'" for k in ALLOWED)
+        body = HELPER.replace("__ALLOWED__", allowed).replace("  Start-Sleep -Milliseconds 200",
                               "  (Get-Date).ToString() | Set-Content (Join-Path $Dir 'alive')\n"
                               "  Start-Sleep -Milliseconds 200")  # fmt: skip
         script.write_text(body, encoding="utf-8-sig")
@@ -306,6 +316,20 @@ class WinNicSpeed:
                 return None
             self.sleep(0.5)
         return "the administrator helper did not start"
+
+    def prepare(self) -> str | None:
+        """Ask Windows now, while the person who pressed Start is there (2026-10-29: asked
+        10 minutes in, nobody answered for 2 minutes, Windows took it as No and every LAN
+        case was skipped). None = the helper runs."""
+        if self._helper_alive():
+            return None
+        why = self.elevate(self.dir)
+        self._declined = bool(why)
+        return why
+
+    def allow_again(self) -> None:
+        """The person chose to try again (Action Required): Windows asks once more."""
+        self._declined = False
 
     def close(self) -> None:
         """The run ended: the helper stops (it also stops when this node is gone)."""

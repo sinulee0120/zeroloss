@@ -17,6 +17,12 @@ Usage:
                                              (gradle, versionName = VERSION) and Google's
                                              Linux adb (platform-tools, tools-manifest
                                              "adb"); the receiving PC unpacks both
+  python -m tools.build installer --app DIR [--tools DIR] [--out DIR] [--port N]
+                                             Windows setup file (06 3, Inno Setup) from a
+                                             built Controller folder with its packages folder;
+                                             --tools: files for packages/tools (TSDuck);
+                                             --port: only to check the setup beside a
+                                             running Controller
 """
 
 from __future__ import annotations
@@ -77,6 +83,16 @@ def main(argv: list[str], version_file: Path | None = None) -> int:
     if args[:1] == ["tablet"] and (len(args) == 1 or (len(args) == 3 and args[1] == "--out")):
         print(f"VERSION        {read_version()}")  # the node build's stamp, not a new one
         print(build_tablet(Path(args[2]) if len(args) == 3 else ROOT / "dist"))
+        return 0
+    if args[:1] == ["installer"]:
+        opts = dict(zip(args[1::2], args[2::2], strict=False))  # an odd count is refused
+        if len(args) % 2 == 0 or "--app" not in opts or set(opts) - INSTALLER_OPTS:
+            print(__doc__, file=sys.stderr)
+            return 6
+        print(f"VERSION        {read_version()}")  # the Controller folder's build
+        print(build_installer(Path(opts["--app"]), Path(opts.get("--out", ROOT / "dist")),
+                              Path(opts["--tools"]) if "--tools" in opts else None,
+                              opts.get("--port")))  # fmt: skip
         return 0
     if len(args) in (2, 4) and args[0] == "module" and (len(args) == 2 or args[2] == "--out"):
         out = Path(args[3]) if len(args) == 4 else ROOT / "dist"
@@ -245,6 +261,9 @@ def build_win(out: Path) -> Path:
             shutil.copy(f, stage / "cli" / f.name)
     shutil.copytree(ROOT / "modules", stage / "modules",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))  # fmt: skip
+    # the guide the screen's Help opens (08 2), with this build in it
+    guide = (KIT / GUIDE).read_text(encoding="utf-8").replace("{BUILD}", build)
+    (stage / GUIDE).write_text(guide, encoding="utf-8")
     return Path(shutil.make_archive(str(stage), "zip", stage.parent, stage.name))
 
 
@@ -288,6 +307,52 @@ def build_tablet(out: Path) -> Path:
         return build_package(stage, out / f"zeroloss-tablet-{build}.zlt", info)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+ISCC = Path(os.environ.get("ZEROLOSS_ISCC", str(ANDROID / "InnoSetup7" / "ISCC.exe")))
+KIT = ROOT / "tools" / "kit"
+GUIDE = "설치_및_사용_안내.html"  # the install and use guide; "{BUILD}" is the build
+REGISTER = ("2_리눅스PC_등록.bat", "리눅스PC_등록.bat")  # the kit's name, the installed one
+INSTALLER_OPTS = {"--app", "--tools", "--out", "--port"}
+
+
+def build_installer(app: Path, out: Path, tools: Path | None = None,
+                    port: str | None = None) -> Path:  # fmt: skip
+    """``ZeroLoss-Controller-Setup-<build>.exe`` (06 3, 4.1; 2026-10-31 user "Installer"):
+    the built Controller folder, the guide and the Linux PC helper, one click."""
+    if sys.platform != "win32":
+        raise SystemExit("build the Windows installer on Windows")
+    build = read_version()
+    if not (app / "ZeroLoss.exe").is_file():
+        raise SystemExit(f"{app} has no ZeroLoss.exe: build it with 'tools.build win'")
+    if not (app / "packages" / f"zeroloss-node-agent-{build}.zlp").is_file():
+        raise SystemExit(f"{app / 'packages'} has no PC package of build {build}")
+    if not ISCC.is_file():
+        raise SystemExit(f"no Inno Setup compiler at {ISCC} (set ZEROLOSS_ISCC)")
+    out = out.resolve()  # ISCC reads a relative path from the script's folder
+    out.mkdir(parents=True, exist_ok=True)
+    extra = out / "installer-extra"
+    shutil.rmtree(extra, ignore_errors=True)
+    extra.mkdir()
+    guide = (KIT / GUIDE).read_text(encoding="utf-8").replace("{BUILD}", build)
+    (extra / GUIDE).write_text(guide, encoding="utf-8")
+    bat = (KIT / REGISTER[0]).read_text(encoding="utf-8")
+    crlf = chr(13) + chr(10)  # cmd reads a .bat by CRLF lines
+    (extra / REGISTER[1]).write_text(bat, encoding="utf-8", newline=crlf)
+    iss = extra / "zeroloss-controller.iss"  # ISCC reads Korean text right with a BOM
+    iss.write_text((ROOT / "installer" / "windows" / iss.name).read_text(encoding="utf-8"),
+                   encoding="utf-8-sig")  # fmt: skip
+    defines = {"AppVer": build, "FileVer": windows_file_version(build), "Src": app.resolve(),
+               "Guide": extra / GUIDE, "GuideName": GUIDE, "Register": extra / REGISTER[1],
+               "RegisterName": REGISTER[1], "OutDir": out.resolve()}  # fmt: skip
+    if tools is not None:
+        defines["Tools"] = tools.resolve()
+    if port is not None:
+        defines["CtlPort"] = port
+    subprocess.run([str(ISCC), "/Q", *(f"/D{k}={v}" for k, v in defines.items()), str(iss)],
+                   check=True)  # fmt: skip
+    shutil.rmtree(extra, ignore_errors=True)
+    return out / f"ZeroLoss-Controller-Setup-{build}.exe"
 
 
 def build_node_zlp(deb: Path) -> Path:

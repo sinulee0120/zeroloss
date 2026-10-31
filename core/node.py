@@ -112,7 +112,8 @@ KEEP_SUMMARIES = 20_000  # a restarted node reloads at most this many (100 h x 3
 
 DIAG_SKIP = ("wifi.json",)  # 02 2-13: the Controller's test Wi-Fi password never leaves
 
-TABLET_ACTIONS = ("install_app", "start_app", "stop_app")  # 02 4 /v1/tablets/<action>
+# 02 4 /v1/tablets/<action>
+TABLET_ACTIONS = ("install_app", "ensure_app", "uninstall_app", "start_app", "stop_app")
 
 
 class Node:
@@ -799,7 +800,7 @@ class Node:
             serial = req.params.get("serial")
             if not isinstance(serial, str) or not serial:
                 raise ZlError("DSC-012", "Request rejected", detail="params.serial is required")
-            if action in ("install_app", "stop_app") and self.flow.state in ACTIVE:
+            if action != "start_app" and self.flow.state in ACTIVE:
                 raise ZlError("RUN-012", "Tablet apps can be changed only between tests",
                               "A test runs.")  # fmt: skip
             try:

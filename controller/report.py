@@ -14,20 +14,17 @@ from pathlib import Path
 from typing import Any
 
 from controller.pdf import MARGIN, Pdf, width
+from controller.report_page import MAIL_SECTION, page_data, section
 from controller.report_page import STYLE as PAGE_STYLE
-from controller.report_page import page_data, section
+from core.ui_schema.design import COLORS as DESIGN
 from core.ui_schema.design import ICONS  # one place for the shapes (11-ui 1.7)
 
-COLORS = {  # report colors: clear green, others as in the design values
-    "green": "#2e7d32",
-    "yellow": "#b26a00",
-    "red": "#c62828",
-    "purple": "#6a1b9a",
-    "grey": "#616161",
-}
-VERDICT_COLORS = {"PASS": "#2e7d32", "FAIL": "#c62828", "INCOMPLETE": "#b26a00"}
-ICON_NAMES = {"green": "no problem", "yellow": "warning", "red": "loss or error",
-              "purple": "tool or receiver side", "grey": "no data"}  # fmt: skip
+# the cell colors come from the design values only (2026-10-24: the report, the result
+# web and the live page each had their own copy and kept the old purple)
+COLORS = {k: DESIGN[k] for k in ("green", "yellow", "red", "purple", "grey")}
+VERDICT_COLORS = {"PASS": DESIGN["green"], "FAIL": DESIGN["red"], "INCOMPLETE": DESIGN["yellow"]}
+ICON_NAMES = {"green": "no problem", "yellow": "warning", "red": "router problem",
+              "purple": "sender or receiver side", "grey": "no data"}  # fmt: skip
 
 
 def write_report(run_dir: Path, result: dict[str, Any], plan: dict[str, Any]) -> None:
@@ -211,7 +208,9 @@ reason: {e(str(r.get("verdict_reason")))}{
 <h2>Possible causes</h2>{_analysis(r)}
 <h2>Problems during the test</h2>{_problems(r)}
 <h2>Not tested</h2><ul>{not_run or "<li>none</li>"}</ul>
-<p><small>Plan: {e(plan_text)}</small></p>
+<details><summary><small>Plan (as the test was started)</small></summary>
+<p><small>{e(plan_text)}</small></p></details>
+{MAIL_SECTION}
 </body></html>
 """
 

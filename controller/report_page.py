@@ -19,9 +19,18 @@ from pathlib import Path
 from typing import Any
 
 from core.records.jsonl import read_jsonl
-from core.ui_schema.design import ICONS
+from core.ui_schema.design import COLORS, ICONS
 
 DATA_DIR = "data"
+# the test in the email table's title (the screen's names)
+TEST_NAMES = {
+    "all": "Throughput · All",
+    "wired": "Throughput · Wired",
+    "wifi": "Throughput · Wi-Fi",
+    "pc": "IPTV test",
+    "tablet": "IPTV test",
+    "iptv": "IPTV test",
+}
 
 
 def _offsets(run_dir: Path) -> dict[str, float]:
@@ -198,6 +207,7 @@ def page_data(run_dir: Path | None, r: dict[str, Any]) -> dict[str, Any]:
         state = {}
     return {
         "verdict": r.get("verdict"), "planned_s": r.get("planned_s"),
+        "run_id": r.get("run_id"), "test": TEST_NAMES.get(str(r.get("test_type")), ""),
         "end_s": max(ends, default=0.0),
         "started_utc": run_clock_zero(run_dir) or state.get("started_utc"),
         "devices": [devices[k] | {"key": k} for k in sorted(devices)],
@@ -227,6 +237,15 @@ def evidence_list(run_dir: Path, offsets: dict[str, float]) -> list[dict[str, An
             "reading": str((info.get("reading") or {}).get("text") or ""),
         })  # fmt: skip
     return sorted(out, key=lambda x: x["t"])
+
+
+# 2026-10-30 user: the copyable results table goes at the very end of the report
+MAIL_SECTION = """<h2>Results table (for email)</h2>
+<p class="cap">The whole test in one table. Copy table puts it on the clipboard with its lines, to paste into an email or a document.</p>
+<button id="copy">Copy table</button> <span id="copied"></span>
+<div id="mail" class="wide"></div>
+<script>if(window.zlMail)window.zlMail();</script>
+"""
 
 
 def section(data: dict[str, Any]) -> str:
@@ -277,7 +296,7 @@ STYLE = """
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; }
 .card { border: 1px solid #ddd; background: #fff; padding: 8px 10px; border-radius: 4px; }
 .card .l { font-size: 12px; color: #5f6368; } .card .v { font-size: 20px; font-weight: 700; }
-.card.bad .v { color: #c62828; } .card.warn .v { color: #b26a00; }
+.card.bad .v { color: #c62828; } .card.warn .v { color: #b26a00; } .card.side .v { color: __SIDE__; }
 .badge { display: inline-block; color: #fff; border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
 .grid .row { margin: 4px 0; } .grid .name { display: inline-block; min-width: 120px; }
 .grid .c { display: inline-block; width: 12px; height: 12px; margin: 1px; cursor: pointer;
@@ -288,14 +307,23 @@ STYLE = """
   padding: 2px 6px; border-radius: 3px; pointer-events: none; white-space: nowrap; display: none; }
 .second svg { width: 100%; height: 140px; background: #fff; border: 1px solid #ddd; }
 @media print { .controls, #second { display: none; } body { background: #fff; } }
-"""
+""".replace("__SIDE__", COLORS["purple"])  # sender or receiver side, never the router's red
 
 SCRIPT = r"""
 (function(){
-var R=ZL_REPORT, C={green:"#2e7d32",yellow:"#b26a00",red:"#c62828",purple:"#6a1b9a",grey:"#616161"};
+var R=ZL_REPORT, C=__CELL_COLORS__;
+/* 2026-10-31 user ("Peak loss 0.0704 % 이게 공유기 잘못인가? 리포트에 빨갛게 나와"): red is the
+   router's only. Trouble inside a box judged sender or receiver side shows in that box's
+   color, inside a yellow box amber; red when a box of it is red or not judged */
+function boxAt(cells,t){for(var i=0;i<cells.length;i++){var c=cells[i];if(t>=c.t0&&t<c.t1)return c.color;}return null;}
+function judged(colors){if(!colors.length||colors.some(function(x){return x===null||x===undefined||x==="red"||x==="grey";}))return "red";
+ return colors.indexOf("purple")>=0?"purple":"yellow";}
+function lossInk(color){return color==="purple"?C.purple:color==="yellow"||color==="green"?"#b26a00":"#c62828";}
+function lossStyle(color){return " style='color:"+lossInk(color)+";font-weight:700'";}
+function cardCls(color){return color==="purple"?"side":color==="red"?"bad":"warn";}
 /* the box as a colored badge with what the color means (2026-10-09 user: "only the words
    yellow and grey, no color") */
-var NAME={green:"OK",yellow:"Warning",red:"Problem",purple:"Tool or receiver side",grey:"No data"};
+var NAME={green:"OK",yellow:"Warning",red:"Problem",purple:"Sender or receiver side",grey:"No data"};
 var I=__ICONS__;
 var st={from:0,to:R.end_s,dev:R.devices.map(function(d){return d.key;}),red:false,bad:false};
 function $(id){return document.getElementById(id);}
@@ -326,8 +354,13 @@ var SEQ=["reordered","duplicates","late","gaps","cc_errors"];
    are not green. "—" is not measured, never 0. Older reports without values keep the
    few columns they have. */
 function num2(v){return v===null||v===undefined?"":String(Math.round(v*10000)/10000);}
-function vcell(v,bad){if(v===null||v===undefined)return "<td title='not measured'>—</td>";
- return "<td"+(bad&&v>0?" style='color:#c62828;font-weight:700'":"")+">"+num2(v)+"</td>";}
+/* 2026-10-30 user ("NaN은 지저분하다 지워라"): a value in words (a card, a case, an iperf3
+   command) is shown as words; "—" is not measured or not for this case, never 0. A test
+   without TV channels (throughput) writes no "CH0" */
+function chs(c){return c?" CH"+c:"";}
+function vcell(v,bad,color){if(v===null||v===undefined||(typeof v==="number"&&isNaN(v)))return "<td title='not measured or not for this case'>—</td>";
+ if(typeof v!=="number")return "<td>"+esc(String(v))+"</td>";
+ return "<td"+(bad&&v>0?lossStyle(color):"")+">"+num2(v)+"</td>";}
 function troubleList(){var out=[];devs().forEach(function(d){d.cells.filter(inRange).forEach(function(c){
   out.push([c.t0,d,c]);});});
  if(!out.length)return "<tr><td>No box in this range.</td></tr>";
@@ -344,24 +377,25 @@ function troubleList(){var out=[];devs().forEach(function(d){d.cells.filter(inRa
   (hasSeq?"<th title='reordered / duplicates / late / gaps / TS CC errors'>Seq R/D/L/G/E</th>":"")+"<th>Why</th></tr>"+
   out.map(function(x){var c=x[2];var sv=SEQ.map(function(k){var v=val(c,k);return v===null||v===undefined?"—":v;});
    return "<tr><td>"+esc(real(c.t0).replace(/^ \(|\)$/g,""))+"</td><td>"+hm(c.t0)+"</td><td>"+
-   esc(x[1].name)+" CH"+x[1].ch+"</td><td><span class='badge' style='background:"+C[c.color]+"'>"+I[c.color]+" "+
-   (NAME[c.color]||c.color)+"</span></td>"+cols.map(function(v){return vcell(val(c,v.key),v.bad);}).join("")+
+   esc(x[1].name)+chs(x[1].ch)+"</td><td><span class='badge' style='background:"+C[c.color]+"'>"+I[c.color]+" "+
+   (NAME[c.color]||c.color)+"</span></td>"+cols.map(function(v){return vcell(val(c,v.key),v.bad,c.color);}).join("")+
    (hasSeq?"<td"+(sv.some(function(v){return v>0;})?" style='color:#b26a00;font-weight:700'":"")+">"+sv.join("/")+"</td>":"")+
    "<td>"+esc((c.reasons||[]).join("; ")||(c.color==="green"?"":"no reason recorded"))+"</td></tr>";}).join("");}
 /* GAP-147: the reference board's summary cards, for the chosen range */
-function cardsHtml(){var n={green:0,yellow:0,red:0,purple:0,grey:0},jm=null,lp=null,br=[],lost=0,cnt=0;
+function cardsHtml(){var n={green:0,yellow:0,red:0,purple:0,grey:0},jm=null,lp=null,lpc=null,br=[],lost=0,cnt=0,bc=[];
  devs().forEach(function(d){d.cells.filter(inRange).forEach(function(c){n[c.color]=(n[c.color]||0)+1;
   var v=function(k){return ((c.values||[]).filter(function(x){return x.key===k;})[0]||{}).value;};
   var j=v("jitter_max");if(j===undefined)j=c.jit_max;if(j!==null&&j!==undefined&&(jm===null||j>jm))jm=j;
-  var p=v("loss_pct");if(p!==null&&p!==undefined&&(lp===null||p>lp))lp=p;
+  var p=v("loss_pct");if(p!==null&&p!==undefined&&(lp===null||p>lp)){lp=p;lpc=c.color;}
   var b=v("bitrate_avg");if(b===undefined&&c.br_avg)b=c.br_avg/1e6;if(b!==null&&b!==undefined)br.push(b);});
-  var bu=(R.bursts||{})[d.key];if(bu){cnt+=bu.count;lost+=bu.lost;}});
+  var bu=(R.bursts||{})[d.key];if(bu){cnt+=bu.count;lost+=bu.lost;
+   (bu.list||[]).forEach(function(r){if(r[2]>0||r[3]>0)bc.push(boxAt(d.cells,r[0]));});}});
  function card(l,v,cls){return "<div class='card "+(cls||"")+"'><div class='l'>"+l+"</div><div class='v'>"+v+"</div></div>";}
  var dash="<span title='not measured'>—</span>";
  return card("Problem boxes (red)",n.red,n.red?"bad":"")+card("Warning boxes",n.yellow,n.yellow?"warn":"")+
-  card("Tool or receiver side",n.purple,n.purple?"warn":"")+card("No data",n.grey)+card("OK boxes",n.green)+
-  card("Loss bursts",R.bursts&&Object.keys(R.bursts).length?cnt:dash,cnt?"bad":"")+
-  card("Peak jitter",jm===null?dash:num2(jm)+" ms")+card("Peak loss",lp===null?dash:num2(lp)+" %",lp?"bad":"")+
+  card("Sender or receiver side",n.purple,n.purple?"warn":"")+card("No data",n.grey)+card("OK boxes",n.green)+
+  card("Loss bursts",R.bursts&&Object.keys(R.bursts).length?cnt:dash,cnt?cardCls(judged(bc)):"")+
+  card("Peak jitter",jm===null?dash:num2(jm)+" ms")+card("Peak loss",lp===null?dash:num2(lp)+" %",lp?cardCls(judged([lpc])):"")+
   card("Avg bitrate",br.length?num2(br.reduce(function(a,b){return a+b;},0)/br.length)+" Mbps":dash);}
 /* GAP-147: loss bursts = consecutive seconds that lost packets or got none (a good
    second ends one), the times between them, and whether the heaviest recur at a period */
@@ -389,15 +423,15 @@ function gapsHtml(){var seen={},names={};devs().forEach(function(d){d.cells.filt
 function evidenceHtml(){var ev=(R.evidence||[]).filter(function(x){return x.t>=st.from&&x.t<st.to;});
  if(!(R.evidence||[]).length)return "<p>No trouble second kept evidence in this test.</p>";
  if(!ev.length)return "<p>None in this range ("+R.evidence.length+" in the whole test).</p>";
- return ev.slice(0,100).map(function(x){var head="<b>"+esc(real(x.t).replace(/^ \(|\)$/g,"")||clk(x.t))+"</b> (run "+hm(x.t)+", second "+Math.round(x.t)+") · "+esc(x.device)+" CH"+x.ch+" · "+esc(x.why.join(", "));
+ return ev.slice(0,100).map(function(x){var head="<b>"+esc(real(x.t).replace(/^ \(|\)$/g,"")||clk(x.t))+"</b> (run "+hm(x.t)+", second "+Math.round(x.t)+") · "+esc(x.device)+chs(x.ch)+" · "+esc(x.why.join(", "));
   var pic=x.picture?"<a href='"+esc(x.picture)+"' target='_blank'><img src='"+esc(x.picture)+"' loading='lazy' alt='frames around the trouble'></a><div class='cap'>Frames from 1 s before to 3 s after, 4 a second, rendered from the packets this PC received.</div>":"<div class='cap'>No picture (Evidence capture S-30 was Off, or the picture could not be made).</div>";
   var pk=x.pcap?"<a href='"+esc(x.pcap)+"'>Packets (pcap, "+(x.packets||0)+" packets, "+(x.from_s)+" s to +"+(x.to_s)+" s)</a>":"No packet clip"+(x.kept_less?": "+esc(x.kept_less):"");
   var rd=x.reading?"<p>"+esc(x.reading)+"</p>":"";
   return "<div class='ev'><p>"+head+"</p>"+rd+pic+"<p>"+pk+"</p></div>";}).join("")+(ev.length>100?"<p>"+(ev.length-100)+" more: choose a shorter range.</p>":"");}
 function burstsHtml(){var h="";devs().forEach(function(d){var b=(R.bursts||{})[d.key];
-  if(!b){h+="<p>"+esc(d.name)+" CH"+d.ch+": the 1-second records are not here yet.</p>";return;}
+  if(!b){h+="<p>"+esc(d.name)+chs(d.ch)+": the 1-second records are not here yet.</p>";return;}
   var p=b.period,g=b.gaps;
-  h+="<p><b>"+esc(d.name)+" CH"+d.ch+"</b>: "+b.count+" burst(s), "+b.lost+" packet(s) lost in them."+
+  h+="<p><b>"+esc(d.name)+chs(d.ch)+"</b>: "+b.count+" burst(s), "+b.lost+" packet(s) lost in them."+
    (g.median!==null?" Time between bursts: median "+g.median+" s (min "+g.min+", max "+g.max+").":"")+
    (p.tested>=3?(p.fit>=Math.ceil(p.tested*0.8)?" The heaviest bursts recur about every "+p.seconds+" s ("+p.fit+"/"+p.tested+
     " gaps fit) — look for something on that period (IGMP query, channel scan, a timer).":
@@ -406,7 +440,7 @@ function burstsHtml(){var h="";devs().forEach(function(d){var b=(R.bursts||{})[d
    " Grouping changes no verdict.</p>";
   if(b.list.length){h+="<div class='wide'><table class='sum'><tr><th>Began</th><th>Run time</th><th>Seconds</th><th>Lost</th><th>Seconds with no packet</th><th>What this PC counted</th></tr>"+
    b.list.map(function(r){return "<tr><td>"+esc(real(r[0]).replace(/^ \(|\)$/g,""))+"</td><td>"+hm(r[0])+"</td><td>"+r[1]+
-    "</td><td"+(r[2]>0?" style='color:#c62828;font-weight:700'":"")+">"+r[2]+"</td><td>"+r[3]+"</td><td>"+esc(evidence(r[4]))+"</td></tr>";}).join("")+"</table></div>";}});
+    "</td><td"+(r[2]>0?lossStyle(judged([boxAt(d.cells,r[0])])):"")+">"+r[2]+"</td><td>"+r[3]+"</td><td>"+esc(evidence(r[4]))+"</td></tr>";}).join("")+"</table></div>";}});
  return h;}
 function inRange(c){return c.t1>st.from&&c.t0<st.to&&(!st.red||c.color==="red")&&(!st.bad||c.color!=="green");}
 function devs(){return R.devices.filter(function(d){return st.dev.indexOf(d.key)>=0;});}
@@ -425,21 +459,47 @@ function quick(q){st.red=false;st.bad=false;if(q==="all"){st.from=0;st.to=R.end_
   else{st.from=Math.max(0,t-1800);st.to=Math.min(R.end_s,t+1800);}}
  if(q==="red"){st.from=0;st.to=R.end_s;st.red=true;}
  if(q==="bad"){st.bad=true;}draw();}
+/* 2026-10-30 user ("표로 깔끔하게 복사 붙여넣기로 이메일에 보고서 쓸때 쓸 결과표만 딱 나오면
+   좋겠는데 보고서 마지막에"): the whole test, one clean table with its own lines (an email
+   keeps inline styles only). A test of cases: a row per case with its main values; a
+   test of 5-minute boxes: a row per receiver. */
+function mailTable(){var td="border:1px solid #999;padding:4px 8px;",th=td+"background:#eee;text-align:left;";
+ function cell(v,t){return "<"+t+" style='"+(t==="th"?th:td)+"'>"+esc(v===null||v===undefined?"—":String(v))+"</"+t+">";}
+ function word(c){return (NAME[c]||c);}
+ var cases=R.devices.some(function(d){return d.cells.some(function(c){return (c.values||[]).some(function(v){return v.key==="case";});});});
+ var head,body=[];
+ if(cases){var keys=null;
+  R.devices.forEach(function(d){d.cells.forEach(function(c){var main=(c.values||[]).filter(function(v){return !v.detail;});
+   if(!keys)keys=main.map(function(v){return [v.key,v.label+(v.unit?" ("+v.unit+")":"")];});
+   var byk={};main.forEach(function(v){byk[v.key]=v.value;});
+   body.push([d.name].concat(keys.map(function(k){return byk[k[0]];})).concat([word(c.color),(c.reasons||[]).join("; ")]));});});
+  head=["Device"].concat((keys||[]).map(function(k){return k[1];})).concat(["Result","Why"]);}
+ else{head=["Device","Boxes","OK","Warning","Problem","Sender or receiver side","No data","Lost","Jitter max (ms)"];
+  R.devices.forEach(function(d){var n={},lost=0,jm=null;d.cells.forEach(function(c){n[c.color]=(n[c.color]||0)+1;lost+=c.lost||0;
+    if(c.jit_max!==null&&c.jit_max!==undefined&&(jm===null||c.jit_max>jm))jm=c.jit_max;});
+   body.push([d.name+chs(d.ch),d.cells.length,n.green||0,n.yellow||0,n.red||0,n.purple||0,n.grey||0,lost,jm===null?null:num2(jm)]);});}
+ return "<p style='margin:4px 0'><b>"+esc("ZeroLoss "+(R.test||"")+" · "+R.run_id+" · "+R.verdict)+"</b></p>"+
+  "<table style='border-collapse:collapse;font:13px sans-serif'><tr>"+head.map(function(h){return cell(h,"th");}).join("")+"</tr>"+
+  body.map(function(r){return "<tr>"+r.map(function(v){return cell(v,"td");}).join("")+"</tr>";}).join("")+"</table>";}
+window.zlMail=function(){if($("mail")){$("mail").innerHTML=mailTable();$("copy").onclick=copyMail;}};
+function copyMail(){var el=$("mail"),r=document.createRange();r.selectNodeContents(el);var s=window.getSelection();
+ s.removeAllRanges();s.addRange(r);var ok=false;try{ok=document.execCommand("copy");}catch(e){ok=false;}s.removeAllRanges();
+ $("copied").textContent=ok?"Copied: paste it into the email.":"Select the table and press Ctrl+C.";}
 function draw(){hashSave();$("from").value=hm(st.from);$("to").value=hm(st.to);
  $("shown").textContent="Showing "+hm(st.from)+real(st.from)+" \u2013 "+hm(st.to)+real(st.to)+
   " of "+hm(R.end_s)+". Overall result: "+R.verdict+" (unchanged)";
  var g="",rows="<tr><th>Device</th><th>Lost</th><th>Jitter avg</th><th>Jitter max</th><th>Cells</th></tr>";
  devs().forEach(function(d){var cells=d.cells.filter(inRange),lost=0,jm=null,ja=0,jn=0,cnt={};
-  g+="<div class='row'><span class='name'>"+d.name+" CH"+d.ch+"</span>";
+  g+="<div class='row'><span class='name'>"+d.name+chs(d.ch)+"</span>";
   cells.forEach(function(c){var i=d.cells.indexOf(c);
    g+="<span class='c' data-k='"+d.key+"' data-i='"+i+"' style='background:"+C[c.color]+"' title='"+
     hm(c.t0)+" "+c.color+(c.reasons.length?": "+c.reasons.join("; "):"")+"'>"+I[c.color]+"</span>";
    lost+=c.lost||0;if(c.jit_max!==null&&(jm===null||c.jit_max>jm))jm=c.jit_max;
    if(c.jit_avg!==null){ja+=c.jit_avg*(c.n||1);jn+=(c.n||1);}cnt[c.color]=(cnt[c.color]||0)+1;});
-  g+="</div>";rows+="<tr><td>"+d.name+" CH"+d.ch+"</td><td>"+lost+"</td><td>"+
+  g+="</div>";rows+="<tr><td>"+d.name+chs(d.ch)+"</td><td>"+lost+"</td><td>"+
    (jn?(ja/jn).toFixed(2)+" ms":"-")+"</td><td>"+(jm===null?"-":jm.toFixed(2)+" ms")+"</td><td>"+
    Object.keys(cnt).map(function(k){return I[k]+" "+cnt[k];}).join(" ")+"</td></tr>";});
- $("grid").innerHTML=g;$("sum").innerHTML=rows;$("list").innerHTML=troubleList();$("cards").innerHTML=cardsHtml();$("bursts").innerHTML=burstsHtml();$("evidence").innerHTML=evidenceHtml();$("gaps").innerHTML=gapsHtml();graph();causes();fine();
+ $("grid").innerHTML=g;$("sum").innerHTML=rows;if($("mail")){$("mail").innerHTML=mailTable();$("copy").onclick=copyMail;}$("list").innerHTML=troubleList();$("cards").innerHTML=cardsHtml();$("bursts").innerHTML=burstsHtml();$("evidence").innerHTML=evidenceHtml();$("gaps").innerHTML=gapsHtml();graph();causes();fine();
  Array.prototype.forEach.call(document.querySelectorAll("#grid .c"),function(el){
   el.onclick=function(){second(el.getAttribute("data-k"),+el.getAttribute("data-i"));};});}
 function line(pts,color){if(!pts.length)return "";return "<polyline fill='none' stroke='"+color+
@@ -467,12 +527,12 @@ function chart(host,o){var box=document.createElement("div");box.className="char
  o.cells.forEach(function(c){var a=Math.max(c.t0,st.from),b=Math.min(c.t1,st.to);if(b<=a)return;
   s+="<rect x='"+X(a)+"' y='"+(T-6)+"' width='"+Math.max(1,X(b)-X(a))+"' height='5' fill='"+C[c.color]+"'><title>"+
    esc(hm(c.t0)+" "+c.color+(c.reasons.length?": "+c.reasons.join("; "):""))+"</title></rect>";});
- (o.marks||[]).forEach(function(t){s+="<rect x='"+(X(t)-1)+"' y='"+(T+PH+1)+"' width='3' height='5' fill='#c62828'/>";});
+ (o.marks||[]).forEach(function(t){s+="<rect x='"+(X(t)-1)+"' y='"+(T+PH+1)+"' width='3' height='5' fill='"+lossInk(judged([boxAt(o.cells,t)]))+"'/>";});
  if(o.warn&&o.warn<=hi)s+="<line x1='"+L+"' x2='"+(L+PW)+"' y1='"+Y(o.warn)+"' y2='"+Y(o.warn)+
   "' stroke='#b26a00' stroke-dasharray='6 4'/><text x='"+(L+PW-4)+"' y='"+(Y(o.warn)-3)+"' font-size='11' text-anchor='end' fill='#b26a00'>warning "+o.warn+"</text>";
  var pts=o.pts.filter(function(p){return p[1]!==null&&p[1]!==undefined;});
  if(o.bars){var bw=Math.max(1.5,PW*(o.step||60)/span*0.8);pts.forEach(function(p){if(p[1]>0)
-  s+="<rect x='"+(X(p[0])-bw/2)+"' y='"+Y(p[1])+"' width='"+bw+"' height='"+(T+PH-Y(p[1]))+"' fill='#c62828'/>";});}
+  s+="<rect x='"+(X(p[0])-bw/2)+"' y='"+Y(p[1])+"' width='"+bw+"' height='"+(T+PH-Y(p[1]))+"' fill='"+lossInk(judged([boxAt(o.cells,p[0])]))+"'/>";});}
  else s+=line(pts.map(function(p){return X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1);}),o.color);
  for(k=0;k<=5;k++){var tt=st.from+span*k/5;s+="<text x='"+X(tt)+"' y='"+(H-6)+"' font-size='11' fill='#5f6368' text-anchor='"+
   (k===0?"start":k===5?"end":"middle")+"'>"+esc(clk(tt))+"</text>";}
@@ -495,13 +555,13 @@ function graph(){var host=$("graph");host.innerHTML="";drawnW=host.clientWidth;
  devs().forEach(function(d){var cells=d.cells.filter(function(c){return c.t1>st.from&&c.t0<st.to;});
   var mins=(R.minutes[d.key]||[]).filter(function(m){return m[0]>=st.from&&m[0]<st.to;}),step=60;
   if(!mins.length){mins=cells.map(function(c){return [c.t0,c.lost||0,c.jit_max,null,null];});step=300;}
-  var name=R.devices.length>1?d.name+" CH"+d.ch+" · ":"",lost=0,jm=null,per=step===60?" per minute":" per 5 minutes";
+  var name=R.devices.length>1?d.name+chs(d.ch)+" · ":"",lost=0,jm=null,per=step===60?" per minute":" per 5 minutes";
   mins.forEach(function(m){lost+=m[1]||0;if(m[2]!==null&&m[2]!==undefined&&(jm===null||m[2]>jm))jm=m[2];});
   var marks=mins.filter(function(m){return m[1]>0||m[4]===0;}).map(function(m){return m[0]+step/2;});
   chart(host,{title:name+"Jitter max (ms)"+per,unit:"ms",color:"#1565c0",floor:5,cells:cells,marks:marks,
    pts:mins.map(function(m){return [m[0],m[2]];}),warn:R.jitter_warn_ms,peak:jm===null?"":"max "+jm.toFixed(2)+" ms"});
   if(mins.some(function(m){return m[3]!==null&&m[3]!==undefined;}))
-   chart(host,{title:name+"Bitrate, lowest in each minute (Mbps)",unit:"Mbps",color:"#2e7d32",floor:1,cells:cells,marks:marks,
+   chart(host,{title:name+"Bitrate, lowest in each minute (Mbps)",unit:"Mbps",color:C.green,floor:1,cells:cells,marks:marks,
     pts:mins.map(function(m){return [m[0],m[3]===null||m[3]===undefined?null:m[3]/1e6];})});
   chart(host,{title:name+"Lost packets"+per,unit:"packets",bars:true,step:step,floor:4,cells:cells,marks:marks,
    pts:mins.map(function(m){return [m[0],m[1]];}),peak:lost+" lost in this range"});});}
@@ -528,12 +588,12 @@ function fineDraw(hs){var host=$("fine"),out="";devs().forEach(function(d){var b
    var k=Math.floor(t/10)*10,o=b[k]||(b[k]={t:k,n:0,lost:0,jit:null,br:[],rx0:0});o.n++;o.lost+=r[1]||0;
    if(r[2]!==null&&r[2]!==undefined&&(o.jit===null||r[2]>o.jit))o.jit=r[2];if(r[4])o.br.push(r[4]);if(r[3]===0)o.rx0++;});});
   var ks=Object.keys(b).map(Number).sort(function(x,y){return x-y;});
-  out+="<p><b>"+esc(d.name)+" CH"+d.ch+"</b>: "+ks.length+" buckets of 10 s.</p><div class='strip'>"+ks.map(function(k){var o=b[k],bad=o.lost>0||o.rx0>0;
-   return "<span style='background:"+(bad?C.red:C.green)+"' title='"+esc(clk(k)+" ("+hm(k)+"): lost "+o.lost+", jitter max "+(o.jit===null?"—":o.jit)+" ms"+(o.rx0?", "+o.rx0+" s with no packet":""))+"'>"+(bad?"C":"G")+"</span>";}).join("")+"</div>";
+  out+="<p><b>"+esc(d.name)+chs(d.ch)+"</b>: "+ks.length+" buckets of 10 s.</p><div class='strip'>"+ks.map(function(k){var o=b[k],bad=o.lost>0||o.rx0>0;
+   return "<span style='background:"+(bad?lossInk(judged([boxAt(d.cells,k)])):C.green)+"' title='"+esc(clk(k)+" ("+hm(k)+"): lost "+o.lost+", jitter max "+(o.jit===null?"—":o.jit)+" ms"+(o.rx0?", "+o.rx0+" s with no packet":""))+"'>"+(bad?"C":"G")+"</span>";}).join("")+"</div>";
   var badK=ks.filter(function(k){return b[k].lost>0||b[k].rx0>0;});
   if(badK.length)out+="<div class='wide'><table class='sum'><tr><th>Began</th><th>Run time</th><th>Seconds</th><th>Lost</th><th>Seconds with no packet</th><th>Jitter max (ms)</th><th>Bitrate min (Mbps)</th></tr>"+
    badK.slice(0,300).map(function(k){var o=b[k];return "<tr><td>"+esc(real(k).replace(/^ \(|\)$/g,""))+"</td><td>"+hm(k)+"</td><td>"+o.n+
-    "</td><td style='color:#c62828;font-weight:700'>"+o.lost+"</td><td>"+o.rx0+"</td><td>"+(o.jit===null?"—":o.jit)+"</td><td>"+
+    "</td><td"+lossStyle(judged([boxAt(d.cells,k)]))+">"+o.lost+"</td><td>"+o.rx0+"</td><td>"+(o.jit===null?"—":o.jit)+"</td><td>"+
     (o.br.length?num2(Math.min.apply(null,o.br)/1e6):"—")+"</td></tr>";}).join("")+"</table></div>";});
  host.innerHTML=out;}
 function second(key,i){var d=R.devices.filter(function(x){return x.key===key;})[0],c=d.cells[i];
@@ -543,9 +603,9 @@ function second(key,i){var d=R.devices.filter(function(x){return x.key===key;})[
   var box=$("second");if(!rows.length){box.innerHTML="<p>"+d.name+" "+hm(c.t0)+": 1-second values are "+
    "not here yet (they come after the test).</p>";return;}
   var span=Math.max(1,c.t1-c.t0),jm=1,lm=1;rows.forEach(function(r){if(r[2]>jm)jm=r[2];if(r[1]>lm)lm=r[1];});
-  box.innerHTML="<p>"+d.name+" CH"+d.ch+" "+hm(c.t0)+" \u2013 "+hm(c.t1)+" (1 s)</p><svg viewBox='0 0 1000 140' "+
+  box.innerHTML="<p>"+d.name+chs(d.ch)+" "+hm(c.t0)+" \u2013 "+hm(c.t1)+" (1 s)</p><svg viewBox='0 0 1000 140' "+
    "preserveAspectRatio='none'>"+line(rows.map(function(r){return ((r[0]-c.t0)/span*1000).toFixed(1)+","+
-   (65-r[1]/lm*60).toFixed(1);}),"#c62828")+line(rows.filter(function(r){return r[2]!==null;}).map(function(r){
+   (65-r[1]/lm*60).toFixed(1);}),lossInk(judged([c.color])))+line(rows.filter(function(r){return r[2]!==null;}).map(function(r){
    return ((r[0]-c.t0)/span*1000).toFixed(1)+","+(135-r[2]/jm*60).toFixed(1);}),"#1565c0")+"</svg>";
   box.setAttribute("data-rows",rows.length);});});}
 function q(s){return '"'+String(s).replace(/"/g,'""')+'"';}
@@ -560,7 +620,7 @@ function csv(){var out="device,ch,from_s,to_s,color,lost,jitter_max_ms,why\n";de
  a.download="range.csv";document.body.appendChild(a);a.click();a.remove();window.ZL_CSV=out;}
 hashLoad();
 $("devs").innerHTML=R.devices.map(function(d){return "<label><input type='checkbox' value='"+d.key+"' "+
- (st.dev.indexOf(d.key)>=0?"checked":"")+"> "+d.name+" CH"+d.ch+"</label>";}).join(" ");
+ (st.dev.indexOf(d.key)>=0?"checked":"")+"> "+d.name+chs(d.ch)+"</label>";}).join(" ");
 Array.prototype.forEach.call(document.querySelectorAll("#devs input"),function(el){el.onchange=function(){
  st.dev=Array.prototype.filter.call(document.querySelectorAll("#devs input"),function(x){return x.checked;})
  .map(function(x){return x.value;});draw();};});
@@ -573,3 +633,9 @@ draw();
 })();
 """
 SCRIPT = SCRIPT.replace("__ICONS__", json.dumps(ICONS, ensure_ascii=False))  # 11-ui 1.7
+SCRIPT = SCRIPT.replace(
+    "__CELL_COLORS__",
+    json.dumps(  # the design's cell colors only
+        {k: COLORS[k] for k in ("green", "yellow", "red", "purple", "grey")}
+    ),
+)

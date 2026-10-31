@@ -201,7 +201,7 @@ def test_screen_choice_goes_through_the_store(win: tuple[MainWindow, Fakes]) -> 
     w.c_quality.setCurrentIndex(w.c_quality.findData("UHD"))
     w.c_quality.activated.emit(w.c_quality.currentIndex())
     assert w.store.choice["quality"] == "UHD" and "setup:1" in w.commands._busy
-    assert w.store.plan is None  # until the service saved it and answered again
+    assert w.store.plan is not None  # kept while saved: Start does not flicker (2026-10-31)
     check_controls(w)
     feed(w, ("setup", setup_answer(quality="UHD")))
     feed(w, ("status", running()), ("edit", {"duration_s": 3600}))
@@ -1155,3 +1155,91 @@ def test_the_wheel_does_not_change_a_box_not_clicked(win: tuple[MainWindow, Fake
         wheel()
         assert box.currentIndex() == 1
     box.close()
+
+
+def test_a_linux_pc_is_added_from_the_screen(win: tuple[MainWindow, Fakes]) -> None:
+    """2026-10-31: the black window of 2_리눅스PC_등록.bat as a dialog; the password goes to
+    the service once and is not kept, and the answer is always said."""
+    from controller.ui import main_window as mw
+
+    w, f = win
+    typed = {"host": "10.0.0.9", "user": "zl", "password": "pw", "name": "rx2",
+             "auto_login": True}  # fmt: skip
+    asked: list[tuple[str, dict[str, Any]]] = []
+
+    def record(job: str, path: str, /, **kw: Any) -> bool:
+        asked.append((path, kw))
+        return True
+
+    real_ask, real_send = mw.LinuxDialog.ask, w.commands.send
+    mw.LinuxDialog.ask = lambda self: dict(typed)  # type: ignore[method-assign]
+    w.commands.send = record  # type: ignore[method-assign,assignment]
+    try:
+        w._add_linux()
+    finally:
+        mw.LinuxDialog.ask, w.commands.send = real_ask, real_send  # type: ignore[method-assign]
+    assert asked[0][0].endswith("/install/linux") and asked[0][1]["password"] == "pw"
+    assert not w.b_add_linux.isEnabled()
+    feed(w, ("done", Done("install_linux", True, {"name": "rx2", "host": "10.0.0.9",
+                                                  "tools_missing": ["tsp"]})))  # fmt: skip
+    assert "rx2 (10.0.0.9) is installed" in f.told[-1] and "tsp" in f.told[-1]
+    assert w.b_add_linux.isEnabled()
+    feed(w, ("done", Done("install_linux", False, {}, {"what": "SSH refused"})))
+    assert f.told[-1].startswith("SSH refused")
+
+
+def test_the_linux_dialog_needs_the_three_fields_and_forgets_the_password(
+    win: tuple[MainWindow, Fakes],
+) -> None:
+    from controller.ui.main_window import LinuxDialog
+
+    w, _ = win
+    d = LinuxDialog(w)
+    d.host.setText("10.0.0.9")
+    d._ok()
+    assert d.why.text() == TEXT["linux_need"] and d.result() == 0
+    d.user.setText("zl")
+    d.password.setText("pw")
+    d._ok()
+    assert d.result() == 1
+
+
+def test_remove_asks_then_takes_the_app_off_a_tablet_or_zeroloss_off_a_pc(
+    win: tuple[MainWindow, Fakes],
+) -> None:
+    """06 7 (2026-10-31): a tablet row's Remove asks, then the app comes off it; a PC row's
+    asks its account in a dialog; the answer is always said."""
+    from controller.ui import main_window as mw
+
+    w, f = win
+    w.store.setup = {"sides": {"rx": {"tablets": [{"serial": "S1", "state": "device"}]}}}
+    asked: list[tuple[str, dict[str, Any]]] = []
+
+    def record(job: str, path: str, /, **kw: Any) -> bool:
+        asked.append((path, kw))
+        return True
+
+    real_send, real_ask = w.commands.send, mw.LinuxDialog.ask
+    w.commands.send = record  # type: ignore[method-assign,assignment]
+    mw.LinuxDialog.ask = lambda self: {"user": "zl", "password": "pw", "purge": True}  # type: ignore[method-assign]
+    try:
+        w._remove("tab:S1")
+        w._remove("rx")
+    finally:
+        w.commands.send, mw.LinuxDialog.ask = real_send, real_ask  # type: ignore[method-assign]
+    assert asked[0] == ("/v1/controller/remove/tablet_app", {"timeout_s": 150, "device": "rx",
+                                                      "serial": "S1"})  # fmt: skip
+    assert asked[1][0].endswith("/remove/linux") and asked[1][1]["purge"] is True
+    feed(w, ("done", Done("remove_linux:rx", True, {})))
+    assert f.told[-1] == TEXT["removed_pc"].format(name="rx")
+    feed(w, ("done", Done("remove_tablet:S1", False, {}, {"what": "adb refused"})))
+    assert f.told[-1].startswith("adb refused")
+
+
+def test_help_opens_the_guide_at_this_tests_part(win: tuple[MainWindow, Fakes]) -> None:
+    """08 2 (2026-10-31): the guide, served by the results web, at the chosen test's part."""
+    w, _ = win
+    w.store.setup = {"setup": {"test_type": "Throughput · Wi-Fi"}}
+    assert w.help_url().endswith("/guide#tput")
+    w.store.setup = {"setup": {"test_type": "IPTV test"}}
+    assert w.help_url().endswith("/guide#run")

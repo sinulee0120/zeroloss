@@ -42,6 +42,11 @@ _LINUX = sys.platform.startswith("linux")
 _WINDOWS = sys.platform == "win32"
 FORCE_CONFIRM_S = 5.0
 TOKEN_ENV = "ZEROLOSS_RUN_TOKEN"
+# 2026-10-24 user ("cmd창이 계속 떴다 사라져"): a windowed program (the Controller) that
+# starts a console tool gets a console window flashing on screen for each one. Every
+# subprocess call that can run on Windows passes this (0 elsewhere); it hides only a
+# console, never a program's own window (mpv).
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class ProcState(StrEnum):
@@ -176,7 +181,11 @@ class ProcessRunner:
             "env": env,
         }
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            # with a console of our own the child shares it (CTRL_BREAK reaches it); without
+            # one it would open a visible console, so it gets a hidden one
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | (
+                0 if _has_console() else NO_WINDOW
+            )
         else:
             kwargs["start_new_session"] = True
             if _LINUX:
@@ -281,6 +290,12 @@ _spawn_jobs: queue.SimpleQueue[tuple[list[str], dict[str, Any], list[Any], threa
     queue.SimpleQueue()
 )
 _spawner: threading.Thread | None = None
+
+
+def _has_console() -> bool:
+    import ctypes
+
+    return bool(ctypes.windll.kernel32.GetConsoleWindow())  # type: ignore[attr-defined]
 
 
 def _spawn(argv: list[str], kwargs: dict[str, Any]) -> subprocess.Popen[bytes]:

@@ -24,6 +24,10 @@ from tests.conftest import _ours_alive
 HD = QUALITIES["HD"]
 MUX = HD.muxrate_bps
 needs_tsp = pytest.mark.skipif(shutil.which("tsp") is None, reason="needs tsp (the send chain)")
+pytestmark = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None,
+    reason="needs ffmpeg (making is real here; test_prepare_only.py runs without)",
+)
 
 
 @pytest.fixture(scope="module")

@@ -410,3 +410,65 @@ def test_reset_all_puts_back_the_cards_and_the_wifi_network(tmp_path: Path) -> N
     got = m.restore_settings()
     assert sorted((x["what"], x["ok"]) for x in got) == [("enp0s31f6", True), ("wlx58", True)]
     assert m.node.wifi.now == "home-5g" and not m.wifi_kept.exists()
+
+
+class FakeWifiSettings(FakeWifi):
+    """A card with width and mode settings (throughput.md 1.2): 20 MHz and 11n on 2.4 GHz;
+    the 11n case joins with 11ax anyway (the router or driver ignored it)."""
+
+    def __init__(self, restore_ok: bool = True) -> None:
+        super().__init__()
+        self.restore_ok = restore_ok
+        self.changed: str | None = None
+
+    def options(self, nic: str, band: str) -> list[dict[str, Any]]:
+        if band != "2.4GHz":
+            return []
+        return [{"axis": "width", "band": band, "mhz": 20, "set": [("w", "0")],
+                 "label": "width capped at 20 MHz"},
+                {"axis": "mode", "mode": "802.11n", "set": [("m", "1")],
+                 "label": "mode capped at 802.11n"}]  # fmt: skip
+
+    def set_option(self, nic: str, option: dict[str, Any],
+                   net: dict[str, Any]) -> dict[str, Any]:  # fmt: skip
+        self.calls.append(("set", option["label"], net["ip"]))
+        self.changed = option["label"]
+        if option["axis"] == "mode":
+            return {"readback_ok": True, "link": True, "mode": "802.11ax",
+                    "why": "it joined with 802.11ax, not 802.11n"}  # fmt: skip
+        return {"readback_ok": True, "link": True, "ip": "192.168.45.89", "mode": "802.11ax",
+                "rx_mbps": 286.7}  # fmt: skip
+
+    def restore_option(self, nic: str) -> dict[str, Any]:
+        self.calls.append(("restore", self.changed, ""))
+        ok = self.restore_ok
+        self.changed = None if ok else self.changed
+        return {"ok": ok, **({} if ok else {"why": "the card still reads 20 MHz"})}
+
+
+def test_each_wifi_setting_is_its_own_case_measured_only_when_joined_as_asked() -> None:
+    """2026-10-29 user: "전에는 설정 변경 무선에서 안하고 그냥 1회 테스트하고 말았잖아",
+    "그게 문제라고": per band the card's width caps and modes, one at a time, each back
+    before the next; a setting the card did not join with is NOT RUN with why."""
+    wifi = FakeWifiSettings()
+    job, _ = _wifi_job(wifi)
+    _finish(job)
+    assert job.status()["state"] == "done"
+    auto, width, mode, six = job.take_summaries()
+    assert auto["case"]["label"] == "Wi-Fi 2.4GHz · router-2g"
+    assert width["case"]["label"] == "Wi-Fi 2.4GHz · width capped at 20 MHz"
+    assert width["send"]["ok"] and width["between"]["lan"] == "192.168.45.89"
+    assert width["case"]["setting"]["rx_mbps"] == 286.7
+    assert mode["not_run"] == "it joined with 802.11ax, not 802.11n" and mode["send"] is None
+    assert six["not_run"].startswith("Cannot connect")
+    order = [c[0] for c in wifi.calls]
+    assert order[:6] == ["join", "set", "restore", "join", "set", "restore"]
+    puts = [p for p in job.status()["put_back"] if p["to"] == "its own settings"]
+    assert len(puts) == 2 and all(p["ok"] for p in puts)
+
+
+def test_a_wifi_setting_not_put_back_stops_for_safety() -> None:
+    job, _ = _wifi_job(FakeWifiSettings(restore_ok=False))
+    _finish(job)
+    st = job.status()
+    assert st["state"] == "failed" and "SAFETY: wlx58 could not be put back" in st["error"]

@@ -150,6 +150,20 @@ def test_no_controller_is_exit_5(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 5 and doc["codes"] == ["ZL-DSC-014"]
 
 
+def test_quit_for_the_installer(lab: Any, capsys: pytest.CaptureFixture[str]) -> None:
+    """The Windows installer ends the service before it replaces the program (06 7 1);
+    no service is fine, a test running refuses (exit 3)."""
+    svc, _ = lab
+    code, doc = run_cli(svc, capsys, "quit", "--wait", "0")
+    assert code == 0 and doc["data"]["quitting"] is True and svc.quit_requested.is_set()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    assert main(["--json", "--port", str(port), "quit"]) == 0
+    assert json.loads(capsys.readouterr().out.strip())["data"]["quitting"] is False
+
+
 def test_bad_command_is_exit_6(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["no-such-command"]) == 6
 
@@ -197,6 +211,7 @@ def test_problems_and_actions_from_the_cli(lab: Any, capsys: pytest.CaptureFixtu
     assert doc["data"]["waiting"] == 0
 
 
+@pytest.mark.skipif(not HAVE_TOOLS, reason="needs ffmpeg and tsp")
 def test_prepare_from_the_cli(lab: Any, capsys: pytest.CaptureFixture[str]) -> None:
     """13-ai-loop `zeroloss prepare` (02 2-4, iptv 1-1-2): bad input is exit 6, --wait
     returns when the video is made, --status shows it."""

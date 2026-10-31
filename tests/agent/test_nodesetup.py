@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -283,6 +284,7 @@ def test_postrm_remove_keeps_data(tmp_path: Path) -> None:
     assert not (root / "opt/zeroloss/modules").exists()
 
 
+@pytest.mark.skipif(not shutil.which("systemd-analyze"), reason="needs systemd-analyze (Linux)")
 def test_units_are_valid(tmp_path: Path) -> None:
     """systemd-analyze accepts the units (only the not-yet-installed program is missing)."""
     for unit in ("zeroloss-agent.service", "zeroloss-deployer.service"):
@@ -381,3 +383,11 @@ def test_tablet_usb_rule_for_the_node_account_recorded_and_removed(tmp_path: Pat
     }
     node_remove(paths, fake)
     assert not paths.udev_rule.exists()
+
+
+def test_the_node_may_hand_a_wifi_card_to_its_own_wpa_supplicant() -> None:
+    """2026-10-29 (throughput Wi-Fi settings on Linux): `nmcli device set <card> managed
+    no/yes` needs NetworkManager's network-control for the zeroloss user."""
+    from agent.deployer.nodesetup import POLKIT_RULE
+
+    assert "org.freedesktop.NetworkManager.network-control" in POLKIT_RULE

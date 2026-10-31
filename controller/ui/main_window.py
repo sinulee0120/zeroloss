@@ -70,7 +70,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from controller.cli import DIAG_TIMEOUT_S, RESET_TIMEOUT_S, START_TIMEOUT_S, STORAGE_TIMEOUT_S
+from controller.cli import (
+    DIAG_TIMEOUT_S,
+    INSTALL_LINUX_TIMEOUT_S,
+    RESET_TIMEOUT_S,
+    START_TIMEOUT_S,
+    STORAGE_TIMEOUT_S,
+)
 from controller.setup import TEST_TYPE, module_of
 from controller.ui.control_state import Ctl, storage_actions
 from controller.ui.reports_window import ReportsWindow
@@ -90,6 +96,7 @@ from controller.ui.texts import DURATIONS_S, QUALITY_LABELS, TEST_TYPES, TEXT
 from controller.ui.view import (
     GENERATED,
     TABLET,
+    TABLET_CARD,
     TABLETS_MAX,
     ActionRow,
     ActionsView,
@@ -117,6 +124,7 @@ from controller.ui.view import (
     export_text,
     fault_view,
     finished_line,
+    fit_cells,
     hms,
     making_lines,
     parse_address,
@@ -134,9 +142,12 @@ from controller.ui.view import (
     source_channels,
     source_options,
     source_value,
+    start_summary,
     status_line,
     storage_view,
     tablet_role_change,
+    tablets_behind,
+    tablets_present,
     ticks_change,
 )
 from controller.web import WEB_PORT
@@ -151,6 +162,7 @@ from core.ui_schema.design import (
 )
 
 UPDATE_TIMEOUT_S = 1800.0  # every PC: upload, install, node restart
+TABLET_SCAN_S = 20.0  # a tablet's Scan shows "Scanning…" until its list is read again
 # a card line's tick box, plain to see on the light page (unchecked / ticked / not tickable)
 CARD_TICKS = (
     "QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #5f6368;"
@@ -315,7 +327,8 @@ def _scroll(content: QWidget) -> QScrollArea:
 def yes_label(title: str) -> str:
     """The confirm button of a question (1.6): its action, not a generic Yes."""
     for key, label in (("reset_title", "Reset All"), ("shutdown_title", "Shut Down All"),
-                       ("start_over_broadcast_title", "Stop broadcast and start")):  # fmt: skip
+                       ("start_over_broadcast_title", "Stop broadcast and start"),
+                       ("start_title", "Start")):  # fmt: skip
         if title == TEXT[key]:
             return label
     return "Stop"  # Stop the test? / Stop the broadcast?
@@ -336,7 +349,8 @@ class SetupRow(QWidget):
                  on_band: Callable[[str, str, str], None] = lambda nic, band, bssid: None,
                  on_scan: Callable[[str], None] = lambda nic: None,
                  on_password: Callable[[str, str], None] = lambda s, p: None,
-                 on_tabwifi: Callable[[str, str], None] = lambda s, sec: None) -> None:  # fmt: skip
+                 on_tabwifi: Callable[[str, str], None] = lambda s, sec: None,
+                 on_remove: Callable[[], None] = lambda: None) -> None:  # fmt: skip
         super().__init__()
         # the name and side on a line of their own: the boxes below never cover them
         # (2026-10-16 user: the receiver's words were hidden by its boxes)
@@ -417,6 +431,11 @@ class SetupRow(QWidget):
             h.addWidget(w)
         self._h = h
         h.addStretch(1)
+        self.remove = QPushButton(TEXT["remove"])  # 06 7: ZeroLoss off it (between tests)
+        self.remove.setToolTip(TEXT["remove_tip"])
+        self.remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.remove.clicked.connect(lambda: on_remove())
+        h.addWidget(self.remove)
         self.role.activated.connect(lambda _: on_role(str(self.role.currentData())))
         self.ch.activated.connect(lambda _: on_ch(int(self.ch.currentData())))
         self.net.activated.connect(lambda _: on_net(str(self.net.currentData())))
@@ -463,6 +482,9 @@ class SetupRow(QWidget):
             side = f"{side} · {TEXT['this_pc_video' if v.video else 'this_pc_iperf']}"
         self.label.set_full(f"{mark} {v.title or v.name} · {side}")
         self._fit_role(v)
+        removable = not v.this_pc and ctl.enabled  # Controller PC: Windows' own uninstall
+        if self.remove.isHidden() == removable:
+            self.remove.setVisible(removable)
 
         MainWindow._select(self.role, v.role)
         MainWindow._select(self.ch, v.ch)
@@ -740,7 +762,7 @@ class CellGrid(QWidget):
         out = []
         for i, (name, cells) in enumerate(self.rows.items()):
             y = i * (CELL_PX + GRID // 2)
-            shown = cells[-fit:]
+            shown = fit_cells(cells, fit)
             out.append(
                 (
                     name,
@@ -774,6 +796,9 @@ class CellGrid(QWidget):
             for rect, c in cells:
                 cell = live_cell(c.color)
                 p.fillRect(rect, QColor(cell.color))
+                if c.merged > 1:  # an older stretch in one box: a frame tells it apart
+                    p.setPen(QColor(COLORS["text"]))
+                    p.drawRect(rect.adjusted(0, 0, -1, -1))
                 p.setPen(QColor(cell.fg))
                 p.drawText(rect, Qt.AlignmentFlag.AlignCenter, c.icon)
 
@@ -820,6 +845,72 @@ class ActionsModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             return QColor(COLORS["text"] if r.waiting else COLORS["text_disabled"])
         return None
+
+
+class LinuxDialog(QDialog):
+    """Add a Linux PC (06 11.3, 2026-10-31): what 2_리눅스PC_등록.bat asked in a black
+    window. The password goes to the local service once and is never kept here."""
+
+    def __init__(self, parent: MainWindow, remove: str = "") -> None:
+        super().__init__(parent)
+        self._main = parent
+        self._remove = remove  # a removal from this PC: user, password and purge only
+        self.setWindowTitle(TEXT["remove_pc_title"].format(name=remove) if remove
+                            else TEXT["linux_title"])  # fmt: skip
+        form = QGridLayout(self)
+        self.host, self.user, self.password, self.name = (QLineEdit() for _ in range(4))
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.auto = QCheckBox(TEXT["linux_auto_login"])
+        for i, (key, box) in enumerate((("linux_host", self.host), ("linux_user", self.user),
+                                        ("linux_password", self.password),
+                                        ("linux_name", self.name))):  # fmt: skip
+            form.addWidget(QLabel(TEXT[key]), i, 0)
+            form.addWidget(box, i, 1)
+        form.addWidget(self.auto, 4, 0, 1, 2)
+        self.purge = QCheckBox(TEXT["remove_purge"])  # default off: data kept (06 1 5)
+        form.addWidget(self.purge, 4, 0, 1, 2)
+        for w in (self.host, self.name, self.auto) if remove else (self.purge,):
+            w.setVisible(False)
+        if remove:
+            for i in (0, 3):  # their labels too
+                item = form.itemAtPosition(i, 0)
+                label = item.widget() if item is not None else None
+                if label is not None:
+                    label.setVisible(False)
+            self.host.setText(remove)
+        self.why = QLabel("")
+        form.addWidget(self.why, 5, 0, 1, 2)
+        ok = QPushButton(TEXT["remove"].rstrip("…") if remove else TEXT["linux_title"])
+        cancel = QPushButton("Cancel")
+        ok.setDefault(True)
+        ok.clicked.connect(self._ok)
+        cancel.clicked.connect(self.reject)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(cancel)
+        buttons.addWidget(ok)
+        form.addLayout(buttons, 6, 0, 1, 2)
+
+    def _ok(self) -> None:
+        if not (self.host.text().strip() and self.user.text().strip() and self.password.text()):
+            self.why.setText(TEXT["linux_need"])
+            return
+        self.accept()
+
+    def ask(self) -> dict[str, Any] | None:
+        if self._main._modal_open:
+            return None
+        self._main._modal_open = True
+        try:
+            if self.exec() != QDialog.DialogCode.Accepted:
+                return None
+            got = {"host": self.host.text().strip(), "user": self.user.text().strip(),
+                   "password": self.password.text(), "name": self.name.text().strip(),
+                   "auto_login": self.auto.isChecked()}  # fmt: skip
+            return {**got, "purge": self.purge.isChecked()} if self._remove else got
+        finally:
+            self.password.clear()
+            self._main._modal_open = False
 
 
 class ActionsWindow(QDialog):
@@ -1308,7 +1399,10 @@ class MainWindow(QMainWindow):
         self.b_live = QPushButton(TEXT["live_view"])  # live monitor (02 12 /live) (GAP-119)
         self._help(self.b_live, TEXT["tip_live_view"].format(port=WEB_PORT))
         self.b_last = QPushButton(TEXT["last_report"])
-        for b in (self.b_reset, self.b_storage, self.b_live, self.b_reports, self.b_last):
+        self.b_help = QPushButton(TEXT["help"])  # 08 2: the guide, at this test's part
+        self._help(self.b_help, TEXT["tip_help"])
+        for b in (self.b_reset, self.b_storage, self.b_live, self.b_reports, self.b_last,
+                  self.b_help):  # fmt: skip
             top.addWidget(b)
         outer.addLayout(top)
         self.l_too_small = QLabel(TEXT["screen_too_small"])  # 1.8: below 1024x600 usable
@@ -1379,6 +1473,7 @@ class MainWindow(QMainWindow):
         self.mod_form.setVerticalSpacing(GRID)
         mod_box.addLayout(self.mod_form)
         self._wifi_asked: set[str] = set()
+        self._tablet_scans: dict[str, float] = {}  # "device|tablet:serial" -> when asked
         self.l_preview = QLabel()
         self.l_preview.setWordWrap(True)
         self.l_preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -1412,6 +1507,10 @@ class MainWindow(QMainWindow):
         self._flow(1)
         self.b_start = QPushButton("Start")
         self.b_start.setObjectName("primary")
+        # 2026-10-30 user ("왜 마우스 드래그해서 내리면 start가 눌리니"): the Devices rows are
+        # drawn again every few seconds; the focus of a removed field fell on Start. Start
+        # takes no focus (no key presses it) and asks before a test begins.
+        self.b_start.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.progress = QLabel()
         self.progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.progress.setFont(_tabular(self.font()))
@@ -1438,6 +1537,21 @@ class MainWindow(QMainWindow):
         self.no_devices = QLabel(TEXT["no_devices"])
         self.devices_box.addWidget(self.no_devices)
         self.devices_box.addStretch(1)
+        # 2026-10-31 user ("refresh버튼이라도 만들어 놓든가"): the PCs and the tablets on their
+        # USB are read every few seconds; Refresh reads them now (a tablet just plugged in)
+        self.b_refresh = QPushButton(TEXT["refresh"])
+        self.b_refresh.setToolTip(TEXT["refresh_tip"])
+        self.b_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.b_refresh.clicked.connect(self._refresh_devices)
+        self.b_add_linux = QPushButton(TEXT["add_linux"])
+        self.b_add_linux.setToolTip(TEXT["add_linux_tip"])
+        self.b_add_linux.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.b_add_linux.clicked.connect(self._add_linux)
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        bar.addWidget(self.b_add_linux)
+        bar.addWidget(self.b_refresh)
+        self.devices_box.addLayout(bar)
         self.g_cells = QGroupBox(TEXT["group_cells"])
         cv = QVBoxLayout(self.g_cells)
         self.grid = CellGrid()
@@ -1523,6 +1637,7 @@ class MainWindow(QMainWindow):
         self.b_last.clicked.connect(self.on_last_report)
         self.b_reports.clicked.connect(self.on_reports)
         self.b_live.clicked.connect(lambda: self._open(f"http://127.0.0.1:{WEB_PORT}/live"))
+        self.b_help.clicked.connect(lambda: self._open(self.help_url()))
         self.b_storage.clicked.connect(self.on_storage)
         self.storage_window: StorageWindow | None = None
         self.reports_window: ReportsWindow | None = None
@@ -1603,6 +1718,33 @@ class MainWindow(QMainWindow):
             err = d.error or {}
             self._tell(TEXT["stop_failed_title"], TEXT["stop_failed_body"].format(
                 what=err.get("what") or "no answer", why=err.get("why") or ""))  # fmt: skip
+        if d.name == "install_linux":  # never silent: added, or why not
+            self.b_add_linux.setEnabled(True)
+            self.b_add_linux.setText(TEXT["add_linux"])
+            if d.ok:
+                r = d.data or {}
+                tools = ", ".join(r.get("tools_missing") or [])
+                more = TEXT["linux_missing"].format(tools=tools) if tools else ""
+                self._tell(TEXT["linux_done_title"], TEXT["linux_done_body"].format(
+                    name=r.get("name", ""), host=r.get("host", ""), missing=more))  # fmt: skip
+                self._refresh_devices()
+            else:
+                err = d.error or {}
+                self._tell(TEXT["linux_failed_title"], TEXT["linux_failed_body"].format(
+                    what=err.get("what") or "no answer", why=err.get("why") or "",
+                    fix=err.get("fix") or ""))  # fmt: skip
+        if d.name.startswith(("remove_linux:", "remove_tablet:")):  # never silent
+            what = d.name.split(":", 1)[1]
+            if d.ok:
+                body = (TEXT["removed_pc"].format(name=what) if d.name.startswith("remove_linux")
+                        else TEXT["removed_tablet"].format(serial=what))  # fmt: skip
+                self._tell(TEXT["removed_title"], body)
+                self._refresh_devices()
+            else:
+                err = d.error or {}
+                self._tell(TEXT["remove_failed_title"], TEXT["remove_failed_body"].format(
+                    what=err.get("what") or "no answer", why=err.get("why") or "",
+                    fix=err.get("fix") or ""))  # fmt: skip
         if d.name.startswith("address:") and not d.ok:  # GAP-153: never silent
             err = d.error or {}
             self._tell(TEXT["address_failed_title"], TEXT["address_failed_body"].format(
@@ -1657,6 +1799,11 @@ class MainWindow(QMainWindow):
         self._apply(self.x_advanced, ctl["advanced_toggle"])
         self._apply(self.b_follow, ctl["follow_live"])
         self._apply(self.b_reports, ctl["reports"])
+        # between tests only: while one runs the top bar is full at 1280 px (11-ui 1.8),
+        # and the guide is in the Start menu too
+        idle = self.store.run_state == "IDLE"
+        if self.b_help.isHidden() == idle:
+            self.b_help.setVisible(idle)
         self._apply(self.b_live, ctl["live_view"])
         self._apply(self.b_storage, ctl["storage"])
         self._apply(self.b_last, ctl["last_report"])
@@ -1688,6 +1835,13 @@ class MainWindow(QMainWindow):
         idle = self.store.run_state == "IDLE"
         self._render_devices(device_rows(st) if not idle else [], ctl["channel"])
         busy = {k for k in self._wifi_asked if self.commands.busy(f"wifi_scan:{k}")}
+        # a tablet's Scan: shown until the tablet list read after it is in (at most 20 s)
+        now = time.monotonic()
+        got_at = self.store.setup_at
+        for k, t in list(self._tablet_scans.items()):
+            if now - t > TABLET_SCAN_S or got_at > t + 1.0:
+                del self._tablet_scans[k]
+        busy |= set(self._tablet_scans)
         rows = (setup_rows(self.store.setup, card_links(st), self.store.setting(WIFI),
                            self._wifi_scans(), busy) if idle else [])  # fmt: skip
         self._render_setup(rows, ctl["devices"])
@@ -1754,7 +1908,59 @@ class MainWindow(QMainWindow):
         if sid in (SOURCES, LENGTH):  # a movie or its length picked: make it now (GAP-116)
             self._prepare_now()
 
+    def _refresh_devices(self) -> None:
+        self.setup_feed.poke()
+        self.b_refresh.setEnabled(False)
+        self.b_refresh.setText(TEXT["refreshing"])
+
+        def done() -> None:
+            self.b_refresh.setEnabled(True)
+            self.b_refresh.setText(TEXT["refresh"])
+
+        QTimer.singleShot(3000, done)  # a tablet list takes a few seconds per PC
+
+    def _add_linux(self) -> None:
+        """A Linux PC registered from the screen (06 11.3): IP, user, password once (sent
+        to the local service and dropped there, never kept here), name, auto login."""
+        got = LinuxDialog(self).ask()
+        if got is None:
+            return
+        if self.commands.send("install_linux", f"{P}/install/linux",
+                              timeout_s=INSTALL_LINUX_TIMEOUT_S, **got):  # fmt: skip
+            self.b_add_linux.setEnabled(False)
+            self.b_add_linux.setText(TEXT["add_linux_busy"].format(host=got["host"]))
+            self.q.put(("sent", "install_linux"))
+
+    def _start_when_saved(self, tries: int) -> None:
+        """Start once every change made on screen is saved (the service starts from the
+        saved choice); waits at most ``tries`` x 0.1 s."""
+        if self.commands.busy_prefix("setup:") and tries > 0:
+            QTimer.singleShot(100, lambda: self._start_when_saved(tries - 1))
+            return
+        if self.commands.send("run", f"{P}/run", timeout_s=START_TIMEOUT_S):  # saved choice
+            self.q.put(("sent", "run"))
+            self.drain()
+
+    def help_url(self) -> str:
+        """The guide's part for the test chosen now (08 2: Help opens the right part)."""
+        su = (self.store.setup or {}).get("setup") or {}
+        part = "tput" if module_of(str(su.get("test_type") or "")) == "throughput" else "run"
+        return f"http://127.0.0.1:{WEB_PORT}/guide#{part}"
+
+    def _start_what(self) -> str:
+        """The test the saved choice runs, in one line (the Start question)."""
+        su = (self.store.setup or {}).get("setup") or {}
+        return start_summary(self.store.plan, str(su.get("test_type") or "the test"))
+
     def _render_setup(self, rows: list[SetupRowView], ctl: Ctl) -> None:
+        # 2026-10-30 user ("태블릿 설정을 바꾸면 자꾸 화면이 위로 올라가"): the rows are drawn
+        # again; the scroll stays where the person left it
+        bar = self.right_scroll.verticalScrollBar()
+        kept = bar.value()
+        self._render_setup_rows(rows, ctl)
+        QTimer.singleShot(0, lambda: bar.setValue(min(kept, bar.maximum())))
+
+    def _render_setup_rows(self, rows: list[SetupRowView], ctl: Ctl) -> None:
         names = [r.name for r in rows]
         for name in list(self._setup_rows):
             if name not in names:
@@ -1787,9 +1993,11 @@ class MainWindow(QMainWindow):
 
         def on_tick(nic: str, on: bool) -> None:
             lines = self._lines_of(name)
-            wifi = any(line.nic == nic and line.wifi for line in lines)
+            tablet = nic.startswith(TABLET_CARD)  # a tablet line: its own, never in the way
+            wifi = any(line.nic == nic and line.wifi for line in lines) and not tablet
             # one Wi-Fi card per PC: ticking one unticks the other (2026-10-17 user)
-            drop = tuple(x.nic for x in lines if x.wifi and x.nic != nic) if wifi else ()
+            drop = tuple(x.nic for x in lines if x.wifi and x.nic != nic
+                         and not x.nic.startswith(TABLET_CARD)) if wifi else ()  # fmt: skip
             self.edit_setting(WIFI, ticks_change(self.store.setting(WIFI), name, nic, tick=on,
                                                  drop=drop))  # fmt: skip
             if on and wifi:
@@ -1803,6 +2011,8 @@ class MainWindow(QMainWindow):
             nets = (self._wifi_scans().get(f"{name}|{nic}") or {}).get("networks") or []
             net = next((n for n in nets if isinstance(n, dict) and n.get("bssid") == bssid),
                        None)  # fmt: skip
+            if nic.startswith(TABLET_CARD):  # a tablet's pick is by SSID (its own scan)
+                net = self._tablet_net(name, nic[len(TABLET_CARD) :], bssid)
             self.edit_setting(WIFI, ticks_change(self.store.setting(WIFI), name, nic,
                                                  band=band, net=net))  # fmt: skip
 
@@ -1810,13 +2020,42 @@ class MainWindow(QMainWindow):
                         lambda text: self._on_address(name, text),
                         lambda ms: self._on_receiver(name, buffer_ms=ms),
                         on_tick, on_band, lambda nic: self._scan_wifi(name, nic),
-                        self._send_password, on_tabwifi)  # fmt: skip
+                        self._send_password, on_tabwifi,
+                        lambda: self._remove(name))  # fmt: skip
+
+    def _remove(self, name: str) -> None:
+        """06 7: a tablet row takes the app off that tablet; a PC row takes ZeroLoss off that
+        PC over SSH (account and password once, test data kept unless ticked)."""
+        if name.startswith(TABLET):
+            serial = name[len(TABLET) :]
+            sides = (self.store.setup or {}).get("sides") or {}
+            host = next((n for n, s in sides.items() if serial in _serials_of(s)), "")
+            body = TEXT["remove_tablet_body"].format(serial=serial, host=host)
+            if host and self._ask(TEXT["remove_tablet_title"], body):
+                self.commands.send(f"remove_tablet:{serial}", f"{P}/remove/tablet_app",
+                                   timeout_s=150, device=host, serial=serial)  # fmt: skip
+                self.q.put(("sent", f"remove_tablet:{serial}"))
+            return
+        got = LinuxDialog(self, remove=name).ask()
+        if got is not None:
+            self.commands.send(f"remove_linux:{name}", f"{P}/remove/linux", timeout_s=300,
+                               name=name, user=got["user"], password=got["password"],
+                               purge=got["purge"])  # fmt: skip
+            self.q.put(("sent", f"remove_linux:{name}"))
 
     def _send_password(self, ssid: str, password: str) -> None:
         """A band network's password, to the service's encrypted store (never kept here)."""
         self.commands.send(f"wifi_password:{ssid}", f"{P}/wifi_password", ssid=ssid,
                            password=password)  # fmt: skip
         self.q.put(("sent", f"wifi_password:{ssid}"))
+
+    def _tablet_net(self, name: str, serial: str, ssid: str) -> dict[str, Any] | None:
+        side = ((self.store.setup or {}).get("sides") or {}).get(name) or {}
+        tab: dict[str, Any] = next(
+            (t for t in side.get("tablets") or [] if t.get("serial") == serial), {}
+        )
+        found = next((n for n in tab.get("networks") or [] if n.get("ssid") == ssid), None)
+        return {**found, "bssid": ""} if found and ssid else None
 
     def _lines_of(self, name: str) -> tuple[Any, ...]:
         row = self._setup_rows.get(name)
@@ -1841,8 +2080,9 @@ class MainWindow(QMainWindow):
         if self.store.setup is None:
             return
         if name.startswith(TABLET):
+            present = tablets_present(self.store.setup)  # an unplugged one holds no place
             mine = [r for r in (self.store.setup.get("roles") or {}).get("receivers") or []
-                    if r.get("serial")]  # fmt: skip
+                    if r.get("serial") and r.get("serial") in present]  # fmt: skip
             if role == "receiver" and len(mine) >= TABLETS_MAX:
                 self._tell(TEXT["tablet_new"], TEXT["tablets_full"])
                 self.redraw()  # the box goes back to Not used
@@ -2015,6 +2255,13 @@ class MainWindow(QMainWindow):
         return out
 
     def _scan_wifi(self, device: str, nic: str) -> None:
+        if nic.startswith(TABLET_CARD):  # a tablet's networks come with the tablet list
+            # read again now, "Scanning…" until it is in (2026-10-30 user: "scan눌러도
+            # scanning으로 안바뀜")
+            self._tablet_scans[f"{device}|{nic}"] = time.monotonic()
+            self.setup_feed.poke()
+            self.q.put(("sent", f"wifi_scan:{device}|{nic}"))
+            return
         key = f"{device}|{nic}"
         if self.commands.read(f"wifi_scan:{key}", f"{P}/wifi_scan", timeout_s=60,
                               node=device, nic=nic):  # fmt: skip
@@ -2026,6 +2273,7 @@ class MainWindow(QMainWindow):
         checks = [self.store.current_idle_check(), st.run.get("checklist")]
         codes = {s.get("code") for c in checks if isinstance(c, dict) for s in c.get("steps") or []}
         other = bool(codes & {"ZL-INS-015", "INS-015", "ZL-INS-024", "INS-024"})
+        other = other or tablets_behind(self.store.setup, st.build)  # a tablet's app too
         busy = self.commands.busy("update_pcs")
         show = (other or busy) and self.store.run_state == "IDLE"
         text = TEXT["update_pcs_busy"] if busy else TEXT["update_pcs"].format(build=st.build)
@@ -2361,12 +2609,11 @@ class MainWindow(QMainWindow):
             ):
                 sent = "stop"
                 self._stop_sent_at = time.monotonic()
-        elif self.store.plan is not None and self.commands.send(
-            "run",
-            f"{P}/run",
-            timeout_s=START_TIMEOUT_S,  # the saved choice (F14, 02 2-11)
+        elif self.store.plan is not None and self._ask(
+            TEXT["start_title"], TEXT["start_body"].format(what=self._start_what())
         ):
-            sent = "run"
+            self._start_when_saved(50)  # a change just made is saved first, then Start
+            return
         if sent:  # visible within 0.1 s (1.14), through the store like everything (1.1)
             self.q.put(("sent", sent))
             self.drain()
@@ -2701,3 +2948,8 @@ class MainWindow(QMainWindow):
             self.top.removeItem(self.run_box)
             self.run_box.setDirection(QBoxLayout.Direction.TopToBottom)
             self.left_box.addLayout(self.run_box)
+
+
+def _serials_of(side: Any) -> set[str]:
+    """The tablets on one PC's USB, by serial (a row's tablet to its PC)."""
+    return {str(t.get("serial")) for t in (side or {}).get("tablets") or [] if isinstance(t, dict)}

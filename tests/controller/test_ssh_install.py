@@ -6,6 +6,7 @@ The password never appears in a result, an error or a saved file."""
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from agent.deployer.agent_link import AgentLink
 from agent.deployer.modules import Layout
 from agent.deployer.server import Deployer
 from controller.devices import DeviceList
-from controller.ssh_install import KnownHosts, LinuxInstaller, Target
+from controller.ssh_install import KnownHosts, LinuxInstaller, LinuxRemover, Target
 from core.protocol.client import NodeClient
 from core.protocol.envelope import ZlError
 from tests.agent.conftest import REPO, module_package
@@ -58,6 +59,9 @@ def answering() -> Iterator[tuple[int, int]]:
     dep.close()
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="the Deployer it installs runs on Linux nodes"
+)
 def test_install_end_to_end(pc: FakeLinuxPC, tmp_path: Path) -> None:
     layout = Layout(tmp_path / "node-data", tmp_path / "node-mods")
     layout.modules_dir.mkdir(parents=True)
@@ -274,3 +278,20 @@ def test_offline_pc_is_told_not_failed(pc: FakeLinuxPC, tmp_path: Path,
     step = next(s for s in r["steps"] if s["name"] == "tools_install")
     assert "still missing" in step["detail"] and "no network" in step["detail"]
     assert "register" in [s["name"] for s in r["steps"]]  # the node is installed anyway
+
+
+@pytest.mark.parametrize(("purge", "how"), [(False, "-r"), (True, "--purge")])
+def test_remove_takes_zeroloss_off_and_out_of_devices(
+    pc: FakeLinuxPC, tmp_path: Path, answering: tuple[int, int], purge: bool, how: str
+) -> None:
+    """06 7 (2026-10-31, the remove buttons): the same login as the install, the package
+    removed (its data kept unless purge), then the PC leaves Devices."""
+    inst = installer(tmp_path)
+    t = target(pc, node_port=answering[0], deployer_port=answering[1])
+    inst.install(t)
+    assert [d.name for d in inst.devices.all()] == ["lin1"]
+    r = LinuxRemover(inst.known_hosts, inst.devices).remove("lin1", t, purge)
+    assert r["removed"] and r["purged"] is purge
+    assert pc.commands[-1] == f"sudo -S -p '' dpkg {how} zeroloss-agent"
+    assert inst.devices.all() == [] and PASSWORD not in json.dumps(r)
+    assert not any(PASSWORD in c for c in pc.commands)

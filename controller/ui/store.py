@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -247,7 +248,7 @@ class SetupFeed:
             client.close()
 
 
-LONG_JOBS = frozenset({"run"})  # answers only when the start is done (videos, warm-up)
+LONG_JOBS = frozenset({"run", "install_linux"})  # answer after minutes: their own thread
 
 
 class Commands:
@@ -284,6 +285,11 @@ class Commands:
             return True
         self._jobs.put((name, path, params, timeout_s))
         return True
+
+    def busy_prefix(self, prefix: str) -> bool:
+        """A job whose name starts so is still on its way (e.g. "setup:" saves)."""
+        with self._lock:
+            return any(n.startswith(prefix) for n in self._busy)
 
     def read(self, job: str, path: str, /, timeout_s: float = 5.0, **query: Any) -> bool:
         """A GET off the screen thread (e.g. the storage list), one at a time per name."""
@@ -335,6 +341,7 @@ class Store:
         self.last_done: Done | None = None
         self.done_by: dict[str, Done] = {}  # the last answer of each job name
         self.setup: dict[str, Any] | None = None  # 02 2-11 answer: choice, sides, roles, plan
+        self.setup_at = 0.0  # when the last setup answer came (monotonic)
         self.schema: dict[str, dict[str, Any]] = {}  # settings screen data (16 1)
         self.pending: frozenset[str] = frozenset()  # commands sent, answer not back yet
         self._finished: dict[str, Any] | None = None  # a result to show once (F15)
@@ -359,6 +366,7 @@ class Store:
             self.done_by[value.name] = value  # windows read their own job's answer
             self.pending = self.pending - {value.name}
         elif kind == "setup":
+            self.setup_at = time.monotonic()  # read again, same or not (a tablet's Scan)
             if value == self.setup:
                 return False
             self.setup = value
@@ -376,7 +384,10 @@ class Store:
             choice = {**self.setup["setup"], **value}
             if choice == self.setup["setup"]:
                 return False
-            self.setup = {**self.setup, "setup": choice, "plan": None}  # plan: after the save
+            # 2026-10-31 user ("버퍼 선택하면 또 start가 눌렸다가 회색으로 변하고 다시 파란색으로
+            # 돌아오네"): the plan is kept while the change is saved (Start waits for the save,
+            # MainWindow._start_when_saved), so Start no longer flickers grey on every pick
+            self.setup = {**self.setup, "setup": choice}
         else:
             return False
         self.version += 1

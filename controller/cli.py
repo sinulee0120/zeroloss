@@ -99,6 +99,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--wait", action="store_true", help="wait for the verdict")
     run.add_argument("--yes", action="store_true", help="confirm a test longer than 24 h")
     sub.add_parser("stop", help="stop the current test and make the report")
+    qt = sub.add_parser("quit", help="end this PC's Controller service when no test runs")
+    qt.add_argument("--wait", type=float, default=20.0, help="seconds to wait for it to end")
     ins = sub.add_parser("install", help="first install of a node")
     isub = ins.add_subparsers(dest="action", required=True)
     lin = isub.add_parser("linux", help="install a Linux node over SSH (06 11.3)")
@@ -254,6 +256,25 @@ def main(argv: list[str] | None = None) -> int:
         return cli.out(10, {"error": repr(e)}, f"Internal error: {e!r}", ["ZL-SYS-008"])
     finally:
         cli.client.close()
+
+
+def _quit(cli: Cli, wait_s: float) -> int:
+    """The Windows installer, before it replaces or removes the program (06 7 1): a test
+    keeps the service (exit 3, RUN-012); otherwise it ends, and this waits until it has."""
+    try:
+        r = cli.command(f"{P}/quit")
+    except ZlError as e:
+        if e.code not in UNREACHABLE:
+            raise
+        return cli.out(0, {"quitting": False}, "The Controller service is not running")
+    end = time.monotonic() + wait_s
+    while time.monotonic() < end:
+        try:
+            cli.client.get(f"{P}/status", timeout_s=1.0)
+        except ZlError:
+            return cli.out(0, r, "The Controller service has ended")
+        time.sleep(0.3)
+    return cli.out(0, r, "The Controller service is ending")
 
 
 def _dispatch(cli: Cli, args: argparse.Namespace) -> int:
@@ -414,6 +435,8 @@ def _dispatch(cli: Cli, args: argparse.Namespace) -> int:
         return cli.out(0, r, f"{args.node}: {r['id']} {r['build']} {r['result']}")
     if args.cmd == "modules":
         return _modules(cli, args)
+    if args.cmd == "quit":
+        return _quit(cli, args.wait)
     if args.cmd == "stop":
         r = cli.command(f"{P}/stop", timeout_s=60)
         if r.get("cancelled"):  # the start was making videos (USR-006)

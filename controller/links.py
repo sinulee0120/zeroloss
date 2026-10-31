@@ -101,6 +101,11 @@ class LinkJudge:
             mbps = x.get("link_mbps")
             key = (device, nic)
             first = key not in self._state
+            if first and not x.get("up", True) and not x.get("ip"):
+                # 2026-10-31 user ("t460은 왜 또 link down이야"): a card with no cable and no
+                # address since the start (a USB dock's own LAN port) is not part of the test;
+                # one that was up and then goes down still says so
+                continue
             if first and isinstance(mbps, int) and x.get("up", True):
                 usual[ip] = max(usual.get(ip, 0), mbps)  # this run's start speed counts
             level = level_of(x, bps, usual.get(ip, 0))

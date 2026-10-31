@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -389,3 +390,15 @@ def test_a_half_duplex_setting_is_check_needed_wherever_it_was_set() -> None:
     assert run.judge_case(case("WAN card set to 100 Mbps half", "full"))[0] is Color.YELLOW
     assert run.judge_case(case("LAN card set to 100 Mbps half", None))[0] is Color.YELLOW
     assert run.judge_case(case("LAN card set to 100 Mbps full", None))[0] is Color.RED
+
+
+def test_the_pcs_of_a_throughput_test_get_longer_before_they_count_as_lost() -> None:
+    """2026-10-29 R20261029-214745: the WAN card at 10 Mbps half duplex, filled by iperf3,
+    was the Controller's only way to the WAN-side PC; 10 s of silence stopped the test."""
+    from modules.throughput.run import SLOWED_LINK_LOST_S, ThroughputRun, lost_after_s
+
+    p = SimpleNamespace(sender="probook-sender", clients=["t460-rx", "controller"])
+    assert lost_after_s(p, "probook-sender") == SLOWED_LINK_LOST_S == 120.0  # type: ignore[arg-type]
+    assert lost_after_s(p, "t460-rx") == SLOWED_LINK_LOST_S  # type: ignore[arg-type]
+    assert lost_after_s(p, "other-pc") == 0.0  # type: ignore[arg-type]
+    assert ThroughputRun.lost_after_s is not None

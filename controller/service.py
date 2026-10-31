@@ -33,6 +33,7 @@ from controller.setup import SetupStore, address_labels, plan_of, roles, sides
 from controller.ssh_install import (
     KnownHosts,
     LinuxInstaller,
+    LinuxRemover,
     Target,
     newest_deb,
     newest_modules,
@@ -55,8 +56,10 @@ from core.records.experience import Context, ExperienceDb
 from core.settings import load_schema
 
 P = "/v1/controller"
+GUIDE = "설치_및_사용_안내.html"  # tools/kit, and next to an installed program (06 4.1-2)
 THIS_PC = "controller"  # the Controller PC as a LAN-side PC (throughput; user: not "this-pc")
 RELOCATE_EVERY_S = 30.0  # a registered device that does not answer: look for it again
+TABLET_APP_WAIT_S = 120.0  # Update PCs: a PC restarting on its new build, then its tablets
 RUN_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 STORAGE_TIMEOUT_S = 10.0  # per device (02 2-13)
 STORAGE_WATCH_S = 60.0  # 03 F15: disk space every minute
@@ -195,6 +198,8 @@ class ControllerService:
         loc.get(f"{P}/modules", self.deploy_modules)
         loc.command(f"{P}/modules/remove", self.deploy_remove)
         loc.command(f"{P}/install/linux", self.install_linux)
+        loc.command(f"{P}/remove/linux", self.remove_linux)  # 06 7 (the remove buttons)
+        loc.command(f"{P}/remove/tablet_app", self.remove_tablet_app)
         loc.get(f"{P}/prepare", self.prepare_state)
 
     def _record(self, e: Event) -> None:
@@ -552,9 +557,49 @@ class ControllerService:
                     except ZlError as e:  # a PC that cannot take it (Windows) is still updated
                         row["tablet_app"] = e.what
                 out.append(row)
+            # 2026-10-31 (the tablet rows showed the old app until Start): the app goes onto
+            # each tablet now, not at the next Start
+            for dev in self.devices.all():
+                got = self._tablet_apps(dev, build)
+                for r in out:
+                    if r["device"] == dev.name and got:
+                        r["tablets"] = got
         done = ", ".join(f"{r['device']} {'updated' if r['updated'] else r['why']}" for r in out)
         self.node.bus.publish(Event("ZL-INFO", "info", f"Update PCs to {build}: {done}"))
         return {"build": build, "devices": out}
+
+    def _tablet_apps(self, dev: Any, build: str) -> list[dict[str, Any]]:
+        """This build's app on each tablet on the PC's USB, once the PC answers on this
+        build (it may be restarting after its update). One row per tablet: the version
+        it has now, or why not."""
+        client = NodeClient(dev.host, dev.port, self.run.boot_id, dev.name)
+        try:
+            end = time.monotonic() + TABLET_APP_WAIT_S
+            while True:
+                try:
+                    if client.get("/v1/health", timeout_s=5).get("build") == build:
+                        found = client.get("/v1/tablets", timeout_s=30).get("tablets") or []
+                        break
+                except ZlError:
+                    pass
+                if time.monotonic() >= end:
+                    return []  # off, or another build: its tablets get the app at Start
+                time.sleep(3)
+            rows = []
+            for t in found:
+                if t.get("state") != "device":
+                    continue
+                serial = str(t.get("serial"))
+                try:
+                    got = client.command("/v1/tablets/ensure_app", self.run.generation, None,
+                                         timeout_s=180, serial=serial)  # fmt: skip
+                    rows.append({"serial": serial, "version": got.get("version"),
+                                 "installed": bool(got.get("installed"))})  # fmt: skip
+                except ZlError as e:
+                    rows.append({"serial": serial, "why": f"{e.what}: {e.why}".rstrip(": ")})
+            return rows
+        finally:
+            client.close()
 
     def _wants_tablet_app(self, dev: Any, build: str) -> bool:
         """A Linux PC whose tablets' app is not this build (or none, or it does not say:
@@ -613,6 +658,45 @@ class ControllerService:
                 self.run.boot_id, self.run.generation, tools_dir=packages / "tools",
             )  # fmt: skip
             return inst.install(target, bool(p.get("accept_new_host_key")))
+
+    def remove_linux(self, req: Request) -> dict[str, Any]:
+        """06 7 / 2026-10-31: ZeroLoss off a registered Linux PC over SSH (its account and
+        password once, used and dropped), then out of Devices. Test data stays unless
+        ``purge`` (06 1 5)."""
+        p = req.params
+        dev = self.devices.get(str(p.get("name", "")))
+        target = Target(dev.host, str(p.get("user", "")), str(p.get("password", "")),
+                        name=dev.name, ssh_port=int(p.get("ssh_port", 22)))  # fmt: skip
+        with self.run.while_idle("Removing ZeroLoss"):
+            hosts = KnownHosts(self.data_dir / "ssh-known-hosts.json")
+            out = LinuxRemover(hosts, self.devices).remove(dev.name, target,
+                                                           p.get("purge") is True)  # fmt: skip
+        self.node.bus.publish(Event("ZL-INFO", "info", f"ZeroLoss removed from {dev.name}"))
+        return out
+
+    def remove_tablet_app(self, req: Request) -> dict[str, Any]:
+        """06 7: the ZeroLoss app off one tablet on a PC's USB (only between tests)."""
+        p = req.params
+        dev = self.devices.get(str(p.get("device", "")))
+        client = NodeClient(dev.host, dev.port, self.run.boot_id, dev.name)
+        try:
+            with self.run.while_idle("Removing the tablet app"):
+                got = client.command("/v1/tablets/uninstall_app", self.run.generation, None,
+                                     timeout_s=120, serial=str(p.get("serial")))  # fmt: skip
+                return dict(got)
+        finally:
+            client.close()
+
+    def guide(self) -> str | None:
+        """The install and use guide for the screen's Help (08 2, 2026-10-31): the copy that
+        came with this program (next to its modules folder), else the source one."""
+        for f in (self.run.modules_dir.parent / GUIDE,
+                  Path(__file__).resolve().parents[1] / "tools" / "kit" / GUIDE):  # fmt: skip
+            try:
+                return f.read_text(encoding="utf-8").replace("{BUILD}", self.node.build)
+            except OSError:
+                continue
+        return None
 
     def sources(self, q: Query) -> dict[str, Any]:
         """02 2-10: the module's source video list on a device (S-48)."""
@@ -966,6 +1050,7 @@ class ControllerService:
             listing=lambda: self.reports(Query({}, "127.0.0.1", "127.0.0.1")),
             live=lambda: self.status(Query({}, "127.0.0.1", "127.0.0.1")),
             live_data=self.run.live,
+            guide=self.guide,
             access=lambda: str(self._setting("S-44") or "Same subnet"),
             networks=_local_networks,
             running=self._running_run,

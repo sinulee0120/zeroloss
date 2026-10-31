@@ -4,6 +4,7 @@ unpacked; any changed, missing, extra or unsafe file is INS-006."""
 from __future__ import annotations
 
 import json
+import os
 import random
 import zipfile
 from pathlib import Path
@@ -63,7 +64,9 @@ def test_changed_missing_extra_and_unsafe_files(iptv_zlm: Path, tmp_path: Path) 
     assert "missing" in rejected(rewrite(iptv_zlm, tmp_path / "2.zlm", {"payload/run.py": None}))
     assert "unlisted" in rejected(rewrite(iptv_zlm, tmp_path / "3.zlm", {"payload/x.py": b"1"}))
     for bad in ("../evil.py", "/abs.py", "payload\\win.py", "C:/x.py"):
-        assert "unsafe" in rejected(rewrite(iptv_zlm, tmp_path / "4.zlm", {bad: b"1"}))
+        why = rejected(rewrite(iptv_zlm, tmp_path / "4.zlm", {bad: b"1"}))
+        # Python's zipfile on Windows reads "\" as "/": still refused, as an unlisted file
+        assert "unsafe" in why or (os.sep == "\\" and "\\" in bad and "unlisted" in why), why
     assert "missing or broken" in rejected(rewrite(iptv_zlm, tmp_path / "5.zlm",
                                                    {"package.json": None}))  # fmt: skip
     info = json.loads(zipfile.ZipFile(iptv_zlm).read("package.json"))

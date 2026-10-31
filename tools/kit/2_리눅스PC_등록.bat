@@ -2,6 +2,8 @@
 chcp 65001 >nul <nul
 setlocal
 set "APP=%~dp01_Windows_PC\ZeroLoss"
+rem installed: this file is in the program folder (Start menu "ZeroLoss 리눅스 PC 등록")
+if exist "%~dp0ZeroLoss.exe" set "APP=%~dp0."
 echo ============================================================
 echo   ZeroLoss - 리눅스 PC 등록 (송신 PC, 수신 PC 한 대씩)
 echo ============================================================
@@ -13,7 +15,7 @@ if errorlevel 1 (
     timeout /t 2 >nul
     curl -s -m 3 http://127.0.0.1:10994/v1/controller/status >nul 2>&1 && goto ready
   )
-  echo ZeroLoss 프로그램이 켜지지 않았습니다. 1_Windows_PC\ZeroLoss\ZeroLoss.exe 를 직접 켜고 다시 실행하세요.
+  echo ZeroLoss 프로그램이 켜지지 않았습니다. 시작 메뉴의 ZeroLoss Controller를 직접 켜고 다시 실행하세요.
   pause
   exit /b 1
 )

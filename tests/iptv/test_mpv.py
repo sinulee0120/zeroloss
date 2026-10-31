@@ -177,6 +177,7 @@ class FakeMpv:
             c.close()
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="mpv IPC here is a Unix socket")
 def test_ipc_answers_skips_events_and_comes_back(tmp_path: Path) -> None:
     path = str(tmp_path / "m.sock")
     ipc = MpvIpc(path)

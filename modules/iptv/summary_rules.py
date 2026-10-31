@@ -37,6 +37,7 @@ RULES: dict[str, tuple[str, Agg]] = {
     "bitrate_min_bps": (k.BITRATE_BPS, Agg.MIN),
     "bitrate_max_bps": (k.BITRATE_BPS, Agg.MAX),
     "host_drops": (k.HOST_DROPS, Agg.SUM),
+    "scan_lost": (k.SCAN_LOST, Agg.SUM),
     "p1_errors": (k.P1_ERRORS, Agg.SUM),
     "sync_loss": (k.SYNC_LOSS, Agg.SUM),
     "sync_byte_err": (k.SYNC_BYTE_ERR, Agg.SUM),
@@ -172,6 +173,7 @@ def shape(
         },
         "receiver": {
             "host_drops": host_drops,
+            "scan_lost": v["scan_lost"],
             "rcvbuf_bytes": rcvbuf_bytes,
             "locks_ok": None,  # tablets only (P4)
             "non_video_traffic_bps": None,  # P3

@@ -15,6 +15,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
+import com.zeroloss.receiver.measure.Iperf3Client
 import com.zeroloss.receiver.measure.RtpHeader
 import com.zeroloss.receiver.measure.StreamAnalyzer
 import com.zeroloss.receiver.play.ChannelPlayer
@@ -108,8 +109,71 @@ class ReceiverService : Service() {
             "GET /v1/records" -> records(query["after"]?.toLongOrNull() ?: 0L)
             "POST /v1/receiver/start" -> start(params)
             "POST /v1/receiver/stop" -> JSONObject().put("stopped", stopReceiving())
+            "POST /v1/throughput/start" -> throughputStart(params)
+            "GET /v1/throughput/status" -> throughputStatus()
+            "POST /v1/throughput/stop" -> JSONObject().put("stopped", throughputCancel())
             else -> throw ApiError(404, "ZL-DSC-012", "Request rejected", "no such path: $path")
         }
+
+    // ---------------------------------------------------------------- throughput (T-4)
+
+    @Volatile private var iperf: Iperf3Client? = null
+    @Volatile private var iperfResult: JSONObject? = null
+    @Volatile private var iperfT0 = 0L
+
+    /**
+     * One direction against the WAN-side PC's iperf3 server ({server, port, seconds,
+     * reverse}), in the background; the node polls throughputStatus. Over the Wi-Fi
+     * network only (a tablet with mobile data must not measure that), the Wi-Fi kept awake.
+     */
+    private fun throughputStart(p: JSONObject): JSONObject {
+        if (iperf != null) throw ApiError(409, "ZL-DSC-012", "Request rejected", "a throughput run is going on")
+        val server = p.optString("server")
+        if (server.isEmpty()) throw ApiError(400, "ZL-DSC-012", "Request rejected", "params.server is required")
+        val wifi = wifiNetwork() ?: throw ApiError(409, "ZL-NET-002", "The tablet is not on Wi-Fi",
+            "no Wi-Fi network is up on the tablet")
+        val c = Iperf3Client(server, p.optInt("port", 5201), p.optInt("seconds", 10), p.optBoolean("reverse"),
+            connect = { a -> wifi.socketFactory.createSocket().also { it.connect(a, Iperf3Client.CONNECT_MS) } })
+        holdWifi()
+        iperf = c
+        iperfResult = null
+        iperfT0 = SystemClock.elapsedRealtime()
+        thread(name = "zl-throughput", isDaemon = true) {
+            val r = c.run()
+            iperfResult = JSONObject().put("ok", r.ok).put("bits_per_second", r.bitsPerSecond)
+                .put("bytes", r.bytes).put("seconds", r.seconds).put("error", r.error ?: JSONObject.NULL)
+            iperf = null
+            if (job == null) releaseWifi()
+        }
+        return JSONObject().put("started", true)
+    }
+
+    private fun throughputStatus(): JSONObject {
+        val c = iperf
+        val s = (SystemClock.elapsedRealtime() - iperfT0) / 1000.0
+        return JSONObject().put("state", if (c != null) "running" else if (iperfResult != null) "done" else "idle")
+            .put("moved_bytes", c?.moved?.get() ?: JSONObject.NULL)
+            .put("elapsed_s", if (c != null) s else JSONObject.NULL)
+            .put("result", iperfResult ?: JSONObject.NULL)
+    }
+
+    private fun throughputCancel(): Boolean {
+        val c = iperf ?: return false
+        c.cancel()
+        return true
+    }
+
+    private fun wifiNetwork(): android.net.Network? {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        return cm.allNetworks.firstOrNull { n ->
+            cm.getNetworkCapabilities(n)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        }
+    }
+
+    private fun releaseWifi() {
+        wifiLock?.let { if (it.isHeld) it.release() }
+        multicastLock?.let { if (it.isHeld) it.release() }
+    }
 
     private fun health(): JSONObject = JSONObject()
         .put("app", "com.zeroloss.receiver")

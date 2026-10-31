@@ -3,23 +3,28 @@
 Layout (the guide 설치_및_사용_안내.html walks through it)::
 
     ZeroLoss-Kit-<build>/
-      설치_및_사용_안내.html, 2_리눅스PC_등록.bat
-      1_Windows_PC/ZeroLoss/            the portable Controller + packages/ for the Linux PCs
+      설치_및_사용_안내.html
+      1_Windows_PC/ZeroLoss-Controller-Setup-<build>.exe   the installer (the Controller,
+                                        its packages/ for the Linux PCs and tablets, TSDuck)
       2_Linux_PC_USB/                   copied to a USB stick for the Linux PCs
         zeroloss-linux-setup.sh, offline/ (Ubuntu 24.04 .debs), tsduck_*.deb
-        zeroloss-sample-video.sh, sample_1/sample_1_original.mp4,
-        sample_1/sample_1_cache/<made UHD file + its description>
+        zeroloss-sample-video.sh, sample_N/sample_N_original.mp4,
+        sample_N/sample_N_cache/<made UHD file + its description>
 
 2026-10-17 user: the sample video goes with the UHD file already made from it ("이미 만든걸
 또 만들필요없게", "원본 비디오와 함께", sample_1_original / sample_1_cache). The made file is
 named and described for the original's content digest, and checked with the sender's own
 rule (``Preparer.ready``) before the kit is written: on the other PC Start uses it at once.
+2026-10-31 user ("설치가이드. Offline kit. Installer . 사용법"): the installer replaces the
+loose program folder, and the three movies of the three-channel test come along
+(sample_1..3, each made for its own channel).
 
 Usage::
 
-    python -m tools.kit.make_kit --app dist/v0034/ZeroLoss-Controller-20261017.0034 \\
-        --packages <folder with the .deb and .zlm files> --offline <old kit>/2_Linux_PC_USB \\
-        --original <movie.mp4> --made <cache>/ch1_UHD_35M_<tag>.ts --out <kit folder>
+    python -m tools.kit.make_kit --setup dist/ZeroLoss-Controller-Setup-<build>.exe \
+        --offline <old kit>/2_Linux_PC_USB --sample <movie1.mp4> <cache>/ch1_UHD_35M_<tag>.ts \
+        --sample <movie2.mp4> <cache>/ch2_... --sample <movie3.mp4> <cache>/ch3_... \
+        --out <kit folder> --zip
 """
 
 from __future__ import annotations
@@ -35,25 +40,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 KIT_SRC = Path(__file__).resolve().parent
 GUIDE = "설치_및_사용_안내.html"
-OLD_BUILD = "20261016.0026"  # the build the guide's text names; replaced by this kit's
+OLD_BUILD = "{BUILD}"  # where the guide names the build; replaced by this kit's
 
 
 def _copy_tree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, dirs_exist_ok=False)
 
 
-def sample(original: Path, made: Path, out: Path) -> Path:
-    """sample_1/: the original as sample_1_original.mp4 and the made file renamed and
+def sample(original: Path, made: Path, out: Path, name: str = "sample_1") -> Path:
+    """<name>/: the original as <name>_original.mp4 and the made file renamed and
     described for that original's content digest; returns the made file in the kit."""
     from core.events.bus import EventBus
     from modules.iptv.sender.prepare import Preparer, generated_path, source_tag
 
     desc = json.loads(made.with_suffix(".json").read_text(encoding="utf-8"))
     key = desc["key"]
-    folder = out / "sample_1"
-    cache = folder / "sample_1_cache"
+    folder = out / name
+    cache = folder / f"{name}_cache"
     cache.mkdir(parents=True)
-    copy = folder / "sample_1_original.mp4"
+    copy = folder / f"{name}_original.mp4"
     shutil.copy2(original, copy)
     tag = source_tag(copy)
     ts = generated_path(cache, str(key["quality"]), int(key["ch"]), int(key["muxrate_bps"]), tag)
@@ -77,29 +82,27 @@ def build(args: argparse.Namespace) -> Path:
     kit = Path(args.out) / f"ZeroLoss-Kit-{build_no}"
     if kit.exists():
         raise SystemExit(f"{kit} exists: choose another --out")
-    win = kit / "1_Windows_PC" / "ZeroLoss"
-    _copy_tree(Path(args.app), win)
-    pk = win / "packages"
-    (pk / "tools").mkdir(parents=True)
-    src = Path(args.packages)
-    for f in sorted(src.glob(f"*{build_no}*")):
-        if f.suffix in (".deb", ".zlm", ".zlp"):  # .zlp: the screen's Update PCs
-            shutil.copy2(f, pk / f.name)
-    if not list(pk.glob("*.deb")) or len(list(pk.glob("*.zlm"))) < 2:
-        raise SystemExit(f"{src} has no .deb or not both .zlm files of build {build_no}")
+    setup = Path(args.setup)
+    if build_no not in setup.name:
+        raise SystemExit(f"{setup.name} is not the installer of build {build_no}")
+    win = kit / "1_Windows_PC"
+    win.mkdir(parents=True)
+    shutil.copy2(setup, win / setup.name)
     usb = kit / "2_Linux_PC_USB"
     _copy_tree(Path(args.offline) / "offline", usb / "offline")
+    if not list((usb / "offline").glob("iperf3_*.deb")):
+        print("note: offline/ has no iperf3: Linux PCs measure throughput only after "
+              "'apt install iperf3' (offline_repo.py lists it)", flush=True)  # fmt: skip
     for f in Path(args.offline).glob("tsduck_*.deb"):
         shutil.copy2(f, usb / f.name)
-        shutil.copy2(f, pk / "tools" / f.name)
     for name in ("zeroloss-linux-setup.sh", "zeroloss-sample-video.sh"):
         (usb / name).write_bytes((KIT_SRC / name).read_bytes().replace(b"\r\n", b"\n"))
-    made = sample(Path(args.original), Path(args.made), usb)
-    for name in ("2_리눅스PC_등록.bat", GUIDE):
-        text = (KIT_SRC / name).read_text(encoding="utf-8").replace(OLD_BUILD, build_no)
-        (kit / name).write_text(text, encoding="utf-8", newline="\r\n" if name.endswith(".bat")
-                                else "\n")  # fmt: skip
-    print(f"kit: {kit}\nmade video: {made.name} (used as it is on the sender)", flush=True)
+    made = [sample(Path(o), Path(m), usb, f"sample_{i}")
+            for i, (o, m) in enumerate(args.sample, 1)]  # fmt: skip
+    text = (KIT_SRC / GUIDE).read_text(encoding="utf-8").replace(OLD_BUILD, build_no)
+    (kit / GUIDE).write_text(text, encoding="utf-8", newline="\n")
+    print(f"kit: {kit}\nmade videos: {', '.join(m.name for m in made)} (used as they are)",
+          flush=True)  # fmt: skip
     if args.zip:
         zp = kit.parent / f"{kit.name}.zip"  # not with_suffix: ".0034" is no suffix
         with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as z:
@@ -114,11 +117,11 @@ def build(args: argparse.Namespace) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--app", required=True, help="the built Controller folder")
-    ap.add_argument("--packages", required=True, help="folder with the .deb and .zlm files")
+    ap.add_argument("--setup", required=True, help="the installer (tools.build installer)")
     ap.add_argument("--offline", required=True, help="a 2_Linux_PC_USB folder: offline/, tsduck")
-    ap.add_argument("--original", required=True, help="the sample's original video")
-    ap.add_argument("--made", required=True, help="the UHD file made from it (.ts, .json beside)")
+    ap.add_argument("--sample", nargs=2, action="append", required=True,
+                    metavar=("ORIGINAL", "MADE"),
+                    help="a movie and the UHD file made from it (.ts, .json beside)")  # fmt: skip
     ap.add_argument("--out", required=True)
     ap.add_argument("--zip", action="store_true")
     build(ap.parse_args(argv))

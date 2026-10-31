@@ -229,3 +229,18 @@ def test_a_choice_saved_before_the_merge_opens_as_the_iptv_test(tmp_path: Path) 
     assert both["test_type"] == "tablet"
     pc_only = plan_of(got, {"sender": "tx", "receivers": [{"device": "rx", "ch": 1}]})
     assert pc_only["test_type"] == "pc"
+
+
+def test_the_tablets_of_a_test_are_numbered_without_gaps() -> None:
+    """2026-10-31 user: "왜 태블릿 한개인데 이름이 tablet 3이야"."""
+    from controller.setup import roles
+
+    setup = {"test_type": "IPTV test", "sender": "tx", "receivers": [
+        {"device": "tablet-3", "ch": 1, "host": "rx", "serial": "T3"},
+        {"device": "tablet-1", "ch": 2, "host": "rx", "serial": "T1"}]}  # fmt: skip
+    found: dict[str, dict[str, Any]] = {
+        "tx": {"side": "wan", "tablets": []},
+        "rx": {"side": "lan", "tablets": [{"serial": "T3", "state": "device"}]},
+    }
+    got = roles(setup, found)["receivers"]
+    assert [(r["device"], r["serial"]) for r in got] == [("tablet-1", "T3")]  # T1 is off USB

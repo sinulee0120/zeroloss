@@ -17,6 +17,10 @@ from typing import Any
 
 from agent.deployer.modules import Agent
 
+# no console window flashing for sc/taskkill (core.blocks.process_runner.NO_WINDOW; the
+# deployer does not import core)
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 TEST_RUNNING = ("STARTING", "RUNNING", "STOPPING")  # node states in a test (INS-022)
 
 
@@ -38,21 +42,34 @@ class SystemdService(ServiceControl):
 
     def restart(self) -> None:
         # KILL goes to the whole cgroup, so the node's players and senders go too (12 4-3)
-        subprocess.run(["systemctl", "kill", "--signal=KILL", self.unit], check=False, timeout=30)
-        subprocess.run(["systemctl", "restart", self.unit], check=True, timeout=60)
+        subprocess.run(
+            ["systemctl", "kill", "--signal=KILL", self.unit],
+            check=False,
+            timeout=30,
+            creationflags=NO_WINDOW,
+        )
+        subprocess.run(
+            ["systemctl", "restart", self.unit], check=True, timeout=60, creationflags=NO_WINDOW
+        )
 
     def graceful_restart(self) -> None:
         """A node that answers is stopped as it asks (its own clean-up: cards, time sync,
         players), the cgroup goes with it (KillMode=control-group); systemd still kills
         it after TimeoutStopSec. 2026-10-23 receiverPC: Update PCs SIGKILLed the node
         twice within 4 s, once per module, both while it was starting."""
-        subprocess.run(["systemctl", "restart", self.unit], check=True, timeout=120)
+        subprocess.run(
+            ["systemctl", "restart", self.unit], check=True, timeout=120, creationflags=NO_WINDOW
+        )
 
     def stop(self) -> None:
-        subprocess.run(["systemctl", "stop", self.unit], check=False, timeout=60)
+        subprocess.run(
+            ["systemctl", "stop", self.unit], check=False, timeout=60, creationflags=NO_WINDOW
+        )
 
     def start(self) -> None:
-        subprocess.run(["systemctl", "start", self.unit], check=False, timeout=60)
+        subprocess.run(
+            ["systemctl", "start", self.unit], check=False, timeout=60, creationflags=NO_WINDOW
+        )
 
 
 class WindowsService(ServiceControl):
@@ -62,15 +79,18 @@ class WindowsService(ServiceControl):
     def restart(self) -> None:
         # the node's Job Object ends its children with it (12 4-3)
         subprocess.run(
-            ["taskkill", "/F", "/FI", f"SERVICES eq {self.name}"], check=False, timeout=30
+            ["taskkill", "/F", "/FI", f"SERVICES eq {self.name}"],
+            check=False,
+            timeout=30,
+            creationflags=NO_WINDOW,
         )
-        subprocess.run(["sc", "start", self.name], check=False, timeout=60)
+        subprocess.run(["sc", "start", self.name], check=False, timeout=60, creationflags=NO_WINDOW)
 
     def stop(self) -> None:
-        subprocess.run(["sc", "stop", self.name], check=False, timeout=60)
+        subprocess.run(["sc", "stop", self.name], check=False, timeout=60, creationflags=NO_WINDOW)
 
     def start(self) -> None:
-        subprocess.run(["sc", "start", self.name], check=False, timeout=60)
+        subprocess.run(["sc", "start", self.name], check=False, timeout=60, creationflags=NO_WINDOW)
 
 
 class AgentLink(Agent):

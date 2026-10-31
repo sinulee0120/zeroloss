@@ -4,6 +4,7 @@ back from every decoded frame, also from a small capture; never guessed from noi
 from __future__ import annotations
 
 import random
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from hypothesis import strategies as st
 
 from modules.iptv.marker import Marker, cell_px, read
 from modules.iptv.sender.commands import QUALITIES, prepare_command
+
+needs_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
 
 
 def gray_frames(ts: Path, size: tuple[int, int] | None = None) -> list[bytes]:
@@ -39,18 +42,21 @@ def test_cell_sizes() -> None:
     assert cell_px(2160) == 30 and cell_px(1080) == 16
 
 
+@needs_ffmpeg
 def test_every_frame_reads_back_in_order(hd_ch2: Path) -> None:
     frames = gray_frames(hd_ch2)
     assert len(frames) == 90
     assert [read(f, 1920, 1080) for f in frames] == [Marker(2, i) for i in range(90)]
 
 
+@needs_ffmpeg
 def test_small_capture_still_reads(hd_ch2: Path) -> None:
     frames = gray_frames(hd_ch2, (640, 360))
     got = [read(f, 640, 360, source_height=1080) for f in frames]
     assert got == [Marker(2, i) for i in range(len(frames))]
 
 
+@needs_ffmpeg
 def test_uhd_reads(tmp_path: Path) -> None:
     out = tmp_path / "uhd.ts"
     cmd = prepare_command("ffmpeg", QUALITIES["UHD"], 3, out, seconds=0.5, preset="ultrafast")
@@ -79,6 +85,7 @@ def test_no_marker_is_none() -> None:
     assert read(bytes(64 * 36), 64, 36) is None  # cells too small to read
 
 
+@needs_ffmpeg
 def test_broken_end_reference_is_none(hd_ch2: Path) -> None:
     frame = bytearray(gray_frames(hd_ch2)[10])
     c, y0 = 16, 1080 - 32

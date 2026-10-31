@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from core.blocks.process_runner import NO_WINDOW
 from core.blocks.wifi_join import JOIN_TIMEOUT_S, PROFILE, band_of
 from core.protocol.envelope import ZlError
 
@@ -36,7 +37,7 @@ def _run(argv: list[str], timeout_s: float) -> tuple[int, str]:
     try:
         p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=timeout_s,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # fmt: skip
+                           creationflags=NO_WINDOW)  # fmt: skip
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)
     return p.returncode, (p.stdout + p.stderr)
@@ -129,6 +130,11 @@ class _Conn(ctypes.Structure):
                 ("profile", ctypes.c_wchar * 256), ("assoc", _Assoc)]  # fmt: skip
 
 
+# DOT11_PHY_TYPE (wlantypes.h) -> the standard (the Wi-Fi API answers in no language)
+PHY = {4: "802.11a", 5: "802.11b", 6: "802.11g", 7: "802.11n", 8: "802.11ac", 9: "802.11ad",
+       10: "802.11ax", 11: "802.11be"}  # fmt: skip
+
+
 def _wlan_cards() -> list[dict[str, Any]]:
     """Each Wi-Fi card: its name (as the adapter list calls it), connected or not, the
     SSID and profile it is on -- from the Wi-Fi API, not netsh's text (it answers in the
@@ -157,8 +163,18 @@ def _wlan_cards() -> list[dict[str, Any]]:
                 c = ctypes.cast(data, ctypes.POINTER(_Conn)).contents
                 ss = c.assoc.ssid
                 card.update(state="connected", profile=c.profile,
-                            ssid=bytes(ss.ssid[: ss.len]).decode("utf-8", "replace"))  # fmt: skip
+                            ssid=bytes(ss.ssid[: ss.len]).decode("utf-8", "replace"),
+                            mode=PHY.get(c.assoc.phy_type),  # the standard it joined with
+                            rx_mbps=c.assoc.rx / 1000 or None)  # fmt: skip
                 api.WlanFreeMemory(data)
+                if api.WlanQueryInterface(  # 8 = channel number
+                    handle, ctypes.byref(it.guid), 8, None, ctypes.byref(size),
+                    ctypes.byref(data), None,
+                ) == 0:  # fmt: skip
+                    card["channel"] = ctypes.cast(
+                        data, ctypes.POINTER(ctypes.c_ulong)
+                    ).contents.value
+                    api.WlanFreeMemory(data)
             out.append(card)
         api.WlanFreeMemory(ifs)
     finally:
