@@ -84,6 +84,14 @@ def test_a_card_the_person_picked_goes_into_the_plan(tmp_path: Path) -> None:
     wifi = plan_of(got, {"sender": "tx", "receivers": rx_wifi})
     assert wifi["nics"] == {"tx": "10.0.0.1", "rx": "10.0.0.100"}
     assert "nics" not in plan_of({}, {"sender": "tx", "receivers": [{"device": "rx", "ch": 1}]})
+    # 2026-11-01: Wireless with a wired address -> its Wi-Fi card on the same router network
+    # (made-up addresses); another network's Wi-Fi (the internet one) is not taken
+    found = {"rx": {"labels": {"10.0.0.100": "LAN · eth0", "10.0.0.87": "Wi-Fi · wlx1",
+                               "192.168.0.13": "Wi-Fi · wlan0"}}}  # fmt: skip
+    wifi = plan_of(got, {"sender": "tx", "receivers": rx_wifi}, found)
+    assert wifi["nics"] == {"tx": "10.0.0.1", "rx": "10.0.0.87"}
+    found["rx"]["labels"].pop("10.0.0.87")
+    assert plan_of(got, {"sender": "tx", "receivers": rx_wifi}, found)["nics"]["rx"] == "10.0.0.100"
 
 
 def test_no_wan_side_pc_asks_to_move_the_cable_once_and_closes_itself() -> None:

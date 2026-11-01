@@ -412,7 +412,7 @@ class ControllerService:
                 fix = "Choose them in the device rows (or zeroloss setup set)."
                 raise ZlError("RUN-014", chosen["why"], "The test devices are not clear.", fix)
         else:
-            plan = plan_of(setup, chosen)
+            plan = plan_of(setup, chosen, found)
             if chosen["lan_sender"]:
                 plan["sender_side"] = "lan"  # comparison test (06 10.4)
         return {"setup": setup, "sides": found, "roles": chosen, "plan": plan,

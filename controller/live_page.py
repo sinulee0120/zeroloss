@@ -254,7 +254,9 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
  prog.style.width=d.planned_s?Math.min(100,100*d.elapsed_s/d.planned_s).toFixed(1)+"%":"0";
  var worst="green";(d.receivers||[]).forEach(function(r){var c=(r.row||{}).color||"grey";if(WORSE.indexOf(c)>WORSE.indexOf(worst))worst=c;});
  Object.keys(d.cells||{}).forEach(function(k){(d.cells[k]||[]).forEach(function(c){if(WORSE.indexOf(c.color)>WORSE.indexOf(worst))worst=c.color;});});
- if(d.result&&d.result.verdict){badge.textContent=d.result.verdict;badge.style.background=COLOR[d.result.verdict==="PASS"?"green":d.result.verdict==="FAIL"?"red":"purple"];}
+ /* 2026-11-01 user ("처음부터 문제도 없는데 FAIL로 시작하고 계속 FAIL"): the last test's verdict
+    only while no test runs; a running one shows its own state */
+ if(d.state!=="RUNNING"&&d.state!=="PREPARING"&&d.result&&d.result.verdict){badge.textContent=d.result.verdict;badge.style.background=COLOR[d.result.verdict==="PASS"?"green":d.result.verdict==="FAIL"?"red":"purple"];}
  else if(d.state==="RUNNING"){badge.textContent=ICON[worst]+" "+(worst==="green"?"No trouble so far":"Trouble seen");badge.style.background=COLOR[worst];}
  else{badge.textContent=d.state;badge.style.background=COLOR.grey;}
  var sm=document.getElementById("summary");sm.textContent=(d.view&&d.view.summary)||"";

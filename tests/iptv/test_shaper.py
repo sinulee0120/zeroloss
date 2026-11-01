@@ -52,3 +52,29 @@ def test_a_tablets_frozen_screen_is_found_in_freezedetects_lines() -> None:
     pieces = " ".join(f"freeze_start: {a} freeze_end: {b}"
                       for a, b in ((1.24, 2.27), (2.27, 4.93), (4.93, 5.97)))  # fmt: skip
     assert screen_freezes(pieces, 8.0) == [(1.24, 5.97)]  # one freeze, in touching pieces
+    open_end = "Duration: 00:00:08.12, start: 0 freeze_start: 4.9081"  # still frozen at the end
+    assert screen_freezes(open_end, 0.0) == [(4.9081, 8.12)]
+
+
+def test_a_sender_window_reaches_two_seconds_before_and_four_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R20261031-214605: loss from the netem fell just outside a 1 s / 2 s window and stayed
+    red; the sender's own trouble reaches 2 s before and 4 s after (other kinds as before)."""
+    from types import SimpleNamespace
+
+    from controller import run as ctl
+
+    now = [100.0]
+    monkeypatch.setattr("controller.run.time.monotonic", lambda: now[0])
+    r = ctl.RunController.__new__(ctl.RunController)
+    r._plan = object()
+    r._rules = SimpleNamespace(trouble_of=lambda p, d, code, data: (
+        ("sender", False) if code == "ZL-SND-026" else ("receiver_link", False)))  # fmt: skip
+    r._windows, r._runs = {}, {}
+    r._note_trouble("tx", "ZL-SND-026", {})
+    now[0] = 101.0
+    r._note_trouble("tx", "ZL-SND-026", {})
+    assert r._windows["tx"]["sender"] == [[98.0, 105.0, "ZL-SND-026"]]
+    r._note_trouble("rx", "ZL-NET-015", {})
+    assert r._windows["rx"]["receiver_link"] == [[100.0, 103.0, "ZL-NET-015"]]

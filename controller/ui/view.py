@@ -342,20 +342,19 @@ MERGE_CELLS = (12, 72, 288)  # 1 h, 6 h, 24 h of 5-min results
 def fit_cells(cells: list[CellView], fit: int) -> list[CellView]:
     """2026-10-25 user ("5분 결과 아이콘이 우측으로만 늘어나서 다 보이질 않아. 9시간을
     했는데. 몇개밖에 안보여"): the whole test always fits. When the 5-min results do not,
-    older whole hours (then 6 h, then days) become one box each, its worst color; the hour
-    still going on stays one box per result."""
+    the oldest whole hours (then 6 h, then days) become one box each, its worst color --
+    only as many as it takes (2026-11-01 user: "7시간 37분을 돌았는데 14개 마크만 표시되네":
+    every hour was merged and most of the row stayed empty); the rest one box per result."""
     if len(cells) <= fit:
         return cells
-    sizes = [*MERGE_CELLS, -(-len(cells) // max(1, fit))]
-    for size in sizes:
-        whole = len(cells) // size * size
-        tail = cells[whole:] if size in MERGE_CELLS else []
-        if size not in MERGE_CELLS:
-            whole = len(cells)
-        boxes = [_merge(cells[i : i + size], i, size) for i in range(0, whole, size)]
-        if len(boxes) + len(tail) <= fit or size == sizes[-1]:
-            return boxes + tail
-    return cells  # not reached
+    n = len(cells)
+    for size in MERGE_CELLS:
+        k = -(-(n - fit) // (size - 1))  # fewest merged boxes: k + (n - k * size) <= fit
+        if k <= n // size:
+            boxes = [_merge(cells[i : i + size], i, size) for i in range(0, k * size, size)]
+            return boxes + cells[k * size :]
+    size = -(-n // max(1, fit))
+    return [_merge(cells[i : i + size], i, size) for i in range(0, n, size)]
 
 
 def _merge(part: list[CellView], first: int, size: int) -> CellView:

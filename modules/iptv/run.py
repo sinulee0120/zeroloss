@@ -839,6 +839,32 @@ Seconds = dict[int, tuple[float, dict[str, Any]]]  # elapsed second -> (time, 1 
 Windows = dict[str, list[tuple[float, float]]]  # kind -> [(from, to)] in Controller time
 
 
+def _whole_bursts(kinds: dict[int, str | None], seconds: dict[int, Any]) -> None:
+    """A run of trouble seconds (loss, P1, or no record) touching a sender or receiving
+    link window is that trouble's, all of it (2026-11-01 R20261031-223311: an 11 s netem
+    on the sender's card was the sender's for 11 s, but 72-143 lost packets of the same
+    burst fell just past the window and kept the box red; user: "지금은 라우터 문제가
+    아닌데"). One burst has one cause; a burst not touching a window stays as it is."""
+
+    def bad(e: int) -> bool:
+        rec = seconds[e][1] if e in seconds else None
+        return rec is None or bool(int(rec.get("lost") or 0) or int(rec.get("p1") or 0))
+
+    order = sorted(kinds)
+    run: list[int] = []
+    for e in [*order, None]:
+        if e is not None and bad(e) and (not run or e == run[-1] + 1):
+            run.append(e)
+            continue
+        owners = {kinds[x] for x in run} & {"sender", "receiver_link"}
+        if len(owners) == 1:
+            owner = owners.pop()
+            for x in run:
+                if kinds[x] is None:
+                    kinds[x] = owner
+        run = [e] if e is not None and bad(e) else []
+
+
 def cell_trouble(
     summary: dict[str, Any], seconds: Seconds, windows: Windows
 ) -> dict[str, Any] | None:
@@ -874,8 +900,10 @@ def cell_trouble(
     jit_all: list[float] = []
     lost_known = 0
     missing_kinds: set[str | None] = set()
+    kinds = {e: kind_at(time_of(e)) for e in range(start, start + dur)}
+    _whole_bursts(kinds, seconds)
     for e in range(start, start + dur):
-        kind = kind_at(time_of(e))
+        kind = kinds[e]
         rec = seconds[e][1] if e in seconds else None
         if rec is None:
             missing_kinds.add(kind if kind in ("sender", "receiver_link") else None)

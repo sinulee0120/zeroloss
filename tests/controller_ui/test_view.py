@@ -765,10 +765,11 @@ def test_a_long_test_fits_older_hours_merged() -> None:
     cells = [CellView("green", "✔", f"c{i}") for i in range(108)]  # 9 h
     cells[30] = CellView("red", "✖", "loss 1")
     cells += [CellView("green", "✔", "now")] * 5  # the hour going on
-    out = fit_cells(cells, 40)
-    assert len(out) == 9 + 5 and [c.merged for c in out[:9]] == [12] * 9
+    out = fit_cells(cells, 40)  # 2026-11-01: only the oldest hours it takes, the row filled
+    assert len(out) == 7 + 29 and [c.merged for c in out[:7]] == [12] * 7
     assert out[2].color == "red" and "loss 1" in out[2].tooltip and "Hours 2-3" in out[2].tooltip
-    assert all(c.merged == 1 for c in out[9:])
+    assert all(c.merged == 1 for c in out[7:])
+    assert len(fit_cells(cells[:91], 40)) == 5 + 31  # 7 h 35 min: not 7 hours + 7 as before
     assert fit_cells(cells[:20], 40) == cells[:20]  # fits: as it was
     days = [CellView("green", "✔", "")] * (100 * 12)  # 100 h on a narrow window
     assert len(fit_cells(days, 10)) <= 10

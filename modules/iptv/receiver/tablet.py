@@ -403,8 +403,14 @@ class TabletReceiver:
             self.tablets.screen_record(c.serial, mp4, math.ceil(buffer_s) + RECORD_AFTER_S)
             info["video"] = mp4.name
             self._shot_bytes += mp4.stat().st_size
+            # a stall in the player itself (no loss, CC or P1 that second) is on the screen
+            # when it is said, so it is over before the recording starts (receiverPC
+            # 2026-11-01): the grid from the start, and said so; damage in the packets shows
+            # after the buffer, when the grid is timed for it
+            player_only = not any(w.split()[0] in ("lost", "CC", "TR") for w in why)
+            at_s = 0.0 if player_only else max(0.0, buffer_s - ARRIVAL_S)
             if self.render is not None:  # when it is on the screen, as the PCs' grid
-                drawn = self.render(mp4, jpg, max(0.0, buffer_s - ARRIVAL_S))
+                drawn = self.render(mp4, jpg, at_s)
                 frozen = (drawn or {}).get("frozen") if isinstance(drawn, dict) else None
                 if frozen:  # a freeze shown: red-bordered frames, and said in words
                     held = sum(b - a for a, b in frozen)
@@ -413,6 +419,12 @@ class TabletReceiver:
                     info["reading"] = {
                         "text": f"The tablet's screen froze for {held:.1f} s: "
                         "the frames in a red border show the same picture held."
+                    }
+                if player_only and not frozen:
+                    info["reading"] = {
+                        "text": "A short stall in the tablet's player (its own "
+                        "report): over before the screen could be recorded; "
+                        "the packets were clean."
                     }
                 if jpg.is_file():
                     info["picture"] = jpg.name

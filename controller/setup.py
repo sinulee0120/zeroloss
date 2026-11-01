@@ -216,13 +216,31 @@ def roles(setup: dict[str, Any], found: dict[str, dict[str, Any]]) -> dict[str, 
             "lan_sender": comparison}  # fmt: skip
 
 
-def plan_of(setup: dict[str, Any], chosen: dict[str, Any]) -> dict[str, Any]:
+def plan_of(setup: dict[str, Any], chosen: dict[str, Any],
+            found: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:  # fmt: skip
     """02 11-1 plan from the screen choice (the same shape as a plan file)."""
     rx = chosen["receivers"]
     used = {chosen["sender"], *(r.get("host") or r["device"] for r in rx)}
     picked = {d: ip for d, ip in (setup.get("nics") or {}).items() if d in used and ip != AUTO}
     # a card the person picked (DSC-006, GAP-115), the Wi-Fi PC's test Wi-Fi (03 F17) over it
     nics = picked  # the rest: the address picked in the row (run step 1, 2026-10-17)
+    # 2026-11-01 user ("PC의 RSSI는 안보이네"): a PC row set to Wireless whose address is a
+    # wired card's (its Card box is hidden while it says Wireless) receives on its Wi-Fi card
+    # that is on the same router network; nothing is joined (2026-10-17: the address decides)
+    for r in rx:
+        if r.get("serial") or r.get("network") != "Wireless":
+            continue
+        dev = str(r["device"])
+        side = (found or {}).get(dev) or {}
+        labels = {str(a): str(lb) for a, lb in (side.get("labels") or {}).items()}
+        ip = str(nics.get(dev) or side.get("host") or "")
+        if not ip or labels.get(ip, "").startswith("Wi-Fi"):
+            continue
+        net = ip.rsplit(".", 1)[0]
+        wifi = sorted(a for a, lb in labels.items()
+                      if lb.startswith("Wi-Fi") and a.rsplit(".", 1)[0] == net)  # fmt: skip
+        if wifi:
+            nics[dev] = wifi[0]
     receivers = [{"device": r["device"], "ch": int(r.get("ch") or 1),
                   **({"buffer_ms": int(r["buffer_ms"])} if r.get("buffer_ms") else {}),
                   **({"host": r["host"], "serial": r["serial"]} if r.get("serial") else {}),

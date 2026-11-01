@@ -1970,14 +1970,17 @@ class RunController:
         now = time.monotonic()
         mine = self._windows.setdefault(device, {})
         for cleared in data.get("clears") or []:
-            for ws in mine.values():
+            for kind_of, ws in mine.items():
                 for win in ws:
                     if win[1] is None and win[2] == cleared:
-                        win[1] = now + TROUBLE_AFTER_S
+                        win[1] = now + (SENDER_AFTER_S if kind_of == "sender"
+                                        else TROUBLE_AFTER_S)  # fmt: skip
         got = of(self._plan, device, code, data)
         if got is None:
             return
         kind, until_cleared = got
+        before, after = ((SENDER_BEFORE_S, SENDER_AFTER_S) if kind == "sender"
+                         else (TROUBLE_BEFORE_S, TROUBLE_AFTER_S))  # fmt: skip
         need = int((getattr(self._rules, "trouble_min_run", None) or {}).get(kind, 1))
         if need > 1 and not until_cleared:
             # 2026-10-09 (the RealTest reference: a floor counts after 3 windows in a row):
@@ -1990,13 +1993,13 @@ class RunController:
         ws = mine.setdefault(kind, [])
         if until_cleared:
             if not any(win[1] is None and win[2] == code for win in ws):
-                ws.append([now - TROUBLE_BEFORE_S, None, code])
+                ws.append([now - before, None, code])
             return
         last = ws[-1] if ws else None
-        if last is not None and last[1] is not None and last[1] >= now - TROUBLE_BEFORE_S:
-            last[1] = now + TROUBLE_AFTER_S  # the same trouble, one more second
+        if last is not None and last[1] is not None and last[1] >= now - before:
+            last[1] = now + after  # the same trouble, one more second
         else:  # a run of ``need`` seconds starts that many seconds back
-            ws.append([now - TROUBLE_BEFORE_S - (need - 1), now + TROUBLE_AFTER_S, code])
+            ws.append([now - before - (need - 1), now + after, code])
         del ws[:-2000]  # bounded for 100 h (11-ui 1.4)
 
     def _keep_seconds(self, device: str, module_data: dict[str, Any]) -> None:
@@ -2474,6 +2477,13 @@ MEM_WARN_PCT, MEM_STOP_PCT = 10.0, 5.0  # SYS-004 free memory (2026-09-26 user d
 # 05 5.3 "문제 구간으로 나누기" (2026-09-26 사용자 결정)
 TROUBLE_BEFORE_S = 1.0
 TROUBLE_AFTER_S = 2.0
+# the sender's own trouble (2026-10-31 R20261031-214605: a 3 % netem on its card was
+# judged the sender's for 5 s, but 101-227 lost packets fell just outside and stayed red;
+# user: "아직 해결안됐어?"): the sender reads its card once a second, so it can start up to
+# a second before the first report, and the receivers count a loss 1-2 s after it (the
+# reorder window, a tablet's pull), so its window reaches further each way
+SENDER_BEFORE_S = 2.0
+SENDER_AFTER_S = 4.0
 GRACE_S = 3.0  # a cell waits this long for late trouble events before it is judged
 SECONDS_KEPT = 900  # 1-second records per receiver: a 5-minute cell plus room
 RUN_STEP_S = 1.5  # trouble events this close are seconds in a row (trouble_min_run)

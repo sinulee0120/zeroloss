@@ -353,13 +353,17 @@ FREEZE_NOISE_DB = -60  # freezedetect: below this difference two frames are the 
 FREEZE_MIN_S = 0.4  # a held picture this long counts (a 30 fps screen repeats none)
 FROZEN_BORDER = "drawbox=x=0:y=0:w=iw:h=ih:color=red@0.9:t=28"
 _FREEZE = re.compile(r"freeze_(start|end): ([\d.]+)")
+_DURATION = re.compile(r"Duration: (\d+):(\d+):([\d.]+)")
 
 ScreenRender = Callable[[Path, Path, float], dict[str, Any]]
 
 
 def screen_freezes(text: str, length_s: float) -> list[tuple[float, float]]:
     """freezedetect's lines -> (start, end) seconds; one still frozen at the end ends
-    with the video."""
+    with the video (its length from ffmpeg's own "Duration:" line when ``length_s`` is 0:
+    receiverPC 2026-11-01 found "screen frozen -1.7 s" from an open freeze closed at 0)."""
+    if length_s <= 0 and (m := _DURATION.search(text)):
+        length_s = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     out: list[tuple[float, float]] = []
     start: float | None = None
     for kind, value in _FREEZE.findall(text):
@@ -368,7 +372,7 @@ def screen_freezes(text: str, length_s: float) -> list[tuple[float, float]]:
         elif start is not None:
             out.append((start, float(value)))
             start = None
-    if start is not None:
+    if start is not None and length_s > start:
         out.append((start, length_s))
     # one freeze can come in adjacent pieces (receiverPC 2026-10-31: 1.24-2.27, 2.27-4.93,
     # 4.93-5.97 on one tablet): pieces that touch are one

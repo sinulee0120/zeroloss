@@ -195,3 +195,15 @@ def test_which_nic_is_the_test_nic(plan: IptvPlan) -> None:
     assert on_test_nic(plan, "wrx", wifi)  # a Wi-Fi receiver: the wireless NIC is the one
     assert not on_test_nic(plan, "wrx", mine)  # ... its wired NIC is not
     assert on_test_nic(plan, "stranger", other)  # no NIC in the plan: nothing is hidden
+
+
+def test_a_burst_touching_a_sender_window_is_the_senders_all_of_it() -> None:
+    """2026-11-01 R20261031-223311: one netem burst, its last seconds just past the sender's
+    window, kept the box red. Seconds 50-56 lost in a row, the window ends at 52: all of it
+    is the sender's. A separate loss later in the cell stays red (the DUT's)."""
+    w = {"sender": [(T0 + 49, T0 + 52)]}
+    burst: dict[str, Any] = {f"e{e}": {"lost": 3} for e in range(50, 57)}
+    color, why = judged(summary(lost=21), seconds(**burst), w)
+    assert color is Color.PURPLE and "lost 21" in why[0]
+    color, why = judged(summary(lost=22), seconds(**burst, e200={"lost": 1}), w)
+    assert color is Color.RED and why[0] == "network loss 1"

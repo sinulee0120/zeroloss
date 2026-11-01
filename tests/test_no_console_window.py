@@ -17,7 +17,7 @@ LINUX_ONLY = {
     "agent/deployer/server.py", "agent/deployer/update_hold.py",
     "core/blocks/link_monitor.py", "core/blocks/nic_speed.py", "core/blocks/sleep_guard.py",
     "core/blocks/time_sync.py", "core/blocks/wifi_join.py", "core/blocks/wifi_power.py",
-    "modules/iptv/receiver/perf.py",
+    "modules/iptv/receiver/perf.py", "modules/iptv/sender/shaper.py",
 }  # fmt: skip
 
 
