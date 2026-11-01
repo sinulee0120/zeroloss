@@ -25,7 +25,7 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 </head>
 <body><main>
 <h1>ZeroLoss 설치 및 사용 안내</h1>
-<p class="sub">버전 {BUILD} · 인터넷 없이 이 키트만으로 설치됩니다. 처음부터 순서대로 따라 하세요. ZeroLoss 창 오른쪽 위 <b>[?]</b>를 누르면 이 안내서가 지금 고른 시험의 부분에서 열립니다.</p>
+<p class="sub">버전 {BUILD} · <!--offline-->인터넷 없이 이 키트만으로 설치됩니다.<!--/offline--><!--public-->리눅스 PC 준비(3단계)에만 인터넷이 필요합니다. 시험용 영상은 들어 있지 않습니다(7단계에서 만듭니다).<!--/public--> 처음부터 순서대로 따라 하세요. ZeroLoss 창 오른쪽 위 <b>[?]</b>를 누르면 이 안내서가 지금 고른 시험의 부분에서 열립니다.</p>
 
 <div class="box"><b>이 프로그램이 하는 일:</b>
 <ul>
@@ -40,7 +40,7 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <li><a href="#linux">3. 리눅스 PC 준비 (두 대 각각)</a></li>
 <li><a href="#win">4. Windows PC에 ZeroLoss 설치</a></li>
 <li><a href="#reg">5. 리눅스 PC 등록 (두 번)</a></li>
-<li><a href="#sample">5-1. 샘플 영상 넣기 (송신 PC 한 번)</a></li>
+<!--offline--><li><a href="#sample">5-1. 샘플 영상 넣기 (송신 PC 한 번)</a></li><!--/offline-->
 <li><a href="#tablet">5-2. 태블릿 연결 (태블릿으로 시험할 때)</a></li>
 <li><a href="#wire2">6. 송신 PC 선 옮기기</a></li>
 <li><a href="#run">7. IPTV 시험</a></li>
@@ -60,7 +60,7 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <tr><td>Ubuntu PC 2대</td><td><b>Ubuntu 24.04 Desktop</b>이 설치된 PC. 한 대는 영상을 보내는 <b>송신 PC</b>(유선 랜 포트 필요), 한 대는 받는 <b>수신 PC</b>(유선 또는 Wi-Fi)</td></tr>
 <tr><td>시험할 공유기 1대</td><td>공장 초기 설정 그대로 두면 됩니다</td></tr>
 <tr><td>랜 케이블 3개</td><td>PC 3대를 공유기에 연결</td></tr>
-<tr><td>USB 메모리 1개</td><td>16 GB 이상 (샘플 영상 포함). 키트를 리눅스 PC로 옮기는 데 사용</td></tr>
+<tr><td>USB 메모리 1개</td><td><!--offline-->16 GB 이상 (샘플 영상 포함)<!--/offline--><!--public-->1 GB 이상<!--/public-->. 키트를 리눅스 PC로 옮기는 데 사용</td></tr>
 <tr><td>(선택) Android 태블릿 최대 3대</td><td>태블릿으로 IPTV를 받을 때. 데이터가 되는 USB 케이블과 충전기. 수신 PC에 <b>바로</b> 꽂습니다 (USB 허브·도킹은 자주 끊김)</td></tr>
 </table>
 <p>두 Ubuntu PC의 <b>아이디와 비밀번호</b>(로그인할 때 쓰는 것)를 알고 있어야 합니다.</p>
@@ -68,20 +68,20 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <h2 id="unzip">1. 키트 압축 풀기</h2>
 <h3>Windows PC</h3>
 <ol>
-<li>받은 파일 <code>ZeroLoss-Kit-{BUILD}.zip</code>을 <b><code>C:\</code></b> (C 드라이브 맨 위)에 복사합니다.</li>
+<li>받은 파일 <code>{KIT}.zip</code>을 <b><code>C:\</code></b> (C 드라이브 맨 위)에 복사합니다.</li>
 <li>파일을 마우스 오른쪽 버튼으로 누르고 <b>[모두 압축 풀기...]</b>를 누릅니다.</li>
 <li>풀 위치를 <code>C:\</code>로 바꾸고 <b>[압축 풀기]</b>를 누릅니다. (바탕화면이나 깊은 폴더에 풀면 경로가 길어 실행이 안 될 수 있습니다)</li>
-<li><span class="ok">✔ 이렇게 되면 성공:</span> <code>C:\ZeroLoss-Kit-{BUILD}\</code> 폴더가 생기고 안에 아래 항목이 있습니다.</li>
+<li><span class="ok">✔ 이렇게 되면 성공:</span> <code>C:\{KIT}\</code> 폴더가 생기고 안에 아래 항목이 있습니다.</li>
 </ol>
 <table>
 <tr><th>폴더/파일</th><th>무엇</th></tr>
 <tr><td><code>설치_및_사용_안내.html</code></td><td>지금 보는 안내서</td></tr>
 <tr><td><code>1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code></td><td>Windows PC 설치 파일 (리눅스 PC·태블릿에 넣을 프로그램도 들어 있음)</td></tr>
-<tr><td><code>2_Linux_PC_USB\</code></td><td>Ubuntu PC 두 대에 옮길 폴더 (필요한 프로그램과 샘플 영상)</td></tr>
+<tr><td><code>2_Linux_PC_USB\</code></td><td>Ubuntu PC 두 대에 옮길 폴더 (<!--offline-->필요한 프로그램과 샘플 영상<!--/offline--><!--public-->설치 스크립트와 TSDuck<!--/public-->)</td></tr>
 </table>
 <h3>USB 메모리로 옮기기</h3>
 <ol>
-<li><code>C:\ZeroLoss-Kit-{BUILD}\2_Linux_PC_USB</code> 폴더를 통째로 USB 메모리에 복사합니다.</li>
+<li><code>C:\{KIT}\2_Linux_PC_USB</code> 폴더를 통째로 USB 메모리에 복사합니다.</li>
 </ol>
 
 <h2 id="wire1">2. 선 연결 (설치용)</h2>
@@ -93,6 +93,7 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <p>공유기 전원을 켜고 1분 기다립니다. PC들이 공유기에서 주소를 자동으로 받습니다.</p>
 
 <h2 id="linux">3. 리눅스 PC 준비 (송신 PC, 수신 PC 각각 한 번씩)</h2>
+<!--public--><p><span class="warn">이 단계만 인터넷이 필요합니다:</span> 리눅스 PC를 잠시 <b>인터넷이 되는</b> 랜선이나 Wi-Fi에 연결하고 하세요(시험할 공유기는 WAN이 비어 있어 인터넷이 안 됩니다). 끝나면 2단계처럼 시험할 공유기 LAN 포트에 다시 꽂습니다.</p><!--/public-->
 <ol>
 <li>Ubuntu에 로그인하고 USB 메모리를 꽂습니다.</li>
 <li><b>파일</b> 앱에서 USB를 열고 <code>2_Linux_PC_USB</code> 폴더를 왼쪽의 <b>홈</b>으로 끌어다 놓아 복사합니다.</li>
@@ -101,14 +102,14 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <pre>cd ~/2_Linux_PC_USB
 sudo bash zeroloss-linux-setup.sh</pre></li>
 <li>비밀번호를 물으면 로그인 비밀번호를 입력하고 <kbd>Enter</kbd>. <span class="warn">입력해도 화면에 아무것도 안 보이는 것이 정상입니다.</span></li>
-<li>몇 분 기다립니다. 인터넷은 필요 없습니다.</li>
+<li>몇 분 기다립니다. <!--offline-->인터넷은 필요 없습니다.<!--/offline--><!--public-->프로그램(ffmpeg, mpv, VLC 등)을 Ubuntu 서버에서 받습니다.<!--/public--></li>
 <li><span class="ok">✔ 이렇게 되면 성공:</span> 마지막에 <b>"완료!"</b>와 함께 <b>IP 주소</b>와 <b>아이디</b>가 나옵니다. 종이에 적어 둡니다. (송신 PC 것, 수신 PC 것 따로)</li>
 </ol>
 <p><span class="warn">✖ 안 되면:</span> "설치되지 않은 것"이 나오면 화면을 사진으로 찍어 보내 주세요.</p>
 
 <h2 id="win">4. Windows PC에 ZeroLoss 설치</h2>
 <ol>
-<li><code>C:\ZeroLoss-Kit-{BUILD}\1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code>를 두 번 누릅니다.</li>
+<li><code>C:\{KIT}\1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code>를 두 번 누릅니다.</li>
 <li>파란 창 "Windows의 PC 보호"가 뜨면 <b>[추가 정보]</b> → <b>[실행]</b>을 누릅니다.</li>
 <li>"이 앱이 디바이스를 변경할 수 있도록 허용하시겠어요?"가 뜨면 <b>[예]</b>. 묻는 것 없이 설치가 끝납니다(1분 정도).</li>
 <li>마지막 창에서 <b>[ZeroLoss 켜기]</b>가 체크된 채로 <b>[마침]</b>을 누릅니다.</li>
@@ -135,7 +136,7 @@ sudo bash zeroloss-linux-setup.sh</pre></li>
 <p>같은 일을 시작 메뉴의 <b>ZeroLoss 리눅스 PC 등록</b>(검은 창에서 묻는 대로 입력)으로도 할 수 있습니다.</p>
 <p><span class="warn">✖ 안 되면:</span> 영어 메시지를 사진으로 찍어 보내 주세요. 자주 있는 경우: IP를 잘못 입력함, 3단계를 안 함, 비밀번호 틀림.</p>
 
-<h2 id="sample">5-1. 샘플 영상 넣기 (송신 PC에서 한 번)</h2>
+<!--offline--><h2 id="sample">5-1. 샘플 영상 넣기 (송신 PC에서 한 번)</h2>
 <p>키트에는 시험용 영상 3개가 들어 있습니다: <b>미리 만들어 둔 UHD 10분 영상</b>(35 Mbps), 채널마다 하나(<code>sample_1_CH1_UHD.ts</code>, <code>sample_2_CH2_UHD.ts</code>, <code>sample_3_CH3_UHD.ts</code>, 각각 설명 파일 <code>.json</code>과 함께). 이미 만든 영상이라 <b>시험이 바로 시작</b>됩니다. 새로 만들면 한 편에 몇 시간 걸립니다.</p>
 <ol>
 <li><b>송신 PC</b>에서 3단계처럼 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>로 터미널을 엽니다(3단계에서 홈에 복사한 <code>2_Linux_PC_USB</code> 폴더를 씁니다).</li>
@@ -145,7 +146,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <li>비밀번호를 입력합니다(화면에 안 보이는 것이 정상). 한 편에 2~4분 걸립니다.</li>
 <li><span class="ok">✔ 이렇게 되면 성공:</span> "완료!"와 함께 영상마다 채널이 나옵니다. 7단계의 Source video 목록에서 <b>CH1에 sample_1_CH1_UHD.ts, CH2에 sample_2_CH2_UHD.ts, CH3에 sample_3_CH3_UHD.ts</b>를 고르면 <b>✔ ready, starts at once</b>로 바로 시작합니다. 각 영상은 그 채널용이고 UHD 전용입니다. 다른 채널·HD·내 영화는 처음 한 번 만들어야 합니다.</li>
 </ol>
-<p><span class="warn">✖ "ZeroLoss가 아직 이 PC에 없습니다"가 나오면:</span> 5단계(등록)를 먼저 하세요.</p>
+<p><span class="warn">✖ "ZeroLoss가 아직 이 PC에 없습니다"가 나오면:</span> 5단계(등록)를 먼저 하세요.</p><!--/offline-->
 
 <h2 id="tablet">5-2. 태블릿 연결 (태블릿으로 시험할 때)</h2>
 <ol>
@@ -177,7 +178,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <h2 id="run">7. IPTV 시험</h2>
 <ol>
 <li>왼쪽 <b>Test</b>에서 고릅니다: Test type = <b>IPTV test</b>, Video quality = <b>UHD</b>(또는 HD), Duration = 시험 시간(예: 10m, 1h, 100h).</li>
-<li><b>Source video</b>의 채널마다 영상을 고릅니다(5-1단계를 했으면 CHn에 <b>sample_n_CHn_UHD.ts · ✔ ready, starts at once</b>).
+<li><b>Source video</b>의 채널마다 영상을 고릅니다<!--offline-->(5-1단계를 했으면 CHn에 <b>sample_n_CHn_UHD.ts · ✔ ready, starts at once</b>)<!--/offline--><!--public-->: <b>Generated (default)</b>(ZeroLoss가 만드는 시험 화면)를 고르면 됩니다. 내 영화로 하려면 송신 PC 터미널에서 <code>sudo install -o zeroloss -g zeroloss -m 0644 내영화.mp4 /var/lib/zeroloss/media/</code> 한 뒤 목록에서 고릅니다. <span class="warn">처음 한 번은 영상을 만듭니다(UHD는 채널마다 몇 시간).</span> 만드는 동안 그대로 두면 되고, 한 번 만든 것은 다음부터 바로 시작합니다<!--/public-->.
 <ul>
 <li><b>✔ ready, starts at once</b>: 미리 만든 영상이 있어 바로 시작합니다.</li>
 <li><b>made first (takes a while)</b>: 먼저 만들어야 합니다(UHD는 몇 시간). 고르는 순간 만들기 시작하고, 아래에 진행률이 보입니다. 한 번 만든 것은 다시 만들지 않습니다.</li>

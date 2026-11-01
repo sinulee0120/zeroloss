@@ -40,6 +40,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agent.deployer.package import build_package
+from tools.kit.make_kit import guide_text
 from tools.versioning import (
     android_version_code,
     deb_version,
@@ -262,7 +263,7 @@ def build_win(out: Path) -> Path:
     shutil.copytree(ROOT / "modules", stage / "modules",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))  # fmt: skip
     # the guide the screen's Help opens (08 2), with this build in it
-    guide = (KIT / GUIDE).read_text(encoding="utf-8").replace("{BUILD}", build)
+    guide = guide_text((KIT / GUIDE).read_text(encoding="utf-8"), build)
     (stage / GUIDE).write_text(guide, encoding="utf-8")
     return Path(shutil.make_archive(str(stage), "zip", stage.parent, stage.name))
 
@@ -334,7 +335,7 @@ def build_installer(app: Path, out: Path, tools: Path | None = None,
     extra = out / "installer-extra"
     shutil.rmtree(extra, ignore_errors=True)
     extra.mkdir()
-    guide = (KIT / GUIDE).read_text(encoding="utf-8").replace("{BUILD}", build)
+    guide = guide_text((KIT / GUIDE).read_text(encoding="utf-8"), build)
     (extra / GUIDE).write_text(guide, encoding="utf-8")
     bat = (KIT / REGISTER[0]).read_text(encoding="utf-8")
     crlf = chr(13) + chr(10)  # cmd reads a .bat by CRLF lines

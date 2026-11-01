@@ -90,3 +90,38 @@ def test_the_kit_takes_a_made_file_the_sender_will_send_as_it_is(tmp_path: Path)
     made.with_suffix(".json").write_text(json.dumps({"key": key, "check": [], "bytes": 9}))
     with pytest.raises(SystemExit, match="as it is"):
         sample(made, tmp_path / "usb2", "sample_2")
+
+
+def test_the_public_kit_has_no_videos_and_no_ubuntu_packages(tmp_path: Path) -> None:
+    """2026-11-01 user ("Video만 뺀 압축파일을 github에 올릴수가 있어?"): the public kit has
+    no films and no GPL Ubuntu packages; its guide says the Linux PCs need internet once
+    and has no sample step; the offline kit's guide is as it was."""
+    from tools.kit import make_kit
+
+    text = (KIT / build.GUIDE).read_text(encoding="utf-8")
+    pub = make_kit.guide_text(text, "20990101.0000", True, "ZeroLoss-Kit-20990101.0000-public")
+    off = make_kit.guide_text(text, "20990101.0000")
+    for g in (pub, off):
+        assert "<!--" not in g.replace("<!DOCTYPE", "") and "{BUILD}" not in g and "{KIT}" not in g
+    assert (
+        "인터넷이 필요합니다" in pub and "Generated (default)" in pub and 'id="sample"' not in pub
+    )
+    assert "인터넷 없이" in off and 'id="sample"' in off and "Generated (default)" not in off
+    assert r"C:\ZeroLoss-Kit-20990101.0000-public" in pub
+    usb = tmp_path / "usb"
+    (usb / "offline").mkdir(parents=True)
+    (usb / "offline" / "bash_5.deb").write_bytes(b"x")
+    (usb / "tsduck_3.deb").write_bytes(b"t")
+    setup = (
+        tmp_path / f"ZeroLoss-Controller-Setup-{(build.ROOT / 'VERSION').read_text().strip()}.exe"
+    )
+    setup.write_bytes(b"exe")
+    make_kit.main(["--public", "--setup", str(setup), "--offline", str(usb),
+                   "--out", str(tmp_path / "out")])  # fmt: skip
+    (kit,) = (tmp_path / "out").iterdir()
+    files = sorted(f.relative_to(kit).as_posix() for f in kit.rglob("*") if f.is_file())
+    assert kit.name.endswith("-public") and files == [
+        "1_Windows_PC/" + setup.name, "2_Linux_PC_USB/tsduck_3.deb",
+        "2_Linux_PC_USB/zeroloss-linux-setup.sh", build.GUIDE]  # fmt: skip
+    with pytest.raises(SystemExit):
+        make_kit.main(["--setup", str(setup), "--offline", str(usb), "--out", str(tmp_path)])

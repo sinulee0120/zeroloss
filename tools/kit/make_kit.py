@@ -19,6 +19,10 @@ rule (``Preparer.ready``) before the kit is written: on the other PC Start uses 
 loose program folder; "그냥 파일들 변환한거 10분짜리 3개 파일 같이 패키징하면 되잖아": the three
 finished 10-minute videos of the three-channel test only (sample_1..3, one a channel,
 fetched from the sender with ``zeroloss made``), no movies.
+2026-11-01 user ("Video만 뺀 압축파일을 github에 올릴수가 있어?"): ``--public`` makes the kit
+for the public GitHub release: no videos and no Ubuntu packages (most are GPL: published,
+their sources would have to be offered too), so the Linux PCs install from Ubuntu's servers
+once; the guide keeps its ``<!--public-->`` parts and drops the ``<!--offline-->`` ones.
 
 Usage::
 
@@ -26,12 +30,15 @@ Usage::
         --offline <usb folder> --made <dir>/ch1_UHD_35M_<tag>.ts --made <dir>/ch2_... \
         --made <dir>/ch3_... \
         --out <kit folder> --zip
+    python -m tools.kit.make_kit --public --setup <installer> --offline <usb folder> \
+        --out <kit folder> --zip
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -42,6 +49,16 @@ ROOT = Path(__file__).resolve().parents[2]
 KIT_SRC = Path(__file__).resolve().parent
 GUIDE = "설치_및_사용_안내.html"
 OLD_BUILD = "{BUILD}"  # where the guide names the build; replaced by this kit's
+KIT_NAME = "{KIT}"  # where the guide names the kit folder and zip
+
+
+def guide_text(text: str, build_no: str, public: bool = False, kit: str = "") -> str:
+    """The guide for one kit: its ``<!--public-->`` or its ``<!--offline-->`` parts (the
+    installed program's [?] has the offline kit's), its build and its kit's name."""
+    drop, keep = ("offline", "public") if public else ("public", "offline")
+    text = re.sub(rf"<!--{drop}-->.*?<!--/{drop}-->", "", text, flags=re.S)
+    text = text.replace(f"<!--{keep}-->", "").replace(f"<!--/{keep}-->", "")
+    return text.replace(KIT_NAME, kit or f"ZeroLoss-Kit-{build_no}").replace(OLD_BUILD, build_no)
 
 
 def _copy_tree(src: Path, dst: Path) -> None:
@@ -73,7 +90,7 @@ def sample(made: Path, out: Path, name: str = "sample_1") -> Path:
 
 def build(args: argparse.Namespace) -> Path:
     build_no = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    kit = Path(args.out) / f"ZeroLoss-Kit-{build_no}"
+    kit = Path(args.out) / f"ZeroLoss-Kit-{build_no}{'-public' if args.public else ''}"
     if kit.exists():
         raise SystemExit(f"{kit} exists: choose another --out")
     setup = Path(args.setup)
@@ -83,19 +100,22 @@ def build(args: argparse.Namespace) -> Path:
     win.mkdir(parents=True)
     shutil.copy2(setup, win / setup.name)
     usb = kit / "2_Linux_PC_USB"
-    _copy_tree(Path(args.offline) / "offline", usb / "offline")
-    if not list((usb / "offline").glob("iperf3_*.deb")):
+    usb.mkdir()
+    if not args.public:
+        _copy_tree(Path(args.offline) / "offline", usb / "offline")
+    if not args.public and not list((usb / "offline").glob("iperf3_*.deb")):
         print("note: offline/ has no iperf3: Linux PCs measure throughput only after "
               "'apt install iperf3' (offline_repo.py lists it)", flush=True)  # fmt: skip
     for f in Path(args.offline).glob("tsduck_*.deb"):
         shutil.copy2(f, usb / f.name)
-    for name in ("zeroloss-linux-setup.sh", "zeroloss-sample-video.sh"):
+    scripts = ["zeroloss-linux-setup.sh"] + ([] if args.public else ["zeroloss-sample-video.sh"])
+    for name in scripts:
         (usb / name).write_bytes((KIT_SRC / name).read_bytes().replace(b"\r\n", b"\n"))
-    made = [sample(Path(m), usb, f"sample_{i}") for i, m in enumerate(args.made, 1)]
-    text = (KIT_SRC / GUIDE).read_text(encoding="utf-8").replace(OLD_BUILD, build_no)
+    made = [sample(Path(m), usb, f"sample_{i}") for i, m in enumerate(args.made or [], 1)]
+    text = guide_text((KIT_SRC / GUIDE).read_text(encoding="utf-8"), build_no, args.public,
+                      kit.name)  # fmt: skip
     (kit / GUIDE).write_text(text, encoding="utf-8", newline="\n")
-    print(f"kit: {kit}\nmade videos: {', '.join(m.name for m in made)} (used as they are)",
-          flush=True)  # fmt: skip
+    print(f"kit: {kit}\nmade videos: {', '.join(m.name for m in made) or 'none'}", flush=True)
     if args.zip:
         zp = kit.parent / f"{kit.name}.zip"  # not with_suffix: ".0034" is no suffix
         with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as z:
@@ -112,11 +132,16 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--setup", required=True, help="the installer (tools.build installer)")
     ap.add_argument("--offline", required=True, help="a 2_Linux_PC_USB folder: offline/, tsduck")
-    ap.add_argument("--made", action="append", required=True, metavar="TS",
+    ap.add_argument("--made", action="append", metavar="TS",
                     help="a finished 10-minute made file, its .json beside it")  # fmt: skip
+    ap.add_argument("--public", action="store_true",
+                    help="for the public release: no videos, no Ubuntu packages")  # fmt: skip
     ap.add_argument("--out", required=True)
     ap.add_argument("--zip", action="store_true")
-    build(ap.parse_args(argv))
+    args = ap.parse_args(argv)
+    if bool(args.made) == args.public:
+        ap.error("the offline kit takes --made videos; a --public kit takes none")
+    build(args)
     return 0
 
 
