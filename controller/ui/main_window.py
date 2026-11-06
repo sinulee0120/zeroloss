@@ -433,6 +433,9 @@ class SetupRow(QWidget):
         h.addStretch(1)
         self.remove = QPushButton(TEXT["remove_mark"])  # 06 7: ZeroLoss off it (between tests)
         self.remove.setFixedWidth(3 * GRID)  # 2026-10-31: "Remove…" made the rows scroll
+        # 2026-11-05 user ("허연 빈 박스 ... 글자도 없고"): the app's button padding left the
+        # mark no room in 3 * GRID and it was cut off; no padding here, a mark every font has
+        self.remove.setStyleSheet("QPushButton { padding: 0px; font-weight: bold; }")
         self.remove.setToolTip(TEXT["remove_tip"])
         self.remove.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.remove.clicked.connect(lambda: on_remove())

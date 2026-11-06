@@ -25,7 +25,7 @@ from controller.analysis import reanalyze
 from controller.baselines import BaselineStore
 from controller.deploy import Deploy
 from controller.devices import DEPLOYER_PORT, Device, DeviceList
-from controller.discover import discover
+from controller.discover import SENDER_TRY, discover, same_network
 from controller.problems import ProblemBoard
 from controller.records import collect as collect_records
 from controller.run import LOST_S, RunController, RunState
@@ -344,8 +344,11 @@ class ControllerService:
         refused with its name (DSC-016), no answer with DSC-014."""
         p = req.params
         dev = self.devices.get(str(p.get("name", "")))
-        host = str(p.get("host", "")).strip()
-        port = int(p.get("port") or dev.port)
+        return self._set_address(
+            dev, str(p.get("host", "")).strip(), int(p.get("port") or dev.port)
+        )
+
+    def _set_address(self, dev: Any, host: str, port: int) -> dict[str, Any]:
         client = NodeClient(host, port, self.run.boot_id, dev.name)
         try:
             health = client.get("/v1/health", timeout_s=5.0)
@@ -358,9 +361,15 @@ class ControllerService:
             raise ZlError("DSC-016", f"{who} answers at {host}, not {dev.name}",
                           f"The address belongs to {who}.",
                           f"Pick or type the address {dev.name} shows under My IP.")  # fmt: skip
+        old = dev.host
         done = self.devices.move(dev.device_id, host, port)
         if done is not None:
             self._moved(dev.name, done[1], f"{host}:{port}")
+        # its test card was the old address (GAP-173: the row's IP is the test card too):
+        # 2026-11-05 a new router left 192.168.45.94 in the choice and Start stayed grey
+        nics = dict(self.setup.get().get("nics") or {})
+        if nics.get(dev.name) == old and old != host:
+            self.setup.update({"nics": {**nics, dev.name: host}})
         return {"name": dev.name, "host": host, "port": port}
 
     def devices_remove(self, req: Request) -> dict[str, Any]:
@@ -455,15 +464,62 @@ class ControllerService:
             except ZlError:
                 return False
             before = dict(self._found)
+            local = ("127.", "169.254.")  # loopback, and a card without a DHCP answer
+            wired = [str(x.ip) for x in self.node.links
+                     if x.ip and not x.wireless and not str(x.ip).startswith(local)]  # fmt: skip
             for row in r["found"]:
                 if row.get("known"):
                     seen = self._found.setdefault(str(row["name"]), [])
                     for a in row.get("addresses") or [row["address"]]:
                         if a not in seen:
                             seen.insert(0, str(a))
+                    self._follow(row, wired)
             return self._found != before
         finally:
             self._relocate_lock.release()
+
+    def _follow(self, row: dict[str, Any], wired: list[str]) -> None:
+        """2026-11-05 (a new router: t460-rx went from 192.168.45.94 to 192.168.1.237 and
+        stayed "not answering" with its tablets gone; user: "리시버 앱이 자동으로 해야하는데").
+        A registered PC that no longer answers at its address and answers, as itself, on
+        the network of this PC's wired card (the test router's LAN) is saved there. Not on
+        the home Wi-Fi (GAP-153: this PC's Wi-Fi is never the rule) nor at the sender's
+        addresses (GAP-155: 10-12 t460-rx was saved at the sender's)."""
+        dev = next((d for d in self.devices.all() if d.device_id == row.get("device_id")), None)
+        addrs = [str(a) for a in row.get("addresses") or [row.get("address")] if a]
+        if dev is None or dev.host in addrs:
+            return  # still answering where it is
+        port = int(row.get("port") or dev.port)
+        for a in addrs:
+            if a in SENDER_TRY or not any(same_network(a, w) for w in wired):
+                continue
+            # 2026-11-06 (user: "버그네"): t460-rx was saved at 192.168.1.114, its test Wi-Fi
+            # card, which comes and goes with the tests; the PC says which of its addresses
+            # are cables, and its cable on the test network is the one kept
+            cables = [str(c.get("ip")) for c in self._links_at(a, port, dev)
+                      if c.get("ip") and "wifi" not in c]  # fmt: skip
+            pick = next((c for c in cables if any(same_network(c, w) for w in wired)), None)
+            if pick is None:
+                continue
+            try:
+                self._set_address(dev, pick, port)
+            except ZlError:
+                continue  # another PC answers there, or none: the person picks in the IP box
+            return
+
+    def _links_at(self, host: str, port: int, dev: Any) -> list[dict[str, Any]]:
+        """The cards of the PC that answers at ``host``, when it is ``dev`` (else none)."""
+        client = NodeClient(host, port, self.run.boot_id, dev.name)
+        try:
+            info = client.get("/v1/info", timeout_s=3.0)
+        except ZlError:
+            return []
+        finally:
+            client.close()
+        links = info.get("links")
+        if str(info.get("device_id") or "") != dev.device_id or not isinstance(links, list):
+            return []
+        return [c for c in links if isinstance(c, dict)]
 
     def _wan_side_notice(self, setup: dict[str, Any], found: dict[str, dict[str, Any]]) -> None:
         """20 W-2 (07 3.2 B): with the automatic ISP role nothing on the sender PC asks for
@@ -953,6 +1009,8 @@ class ControllerService:
                     answered = self._idle_round(clients, pool)
                     self._answers_again(answered)
                     self._fetch_owed(answered)
+                    if answered and not all(answered.values()):
+                        self._relocate()  # 2026-11-05: a new router gave it a new address
                     if (  # no search for PCs that do not answer: the person picks (2026-10-17)
                         answered
                         and all(answered.values())

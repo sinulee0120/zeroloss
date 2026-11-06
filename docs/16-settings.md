@@ -80,6 +80,10 @@
 | S-63 | Directions (Throughput) | Adv | LAN→WAN, then WAN→LAN | LAN→WAN, then WAN→LAN(LAN PC 기준 보내기=업로드, 받기=-R 다운로드, 따로따로) / LAN→WAN only / WAN→LAN only | 🔒 | throughput.md 1.3 (2026-10-17 사용자 "send와 receive를 각각 iperf, iperf -R로", 레퍼런스 B→A·A→B 선택) |
 | S-64 | UDP rate (Throughput) | Adv | 95 % | 1~100 % (협상된 링크 속도 기준 -b) | 🔒 | throughput.md 0 (레퍼런스 udp_bandwidth_percent 95) |
 | S-65 | Cards to test (Throughput) | Devices | 없음 | Devices에서 PC의 카드마다 줄이 있고 사용자가 체크: 공유기 LAN 쪽 유선 카드, 또는 Wi-Fi 카드(이 Controller PC의 것도) + 2.4/5/6 GHz마다 공유기 Wi-Fi(그 카드의 스캔에서 고름, 옆 칸에 암호 — 빈칸 = 암호 없음, open 망은 "open" 표시; 02 2-10-2). 아무것도 대신 고르지 않음 | 🔒 | throughput.md 1.3 (2026-10-17 사용자 "연결된 포트가 있으면 그만큼 row가 늘어나야지 그래야 사용자가 고르지", "와이파이도 카드 뭐로 할건지 사용자가 정할거야") |
+| S-66 | Router Logger (2026-11-05 사용자: 문제 때 공유기 FW 로그) | Adv | Off | Off / On — On이면 공유기 쪽 손실(1개라도)·깨짐(CC/P1, 재생기 glitch)·멈춤(freeze)·지터가 한계를 넘는 1초, 영상 없음(1초에 0개, 또는 warm-up에서 안정된 영상이 안 옴)에 Router Logger 프로그램의 start를 백그라운드로 누르고, 기록 시간 뒤 stop, 저장이 끝날 때까지 기다림. 그동안 온 문제는 무시(알림만). 송신·수신 쪽 창(SND·NET-015·SYS-003·RCV-006) 안의 문제는 공유기 것이 아니라 누르지 않음 | 🔒 | 13 4 |
+| S-67 | Router Logger jitter limit | Adv | 200 ms | 1~10000 ms (수신 장비의 1초 지터, 시험하는 사람마다 정함) | 🔒 | 13 4 |
+| S-68 | Router Logger record time | Adv | 30 s | 1~3600 s (문제 뒤 기록하고 stop을 누를 때까지) | 🔒 | 13 4 |
+| S-69 | Router Logger program | Adv | 없음 | 이 PC의 프로그램 파일 전체 경로(.exe), 이 PC에만 저장. 그 프로그램이 켜져 있어야 함 | 🔒 | 13 4 |
 
 ### 1.5 바꿀 수 없음 (Fixed, 원칙)
 | 항목 | 값 | 이유 |

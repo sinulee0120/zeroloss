@@ -961,6 +961,11 @@
    "what": "A tablet left the Wi-Fi it was kept on",
    "why": "Android moved the tablet to another saved network (a TV network has no internet, so Android may drop it and not go back by itself). The seconds away count as that tablet's loss.",
    "fix": "The tool joins it again when it can (a network it joined, or an open one). Otherwise put the tablet back on that network in its Settings, Wi-Fi."
+  },
+  "ZL-TAB-020": {
+   "what": "A tablet is on its Wi-Fi with a random MAC",
+   "why": "It was put on that network by hand, so Android uses a random MAC for it. A router that passes the video only to registered devices then gives this tablet nothing.",
+   "fix": "Pick that network in the tablet's row (Wi-Fi) once and type its password: ZeroLoss then always joins it with the tablet's own MAC. An open network is joined again by itself."
   }
  }
 }

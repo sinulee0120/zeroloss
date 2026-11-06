@@ -313,6 +313,12 @@ def test_role_on_picks_the_one_free_wired_nic_and_off_undoes_it(tmp_path: Path) 
     assert off["state"] == "off" and pc.calls[-1] == ["ip", "addr", "del", SERVER, "dev", "enp1s0"]
     assert pc.ips["enp1s0"] is None and not pc.servers[-1].running
     assert json.loads((tmp_path / "wan-lease.json").read_text())["added_ip"] is None
+    # receiverPC 2026-11-05: off forgets the lease too (it kept the Controller PC's MAC)
+    doc = json.loads((tmp_path / "wan-lease.json").read_text())
+    (tmp_path / "wan-lease.json").write_text(json.dumps(
+        {**doc, "lease": {"mac": "02:00:00:00:00:aa", "ip": LEASE_IP}}))  # fmt: skip
+    again.set(False)
+    assert json.loads((tmp_path / "wan-lease.json").read_text())["lease"] is None
 
 
 def test_two_candidates_wait_and_tell_once_then_a_set_nic_works(tmp_path: Path) -> None:

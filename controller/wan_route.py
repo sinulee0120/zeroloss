@@ -158,10 +158,15 @@ def manual_fix(subnet: str = WAN_B) -> str | None:
         state, card = win_plan(_win_read(str(next(net.hosts()))))
         if state == "ok":
             return None
-        router = card["router"] if card else "<the router's LAN address, e.g. 192.168.45.1>"
-        return (f"This PC sends {subnet} out through another card. Open Command Prompt as "
-                f"administrator and run: route add {net.network_address} mask {net.netmask} "
-                f"{router} — then wait: the check runs again by itself.")  # fmt: skip
+        # 2026-11-06 user ("버그네"): the router was off, this PC's cable had no address,
+        # and the screen told to type a route to "<the router's LAN address>" — never a
+        # command (2026-10-22: "버튼으로 하는게 좋아"), and no route helps without a router
+        if card is None:
+            return ("No router answers on this PC's test cable (no address from it). Check "
+                    "that the router is on and has finished starting, and that this PC's "
+                    "cable is in a LAN port; the check runs again by itself.")  # fmt: skip
+        return (f"This PC sends {subnet} out through another card: press Add the route in "
+                f"Action Required (through {card['router']}; Windows asks once).")  # fmt: skip
     nics = lab_nics()
     probe = str(next(net.hosts()))
     if not nics or via(probe) in nics:

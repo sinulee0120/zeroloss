@@ -52,6 +52,7 @@ from controller.precheck import (
 )
 from controller.precheck import Step as PrecheckStep
 from controller.report import write_report
+from controller.router_logger import RouterLogger
 from controller.wan_route import WAN_B, ensure_wan_route, manual_fix
 from controller.wifi_store import WifiConfig
 from core.blocks.link_monitor import nic_of, read_links
@@ -170,6 +171,10 @@ class RunController:
         # 05 5.3 trouble windows: device -> kind -> [[from, to or None, code]] (monotonic)
         self._windows: dict[str, dict[str, list[list[Any]]]] = {}
         self._seconds: dict[tuple[str, int], dict[int, tuple[float, dict[str, Any]]]] = {}
+        # 16 S-66..S-69: the Router Logger, and problems waiting to be judged the router's
+        self.router_logger = RouterLogger(lambda code, level, text, device: self._event(
+            code, level, text, device))  # type: ignore[arg-type]  # fmt: skip
+        self._logger_wait: list[tuple[float, float, str, list[str]]] = []
         self._stop_wanted = threading.Event()  # a Stop waits for the lock (2026-10-09)
         self._runs: dict[tuple[str, str], tuple[int, float]] = {}  # kind -> seconds in a row
         self._net022: set[str] = set()  # devices with an open NET-022 (cleared once known)
@@ -256,6 +261,10 @@ class RunController:
                     self._summaries = {}
                     self._cells = {}
                     self._windows, self._seconds, self._pending = {}, {}, []  # G-13
+                    self._logger_wait = []
+                    of = getattr(self._rules, "logger_settings", None)
+                    self.router_logger.configure(
+                        of(self._raw_plan.get("settings")) if of is not None else None)  # fmt: skip
                     self._runs = {}
                     self._episodes, self._trouble_cols = {}, None
                     self._write_state("running")
@@ -987,9 +996,10 @@ class RunController:
         """F17 step 3: the test Wi-Fi of a Wi-Fi receiver PC, link speed (NET-012) and
         whether a NAT sits between (07 4)."""
         wifi = self._join_wifi(cl, s)
+        isp = self._isp_only_on_sender() if cl.kind == "start" else []
         self._check_test_ips()
         self._check_links()
-        nat = []
+        nat = [*isp]
         self._nat, self._wan_ip, self._wan_subnet = False, None, None
         self._wan_way_used = None
         for name, w in sorted(self._watch.items()):
@@ -1159,6 +1169,38 @@ class RunController:
             fix = {"id": test_nic, "label": f"Fix {test_nic}: no default route, no DNS"}
             self._event(err.code, "warn", err.what, "", choose="test_route", choices=[fix])
         return [f"⚠ {err.what}"]
+
+    def _isp_only_on_sender(self) -> list[str]:
+        """07 3.2 B: the ISP role starts by itself on any PC's wired card that stays up
+        with no DHCP answer. 2026-11-05 (user: "WAN물린 Sender가 앱에서 뭔짓 하나봐"): a new
+        router resetting left the T460 receiver's LAN card without an answer for 20 s; it
+        became 10.0.0.1 there and lent 10.0.0.100 to the Controller PC. At Start every PC
+        that is not this test's sender is set to off (kept between tests), and said when it
+        was serving; the sender set off is put back to auto (a receiver that sends now; a
+        fixed-address sender, 07 3.2 A, is not touched by auto: its card has an address)."""
+        said = []
+        for name, w in sorted(self._watch.items()):
+            sender = name == self._plan.sender
+            try:
+                st = w.client.get("/v1/wan", timeout_s=2.0)
+                if sender and st.get("mode") == "off":
+                    w.client.command("/v1/wan", self.generation, self.run_id, timeout_s=20.0,
+                                     auto=True)  # fmt: skip
+                if sender or st.get("mode") != "auto":
+                    continue  # off already, or set on by hand
+                w.client.command("/v1/wan", self.generation, self.run_id, timeout_s=20.0,
+                                 on=False)  # fmt: skip
+            except ZlError:
+                continue  # an older node, or no answer: as before
+            if st.get("state") == "ready":
+                lent = (st.get("lease") or {}).get("mac") or "nobody"
+                text = (
+                    f"{name} had turned itself into the router's ISP on {st.get('nic')} "
+                    f"(10.0.0.1, lent 10.0.0.100 to {lent}): turned off, it receives"
+                )
+                self._event("ZL-INFO", "info", text, name)
+                said.append(text)
+        return said
 
     def _isp_ready(self, w: DeviceWatch) -> bool:
         try:
@@ -1689,13 +1731,48 @@ class RunController:
             for n in sorted(receivers)
             if self._watch[n].last_error
         )
+        ready, missing = self._warmup_split(receivers)
+        # 16 S-66: no stable video in warm-up is a problem too (2026-11-05: the tablets got
+        # nothing from a router without M2U; the test stops before any second is kept)
+        self.router_logger.trigger("no video during warm-up", ", ".join(missing or receivers))
+        if ready and missing:
+            # 2026-11-05 user ("PC부터 해결해"): two tablets with no video called the start
+            # off and the PC that played stopped too. The test goes on with the receivers
+            # that have video; the others are named (NET-003, red: nothing received)
+            for name in missing:
+                self._event("ZL-NET-003", "warn", f"{name}: no video after warm-up — the "
+                            "test goes on; it counts as nothing received", name)  # fmt: skip
+            return
+        # 2026-11-06 user ("앱 버그 해결해"): it said only "receivers did not finish
+        # warm-up"; which ones had no video is what a person needs
+        names = ", ".join(missing or sorted(receivers))
         raise ZlError(
             "RUN-009",
-            "Start failed: receivers did not finish warm-up",
-            "No stable stream arrived in time.",
-            "Check the Problems list for the receiver's reason.",
+            f"Start failed: no stable video at {names}",
+            f"No stable stream arrived in time at {names} (none of the receivers had one).",
+            "Check that the router passes the channels to them (Problems has each "
+            "receiver's reason), then press Start again.",
             detail=reasons,
         )
+
+    def _warmup_split(self, receivers: set[str]) -> tuple[list[str], list[str]]:
+        """Receivers that finished warm-up and those that did not, across the PCs."""
+        of = getattr(self._rules, "warmup_split", None)
+        ready: list[str] = []
+        missing: list[str] = []
+        for name in sorted(receivers):
+            try:
+                hb = self._asked(name)
+            except ZlError:
+                missing.append(name)  # the PC does not answer: none of its receivers counts
+                continue
+            data = (hb.get("module_data") or {}).get(self._rules.heartbeat_key) or {}
+            if of is None:
+                (ready if self._rules.measuring(data) else missing).append(name)
+                continue
+            got = of(data, name)
+            ready, missing = ready + got[0], missing + got[1]
+        return ready, missing
 
     def _rollback(self, err: ZlError) -> None:
         if err.code == "ZL-USR-006":  # the user's own Cancel is not a problem
@@ -2017,10 +2094,39 @@ class RunController:
             kept = self._seconds.setdefault(key, {})
             if int(rec["e"]) not in kept:
                 self._note_episode(key, rec)
+                self._note_logger(key[0], rec, now)
             kept.setdefault(int(rec["e"]), (now, rec))
             if len(kept) > SECONDS_KEPT:
                 for e in sorted(kept)[: len(kept) - SECONDS_KEPT]:
                     del kept[e]
+
+    def _note_logger(self, device: str, rec: dict[str, Any], now: float) -> None:
+        """16 S-66..S-69: a second with a problem waits ``LOGGER_JUDGE_S`` (a sender's own
+        trouble may be said a moment after its loss), then starts the Router Logger only
+        when no sender, receiving-link, busy-PC or screen window covers it: the router's."""
+        cfg = self.router_logger.cfg
+        of = getattr(self._rules, "logger_reasons", None)
+        if cfg is not None and of is not None and self.state is RunState.RUNNING:
+            why = of(rec, float(cfg["jitter_ms"]))
+            if why:
+                self._logger_wait.append((now + LOGGER_JUDGE_S, now, device, why))
+        due = [w for w in self._logger_wait if w[0] <= now]
+        self._logger_wait = [w for w in self._logger_wait if w[0] > now][-100:]
+        for _, at, dev, why in due:
+            if self._routers(dev, at) and self.router_logger.trigger("; ".join(why), dev):
+                break  # one start; the rest are counted while it logs
+
+    def _routers(self, device: str, at: float) -> bool:
+        """No trouble window says this second is the sender's or the receiving PC's."""
+        node = self._node(device) if self._plan is not None else device
+        sender = self._plan.sender if self._plan is not None else None
+        for dev, kinds in self._windows.items():
+            for kind, ws in kinds.items():
+                if dev != node and not (dev == sender and kind.startswith("sender")):
+                    continue
+                if any(a <= at and (b is None or at <= b) for a, b, _ in ws):
+                    return False
+        return True
 
     def _note_episode(self, key: tuple[str, int], rec: dict[str, Any]) -> None:
         """GAP-138 (user: "loss 45515 for the whole test, but when? older than 10 minutes
@@ -2485,6 +2591,7 @@ TROUBLE_AFTER_S = 2.0
 SENDER_BEFORE_S = 2.0
 SENDER_AFTER_S = 4.0
 GRACE_S = 3.0  # a cell waits this long for late trouble events before it is judged
+LOGGER_JUDGE_S = GRACE_S  # a problem waits as long before it starts the Router Logger
 SECONDS_KEPT = 900  # 1-second records per receiver: a 5-minute cell plus room
 RUN_STEP_S = 1.5  # trouble events this close are seconds in a row (trouble_min_run)
 STOP_WAIT_LOG_S = 5.0  # a Stop that waited longer says what for (2026-10-09)

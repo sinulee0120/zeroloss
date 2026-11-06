@@ -36,6 +36,9 @@ class FakeTablets:
     def wifi_status(self, serial: str) -> dict[str, Any]:
         return {"std": "11ax", "freq": 5745, "rx_mbps": 1201, "ssid": self.ssid}
 
+    def random_mac(self, serial: str) -> bool:
+        return False  # on its network with its own MAC (TAB-020)
+
     def clear_leftovers(self, serial: str) -> None:
         self.cleared = True
 

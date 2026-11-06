@@ -342,10 +342,12 @@ class Tablets:
     def join_wifi(self, serial: str, ssid: str, security: str, password: str = "",
                   wait_s: float = JOIN_WAIT_S) -> dict[str, Any]:  # fmt: skip
         """S-51 / TAB-014: the tablet onto the test Wi-Fi by adb (Android 11 and later).
-        Nothing to do when it is on that network already."""
+        Nothing to do when it is on that network already with its own MAC (TAB-020: one
+        joined by hand with a random MAC is joined again with its own)."""
         kind = {"Open": "open", "WPA2": "wpa2", "WPA3": "wpa3"}.get(security)
         try:
-            if parse_ssid(self.adb.shell(serial, ["cmd", "wifi", "status"])) == ssid:
+            if parse_ssid(self.adb.shell(serial, ["cmd", "wifi", "status"])) == ssid and (
+                    not self.random_mac(serial)):  # fmt: skip
                 return {"joined": False, "ssid": ssid, "ip": self._ip(serial)}
             if kind is None:
                 raise TabletError("join the Wi-Fi", f"{security!r} cannot be joined by adb",
@@ -374,6 +376,17 @@ class Tablets:
                               f"{ssid!r} on the router, then press Start again.")  # fmt: skip
         raise TabletError("join the Wi-Fi", f"not on {ssid!r} after {wait_s:.0f} s",
                           "Check the password, or join it on the tablet by hand.")  # fmt: skip
+
+    def random_mac(self, serial: str) -> bool:
+        """TAB-020 (2026-11-05 user: "앱이 알아서 tablet MAC으로 바꿔라"): the tablet is on
+        its network with a random MAC, not its own (a router that passes the video to
+        registered MACs only gave it nothing). False when it cannot be told."""
+        own = self._mac(serial)
+        try:
+            now = self.adb.shell(serial, ["cat", "/sys/class/net/wlan0/address"]).strip().lower()
+        except AdbError:
+            return False
+        return bool(own and re.fullmatch(r"[0-9a-f:]{17}", now) and now != own)
 
     def _mac(self, serial: str) -> str | None:
         """The tablet's factory Wi-Fi MAC, the one it joins with (-r none) and the one to

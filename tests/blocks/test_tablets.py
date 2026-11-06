@@ -182,6 +182,37 @@ def test_join_asks_adb_and_waits_for_the_address(tmp_path: Path) -> None:
     assert t.join_wifi("A1", "Lab 5G", "WPA2", "secret12")["joined"] is False  # on it already
 
 
+def test_a_tablet_on_its_network_with_a_random_mac_joins_again_with_its_own(
+    tmp_path: Path,
+) -> None:
+    """TAB-020 (2026-11-05 user: "앱이 알아서 tablet MAC으로 바꿔라"): joined by hand, the
+    tablet used a random MAC and a router that serves registered MACs gave it nothing."""
+    state = {"mac": "56:a4:12:00:00:01"}  # made-up: random (locally administered)
+
+    class MacAdb(FakeAdb):
+        def __call__(self, argv: Sequence[str], timeout: float) -> tuple[int, str]:
+            cmd = " ".join(argv[1:])
+            if "connect-network" in cmd:
+                self.calls.append(cmd)
+                state["mac"] = "8c:00:00:00:00:02"  # its own
+                return 0, ""
+            if cmd.endswith("cmd wifi status"):
+                return 0, 'Wifi is connected to "Lab 5G"'
+            if cmd.endswith("dumpsys wifi"):
+                return 0, "wifi_sta_factory_mac_address=8C:00:00:00:00:02"
+            if cmd.endswith("/sys/class/net/wlan0/address"):
+                return 0, state["mac"]
+            return super().__call__(argv, timeout)
+
+    fake = MacAdb(1, "")
+    t = Tablets(Adb(lambda: "adb", fake), tmp_path / "x.apk")
+    assert t.random_mac("A1")
+    got = t.join_wifi("A1", "Lab 5G", "Open")
+    assert got["joined"]
+    assert "-s A1 shell cmd wifi connect-network Lab 5G open -r none" in fake.calls
+    assert not t.random_mac("A1") and t.join_wifi("A1", "Lab 5G", "Open")["joined"] is False
+
+
 def test_the_app_of_this_build_is_installed_only_when_it_differs(tmp_path: Path) -> None:
     apk = tmp_path / "zeroloss-receiver.apk"
     apk.write_bytes(b"apk")

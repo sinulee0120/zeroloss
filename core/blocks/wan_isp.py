@@ -159,6 +159,10 @@ class WanIsp:
                 return self.status()
             if not on:
                 self._stop_server()
+                # turned off, its lease too (receiverPC 2026-11-05: the T460's off kept the
+                # Controller PC's 10.0.0.100 for when the role came on again); a restart
+                # (close) keeps it, so the router WAN goes on with the same address
+                self._write_lease_doc(lease=None)
                 if self._undo_address():
                     self.state, self.why, self.nic = "off", "", None
             self._save_config(on, nic)

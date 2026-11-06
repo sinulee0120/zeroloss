@@ -600,6 +600,14 @@ def measuring(module_data: dict[str, Any]) -> bool:
     return bool(recv) and all(r.get("measuring") for r in recv)
 
 
+def warmup_split(module_data: dict[str, Any], node: str) -> tuple[list[str], list[str]]:
+    """The node's receivers that finished warm-up and those that did not (2026-11-05 user:
+    "PC부터 해결해" — a tablet with no video stopped the PC's test too)."""
+    recv = [*(module_data.get("receivers") or []), *(module_data.get("tablets") or [])]
+    names = [(str(r.get("id") or node), bool(r.get("measuring"))) for r in recv]
+    return [n for n, ok in names if ok], [n for n, ok in names if not ok]
+
+
 # ---------------------------------------------------------------- channel change (03 F19)
 
 
@@ -706,6 +714,41 @@ def on_test_nic(p: IptvPlan, device: str, data: dict[str, Any]) -> bool:
     if ip == "wifi":
         return "wifi" in after or "wifi" in before
     return not ip or ip in (after.get("ip"), before.get("ip"))
+
+
+LOGGER_SETTINGS = ("S-66", "S-67", "S-68", "S-69")  # 16 Router Logger
+
+
+def logger_settings(settings: dict[str, Any] | None) -> dict[str, Any] | None:
+    """16 S-66..S-69 (2026-11-05 user): the Router Logger's choice for this test, or None
+    when it is off or no program is named."""
+    s = {**{sid: DEFAULTS[sid] for sid in LOGGER_SETTINGS}, **(settings or {})}
+    program = str(s["S-69"] or "").strip()
+    if s["S-66"] != "On" or not program:
+        return None
+    return {"jitter_ms": float(s["S-67"]), "record_s": int(s["S-68"]), "program": program}
+
+
+def logger_reasons(rec: dict[str, Any], jitter_ms: float) -> list[str]:
+    """What in one receiver's 1-second record starts the Router Logger (2026-11-05 user:
+    "loss는 한번이라도 나면 바로", jitter by the tester's limit, freeze, glitch, no video). Empty:
+    nothing. Whether it is the router's is the Controller's trouble windows' to say."""
+    out = []
+    if rec.get(k.RECEIVED) == 0:  # 2026-11-05: tablets on a router without M2U got nothing
+        out.append("no video (0 packets)")
+    if int(rec.get(k.LOST) or 0):
+        out.append(f"lost {rec[k.LOST]}")
+    if int(rec.get(k.CC_ERRORS) or 0) or int(rec.get(k.P1_ERRORS) or 0):
+        out.append(f"glitch (CC {int(rec.get(k.CC_ERRORS) or 0)}, "
+                   f"P1 {int(rec.get(k.P1_ERRORS) or 0)})")  # fmt: skip
+    elif rec.get(k.PLAYBACK) == "glitch":
+        out.append("glitch (player)")
+    if rec.get(k.PLAYBACK) == "freeze":
+        out.append("picture freeze")
+    jit = rec.get(k.JITTER_MS)
+    if isinstance(jit, int | float) and not isinstance(jit, bool) and jit > jitter_ms:
+        out.append(f"jitter {jit:g} ms > {jitter_ms:g} ms")
+    return out
 
 
 def trouble_of(
@@ -1273,7 +1316,9 @@ def probe_fallback(p: IptvPlan) -> IptvPlan | None:
 def path_note(p: IptvPlan) -> dict[str, Any]:
     """How the stream reaches the receivers (02 10 ``dut.multicast_path``)."""
     if not p.primed:
-        return {"path": "igmp", "note": "multicast (router IGMP proxy)"}
+        # 2026-11-05 user ("이게 앱에 왜뜨냐고": a router without an IGMP proxy): what was
+        # seen is only that multicast came through, not how the router did it
+        return {"path": "igmp", "note": "multicast came through the router (WAN → LAN)"}
     why = "S-18 On" if p.prime_setting == "On" else "no multicast came through"
     return {"path": "primed", "note": f"primed unicast ({why}): no IGMP proxy on the DUT "
             "(development/SDK build?) — not the real IPTV path"}  # fmt: skip
@@ -1440,6 +1485,9 @@ class IptvRun:
         lambda data: data.get("prepare") or {"busy": False, "channels": []}
     )
     measuring = staticmethod(measuring)
+    warmup_split = staticmethod(warmup_split)
+    logger_settings = staticmethod(logger_settings)  # 16 S-66..S-69
+    logger_reasons = staticmethod(logger_reasons)
     cell_color = staticmethod(cell_color)
     trouble_of = staticmethod(trouble_of)
     on_test_nic = staticmethod(on_test_nic)

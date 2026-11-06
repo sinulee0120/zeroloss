@@ -424,6 +424,7 @@ class IptvModule:
                 kind = self.node.tablets.saved_security(serial, str(on))
             except TabletError:
                 kind = None
+            self._own_mac(device, serial, str(on), kind)
             return HeldWifi(str(on), "Open" if kind == "Open" else None)
         try:
             got = self.node.tablets.join_wifi(serial, str(band["ssid"]),
@@ -438,6 +439,29 @@ class IptvModule:
                                         data={"module": "iptv", "device": device}))  # fmt: skip
         return HeldWifi(str(band["ssid"]), str(band.get("security") or "Open"),
                         str(band.get("password") or ""))  # fmt: skip
+
+    def _own_mac(self, device: str, serial: str, ssid: str, kind: str | None) -> None:
+        """TAB-020 (2026-11-05 user: "앱이 알아서 tablet MAC으로 바꿔라 / 매번 고치기
+        귀찮아"): a tablet the person put on its network by hand joins with a random MAC,
+        and a router that passes the video to registered MACs only gave it nothing. An
+        open network is joined again with the tablet's own MAC; a network with a password
+        cannot be (its password is not known here): said, with how to make it automatic."""
+        if not self.node.tablets.random_mac(serial):
+            return
+        if kind == "Open":
+            try:
+                self.node.tablets.join_wifi(serial, ssid, "Open")
+            except TabletError as e:
+                raise ZlError("TAB-014", f"{device}: could not join {ssid!r} with its own MAC",
+                              e.why, e.fix) from e  # fmt: skip
+            self.node.bus.publish(Event("ZL-INFO", "info",
+                                        f"{device}: joined Wi-Fi {ssid} again with its own MAC",
+                                        data={"module": "iptv", "device": device}))  # fmt: skip
+            return
+        self.node.bus.publish(Event(
+            "ZL-TAB-020", "warn",
+            f"{device}: on Wi-Fi {ssid} with a random MAC, not its own",
+            data={"module": "iptv", "device": device, "ssid": ssid}))  # fmt: skip
 
     def tablet_stop(self, req: Request) -> dict[str, Any]:
         device = _need(req.params, "device", str)
