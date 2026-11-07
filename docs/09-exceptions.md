@@ -157,6 +157,7 @@
 | NET-023 | **LAN 쪽 PC에서 WAN 쪽 송신 PC로 가는 길을 못 만듦**(2026-10-15, 07 6-1, 20장 GAP-158) | 시작 때 송신 주소로 가는 길이 시험 카드로 안 나가고, 그 카드에 공유기 게이트웨이가 없거나 `nmcli device modify`가 실패, 또는 시험 뒤 그 경로를 못 뺌 | 경고만, 시험은 계속(프라임·iperf3가 실패하면 그 단계가 이유를 말함) | "Cannot route to the sender <주소> on <카드>: <이유>" — 그 PC의 시험 카드가 공유기에 붙어 주소·게이트웨이를 받았는지 확인 | - |
 | NET-024 | **시험이 바꾼 카드 설정을 되돌리지 못함**(2026-10-22, 사용자 "설정 원복이 안되면 실패야", 규칙 5) — throughput의 유선 카드 속도·이중(WAN·LAN)이나 Wi-Fi 연결 | 단계가 끝날 때 원복 결과(`ok`/`back`), 정지·노드 재시작 때 남은 카드를 되돌린 결과 | 단계 중이면 그 목록이 SAFETY로 멈춤(다음 카드·밴드로 안 감), 정지·재시작 때면 사건 ✖. 화면 장비 줄에 매 원복 "put back: <카드> ✓ <값>" / "✖ NOT put back" | ✖ "<카드> could not be put back as it was: <이유>" — 그 카드의 선을 뺐다 꽂고 Reset All | 그 시험 FAIL |
 | NET-025 | **송신 PC에 시험이 쓰지 않는 Wi-Fi가 켜져 있음**(2026-10-22: ProBook의 집 인터넷 Wi-Fi(ath9k) 드라이버 리셋 폭주가 송신을 20초 붙잡아 빨강 2칸, 사용자 "팝업만 띄워 툴이나 너가 하지말고 사용자가 끄고 싶으면 끄게") | Start 때 송신 PC의 `links`에 시험 주소가 아닌 Wi-Fi가 주소를 갖고 있음, 또는 시험 중 SND-025가 그런 송신 PC에서 옴 | **경고만, 시험은 계속.** Action Required `human.pc.consider_sender_wifi_off` 팝업(한 시험에 한 번). **ZeroLoss는 끄지 않는다** — 사람이 그 PC에서 끄거나 그대로 둠 | ⚠ "<송신 PC> has Wi-Fi on: <카드> … Turning it off during the test is advised" | - |
+| NET-026 | **무선으로 정한 PC가 유선으로 받음**(2026-11-06: 공유기를 다시 켠 직후 T460의 시험 Wi-Fi 카드에 아직 주소가 없어 그 시험은 케이블로 받았는데 아무 말이 없었음, 사용자 "경고 추가해") | Start 때 행이 Wireless인 PC의 시험 카드(`nics`)가 그 PC `links`에서 유선 카드 | **경고만, 시험은 계속** | ⚠ "<PC> is set to Wireless but receives on its cable <카드> (<주소>): its Wi-Fi card has no address on the test router" | - |
 
 ## 5. 수신 PC (RCV)
 | 코드 | 상황 | 감지 | 처리 | 안내 | 판정 영향 |

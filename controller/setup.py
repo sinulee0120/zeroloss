@@ -258,4 +258,10 @@ def plan_of(setup: dict[str, Any], chosen: dict[str, Any],
     }  # fmt: skip
     if nics:
         plan["nics"] = nics
+    # 2026-11-06 user ("경고 추가해"): a Wireless PC row whose Wi-Fi card had no address on
+    # the test router received on its cable with nothing said; Start warns (NET-026)
+    wireless = sorted(str(r["device"]) for r in rx
+                      if not r.get("serial") and r.get("network") == "Wireless")  # fmt: skip
+    if wireless:
+        plan["wireless_pcs"] = wireless
     return plan

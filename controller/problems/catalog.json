@@ -367,6 +367,11 @@
    "why": "The even-spacing sender on the sender PC could not send on time (another program or a driver held the PC), so the stream left it late.",
    "fix": "Close what else runs on the sender PC; if its Wi-Fi driver logs resets, turn its Wi-Fi off during tests. Losses then are the sender's, not the router's."
   },
+  "ZL-NET-026": {
+   "what": "A PC set to Wireless receives on its cable",
+   "why": "Its row says Wireless, but its Wi-Fi card had no address on the test router at Start (it was still joining, or it is off), so it receives on its cable and the result is a wired one.",
+   "fix": "Wait until the PC's Wi-Fi card is on the test router (its row shows the Wi-Fi address), then press Start again; or set the row to Wired."
+  },
   "ZL-NET-025": {
    "what": "The sender PC has Wi-Fi on that the test does not use",
    "why": "A Wi-Fi driver on the sender PC that resets can hold up the sending for seconds (2026-10-22: ath9k reset storms, the stream reached the receiver 4.8 s late).",

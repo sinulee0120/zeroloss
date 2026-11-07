@@ -1068,12 +1068,27 @@ class RunController:
         if filled:
             self._raw_plan = {**self._raw_plan, "nics": nics}
             self._plan = self._rules.validate(self._raw_plan)
+        for name, nic, ip in self._wireless_on_cable(nics):
+            self._event("ZL-NET-026", "warn", f"{name} is set to Wireless but receives on its "
+                        f"cable {nic} ({ip}): its Wi-Fi card has no address on the test "
+                        "router", name, run_id=self.run_id or "")  # fmt: skip
         for name, _ in roles:  # 2026-10-09: the idle check's "may not go through the
             ip = nics.get(name)  # router" stayed open all run although the card was known
             if isinstance(ip, str) and ip != "wifi" and name in self._net022:
                 self._net022.discard(name)  # only a warning that is open (no log every 30 s)
                 self._event("ZL-INFO", "info", f"{name}: test card {ip}", name,
                             clears=["ZL-NET-022"])  # fmt: skip
+
+    def _wireless_on_cable(self, nics: dict[str, Any]) -> list[tuple[str, str, str]]:
+        """PC rows set to Wireless whose test card is a cable: (name, card, address)."""
+        out = []
+        for name in self._raw_plan.get("wireless_pcs") or []:
+            w = self._watch.get(name)
+            ip = nics.get(name)
+            card = next((x for x in (w.links if w else []) if x.get("ip") == ip), None)
+            if card is not None and not is_wireless(card):
+                out.append((str(name), str(card.get("nic") or "?"), str(ip)))
+        return out
 
     def _adopt_arrivals(self) -> None:
         """Step 5 (2026-10-08 GAP-115 ②): a receiver whose card the Controller could not

@@ -232,6 +232,10 @@ class ResultsWeb:
                         code, kind, body = web.page(urlparse(self.path).path)
                     except Exception:  # a broken page never stops the web
                         code, kind, body = 500, TYPES[".html"], b"<!doctype html><p>Error</p>"
+                # counted before it is sent (2026-11-07): counted after, a viewer that
+                # had the page could look at the count before it was there (the test
+                # failed now and then, and with it a Build commit's check)
+                web.traffic.count(web._running(), len(body))
                 try:
                     self.send_response(HTTPStatus(code))
                     self.send_header("Content-Type", kind)
@@ -241,7 +245,6 @@ class ResultsWeb:
                     self.wfile.write(body)
                 except OSError:
                     return
-                web.traffic.count(web._running(), len(body))
 
             def do_POST(self) -> None:
                 self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)  # read only (02 12)

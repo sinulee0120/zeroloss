@@ -62,7 +62,7 @@ def test_plan_has_the_plan_file_shape() -> None:
     assert p == {"schema_version": 1, "module": "iptv", "test_type": "pc",
                  "devices": {"sender": "tx", "receivers": [{"device": "rx", "ch": 2}]},
                  "quality": "HD", "duration_s": 600, "send_quality_reports": True,
-                 "settings": {"S-49": "Off"}}  # fmt: skip
+                 "settings": {"S-49": "Off"}, "wireless_pcs": ["rx"]}  # fmt: skip
     rx = {"device": "rx", "ch": 2, "network": "Wireless", "buffer_ms": 2000}
     chosen = {"sender": "tx", "receivers": [rx]}  # its own player buffer (2026-10-16)
     assert plan_of(setup, chosen)["devices"]["receivers"] == [
