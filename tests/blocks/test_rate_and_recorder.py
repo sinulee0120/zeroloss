@@ -149,7 +149,10 @@ def test_a_write_error_moves_to_a_new_file_once(tmp_path: Path) -> None:
     r.close("stop")
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ["R1_h000.jsonl", "R1_h000_r1.jsonl"]
-    new = [json.loads(x) for x in (tmp_path / "R1_h000_r1.jsonl").read_text().splitlines()]
+    new = [
+        json.loads(x)
+        for x in (tmp_path / "R1_h000_r1.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert [x.get("e") for x in new if x["type"] == "s"] == [1, 2] and new[-1]["type"] == "footer"
     assert recover(tmp_path) == [tmp_path / "R1_h000.jsonl"]  # the cut file gets its footer
 

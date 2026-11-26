@@ -86,6 +86,25 @@ def test_playback_needs_first_frame() -> None:
     assert a.startup.warmup_seconds == 6
 
 
+def test_own_drops_are_counted_when_the_first_reading_comes_late() -> None:
+    """2026-11-21 review: the socket's drop counter was not readable in the second warm-up
+    ended (None), and the receiver's own drops were never counted after it."""
+    a = StreamAnalyzer(ch=1, join_ns=0, playback=False)
+    it = iter(datagrams(12))
+    pending = next(it, None)
+    readings = {s: None for s in range(1, 6)} | {6: 10, 7: 10, 8: 13, 9: 13}
+    got = {}
+    for sec in range(1, 10):
+        while pending is not None and pending[2] < sec * NS_PER_S:
+            a.on_datagram(pending[1], pending[2])
+            pending = next(it, None)
+        rec = a.second(sec * NS_PER_S, host_drops_total=readings[sec])
+        if rec:
+            got[sec] = rec.get("hd")
+    assert a.measuring
+    assert got[6] is None and got[7] == 0 and got[8] == 3 and got[9] == 0
+
+
 def test_non_rtp_datagrams_are_counted() -> None:
     a = StreamAnalyzer(1, 0, playback=False)
     a.on_datagram(b"\x47" * 1316, 1)

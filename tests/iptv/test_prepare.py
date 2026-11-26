@@ -20,6 +20,7 @@ from modules.iptv.sender.commands import QUALITIES, prepare_command, send_comman
 from modules.iptv.sender.prepare import FRAME_S, Preparer, check_prepared, generated_path
 from modules.iptv.sender.sources import av_end_gap
 from tests.conftest import _ours_alive
+from tests.iptv import procs
 
 HD = QUALITIES["HD"]
 MUX = HD.muxrate_bps
@@ -255,7 +256,7 @@ def test_makes_checks_keeps_then_reuses(tmp_path: Path, bus: Any) -> None:
     for ch in (1, 3):
         path = p.ready("HD", ch, MUX)
         assert path == generated_path(p.folder, "HD", ch, MUX)
-        desc = json.loads(path.with_suffix(".json").read_text())
+        desc = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
         assert desc["check"] == [] and desc["key"]["ch"] == ch and len(desc["sha256"]) == 64
     assert leftovers(p) == []
     assert p.request("HD", MUX, [1]) == [{"ch": 1, "state": "ready"}]  # not made twice
@@ -305,9 +306,7 @@ def test_cancel_removes_the_file_being_made(tmp_path: Path, bus: Any) -> None:
 
 def test_no_progress_fails_and_stops_the_program(tmp_path: Path, bus: Any) -> None:
     b, seen = bus
-    fake = tmp_path / "ffmpeg"
-    fake.write_text("#!/bin/sh\nsleep 30\n")
-    fake.chmod(0o755)
+    fake = procs.fake_program(tmp_path, "ffmpeg", "sleep 30", "ping -n 31 127.0.0.1 >nul")
     p = make(tmp_path, b, ffmpeg=str(fake), stall_s=1.0)
     p.request("HD", MUX, [1])
     st = wait_idle(p, 20)
@@ -325,9 +324,8 @@ def test_not_enough_disk_fails_before_starting(tmp_path: Path, bus: Any) -> None
 
 
 def test_ffmpeg_error_is_reported(tmp_path: Path, bus: Any) -> None:
-    fake = tmp_path / "ffmpeg"
-    fake.write_text("#!/bin/sh\necho 'Unknown encoder' >&2\nexit 1\n")
-    fake.chmod(0o755)
+    fake = procs.fake_program(tmp_path, "ffmpeg", "echo 'Unknown encoder' >&2\nexit 1",
+                        "echo Unknown encoder 1>&2\r\nexit /b 1")  # fmt: skip
     p = make(tmp_path, bus[0], ffmpeg=str(fake))
     p.request("HD", MUX, [2])
     err = wait_idle(p, 10)["channels"][0]["error"]

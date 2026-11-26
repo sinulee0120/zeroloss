@@ -185,7 +185,7 @@
 ```
 ```json
 { "jobs": [ { "id": "R20260926-120000/rx-pc/ch1/player", "module": "iptv", "kind": "player",
-              "config": { "url": "rtp://@239.1.1.1:5004", "nic": "enp0s31f6", "buffer_ms": 1000, "window": "Medium (1280×720)", "headless": false, "lowered": false, "flowing": true } } ],
+              "config": { "url": "rtp://@239.1.1.1:5004", "nic": "enp0s31f6", "local_ip": "192.168.1.237", "buffer_ms": 1000, "window": "Medium (1280×720)", "headless": false, "lowered": false, "flowing": true } } ],
   "node_boot_id": "…" }
 ```
 ```json
@@ -198,7 +198,7 @@
 - `GET /v1/desktop/status` → `{"node": <health>, "controller": {"connected", "last_seen_s"}, "my_ips": [{"nic", "ip", "wireless"}], "wan": {"mode", "state", "nic", "why"}(4장 `GET /v1/wan`의 일부, 20장 W-4), "module_data": {<모듈 id>: 2장 heartbeat와 같은 값}, "problems": [최근 warn·error 사건 10개]}`. 상태 창은 이것만 그린다.
 - `GET /v1/desktop/jobs` params `desktop_id` → `{"jobs": [{"id", "module", "kind": "player", "config": {…}}], "node_boot_id"}` — 노드가 지금 원하는 화면 작업 전부. 부르면 그 Desktop이 연결된 것으로 본다(3초).
 - `POST /v1/desktop/report` params `desktop_id`, `reports`: `[{"id", "state": "IDLE"|"STARTING"|"RUNNING"|"STOPPING"|"FAULT", "seq", "events": [{"code", "level", "text"}], …작업 종류의 값}]` → `{"accepted": [id…]}`. **명령이 아니라 보고**: `command_id`·세대를 쓰지 않고(명령 기억을 밀어내지 않게), 같은 보고를 두 번 보내도 결과가 같다(같은 `seq`는 한 번만). 목록에 없는 id는 버린다(G-13). 사건은 노드 사건 흐름으로 다시 낸다(12 4-1, `data.from` = `desktop`).
-  - 재생기(`kind: player`) 값: `"second": {"playback", "dropped", "audio_gaps", "stall_started", "restarted", "decode_errors", "decoder_dropped"}`(`decode_errors`: 그 초 디코더 오류 수, 2026-10-10 GAP-152; `decoder_dropped`: `dropped` 중 디코더 단계에서 버린 수, 재지 못하면 `null`, 2026-10-23 GAP-180)(iptv 3.1 값, 재생기 자체 보고), `"first_frame"`, `"lowered"`(RCV-016). 작업 `config`: `{"url", "nic", "buffer_ms", "window", "headless", "lowered"}`.
+  - 재생기(`kind: player`) 값: `"second": {"playback", "dropped", "audio_gaps", "stall_started", "restarted", "decode_errors", "decoder_dropped"}`(`decode_errors`: 그 초 디코더 오류 수, 2026-10-10 GAP-152; `decoder_dropped`: `dropped` 중 디코더 단계에서 버린 수, 재지 못하면 `null`, 2026-10-23 GAP-180)(iptv 3.1 값, 재생기 자체 보고), `"first_frame"`, `"lowered"`(RCV-016). 작업 `config`: `{"url", "nic", "local_ip", "buffer_ms", "window", "headless", "lowered"}`(`local_ip`: 시험 카드 주소 — Linux가 아니면 카드 이름을 몰라 재생기가 이 주소로 가입, 2026-11-21 검토: Windows 재생기가 집 카드로 가입해 아무것도 안 보였음).
   - 재생기 작업 `config.flowing`(2026-10-24 GAP-181): 노드가 이 채널에 패킷이 들어오는지(`true`) 안 들어오는지(`false`, 그 초 수신 0) 알려 준다. 처음은 `null`(모름 — 예전처럼). 바뀔 때만 고친다. 재생기는 `false`인 동안 프레임이 안 늘어도 재시작하지 않고, 그동안의 재시작은 한도(RCV-003, 3회/시간)에 세지 않으며, 한도로 멈춘 재생기는 `false`→`true`(패킷이 돌아옴)에서 다시 켠다(09 RCV-020).
 - 모듈 상태 줄(`desktop_entry.status_rows`, 12 2): `[{"title", "color": "green"|"yellow"|"red"|"grey", "big": [[이름, 값]…], "lines": [...], "role": "sender"|"receiver", "detail": {"key", "line"} | null}]` — `detail`은 [Details] 목록의 그 초 한 줄(`key`로 한 번만).
 - 한 PC에 Desktop 하나: 다른 `desktop_id`가 3초 안에 부르면 DSC-012로 거절.

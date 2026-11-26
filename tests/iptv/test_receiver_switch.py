@@ -70,7 +70,7 @@ def make(tmp_path: Path, bus: EventBus, port: int, **kw: Any) -> ReceiverSession
 
 def rows(tmp_path: Path, name: str = "R1_h000.jsonl") -> list[dict[str, Any]]:
     path = tmp_path / "raw" / "pc" / name
-    return [json.loads(x) for x in path.read_text().splitlines()]
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()]
 
 
 def wait_for(pred: Any, timeout_s: float) -> bool:
@@ -105,7 +105,10 @@ def test_switch_keeps_real_time_clock_and_writes_the_zap(tmp_path: Path) -> None
     new = [r for r in secs if r["ch"] == 2]
     assert old and new
     assert new[0]["e"] - old[-1]["e"] >= 3  # warm-up of the switch is a gap, not a shift
-    zaps = [json.loads(x) for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text().splitlines()]
+    zaps = [
+        json.loads(x)
+        for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert len(zaps) == 1
     z = zaps[0]
     assert (z["from"], z["to"], z["join_method"], z["mode"]) == (1, 2, "A", "manual")
@@ -137,7 +140,10 @@ def test_switch_to_a_silent_group_is_a_join_failure_and_records_go_on(tmp_path: 
         s.stop()
     secs = [r for r in rows(tmp_path) if r["type"] == "s" and r["ch"] == 2]
     assert secs and all(r["rx"] == 0 for r in secs)  # the cell turns red from these
-    zaps = [json.loads(x) for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text().splitlines()]
+    zaps = [
+        json.loads(x)
+        for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert zaps[-1]["join_failed"] is True and zaps[-1]["success"] is False
     assert any(r.get(k.ZAP_JOIN_FAILED) == 1 for r in secs)
     assert s.flow.state is State.IDLE
@@ -170,7 +176,10 @@ def test_stop_during_a_switch_closes_the_zap_and_files(tmp_path: Path) -> None:
         s.switch(2, G2, p2)
         s.stop()  # the zap is still waiting for its basis time
     assert s.flow.state is State.IDLE
-    zaps = [json.loads(x) for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text().splitlines()]
+    zaps = [
+        json.loads(x)
+        for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert zaps[-1]["end"] in ("done", "stopped")
     assert rows(tmp_path)[-1]["end_reason"] == "stop"
 
@@ -187,7 +196,10 @@ def test_second_switch_supersedes_the_open_zap(tmp_path: Path) -> None:
         s.switch(1, G1, p1)  # at once, before the first one ended
         time.sleep(1)
         s.stop()
-    zaps = [json.loads(x) for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text().splitlines()]
+    zaps = [
+        json.loads(x)
+        for x in (tmp_path / "raw/pc/R1_zaps.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert [(z["from"], z["to"]) for z in zaps][:2] == [(1, 2), (2, 1)]
     assert zaps[0]["end"] == "superseded"
     es = [r["e"] for r in rows(tmp_path) if r["type"] == "s"]
@@ -213,7 +225,7 @@ def test_leave_check_marks_a_router_that_keeps_sending(
         assert wait_for(zaps.exists, 20)
         time.sleep(2)
         s.stop()
-    z = json.loads(zaps.read_text().splitlines()[0])
+    z = json.loads(zaps.read_text(encoding="utf-8").splitlines()[0])
     assert z["leave_check"] == state
     assert (z["t_last_old_packet"] is not None) is True
     has_event = any(e.code == "ZL-NET-005" for e in events)
@@ -239,7 +251,9 @@ def test_held_group_is_not_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         zaps = tmp_path / "raw/pc/R1_zaps.jsonl"
         assert wait_for(zaps.exists, 20)
         s.stop()
-    assert json.loads(zaps.read_text().splitlines()[0])["leave_check"] == "not_checked"
+    assert (
+        json.loads(zaps.read_text(encoding="utf-8").splitlines()[0])["leave_check"] == "not_checked"
+    )
 
 
 def test_wifi_keys_follow_the_receiving_card(tmp_path: Path) -> None:

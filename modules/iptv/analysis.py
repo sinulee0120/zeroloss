@@ -449,13 +449,16 @@ def _from_seconds(out: Out, data: dict[str, Any]) -> None:
         marks = _at(events, *codes)
         if rule == "R-19":  # a Wi-Fi drop is R-20/R-21's, not a cable's
             marks = [m for m in marks if m not in {(d, t) for d, t, _ in _wifi_back(events)}]
+        # 2026-11-26 review: a receiver's own link explains only its own loss; another
+        # receiver's cable or Wi-Fi did not (the sender's, or any other PC's, may: all)
         hits = [
             x
             for x in lost
-            for _, t in marks
-            if (window is None and 0 <= x.start_s - t <= 300)
-            or (window is not None and abs(x.start_s - t) <= window)
-        ]
+            for d, t in marks
+            if (d == x.device or d not in receivers)
+            and ((window is None and 0 <= x.start_s - t <= 300)
+                 or (window is not None and abs(x.start_s - t) <= window))
+        ]  # fmt: skip
         if hits:
             out.add(
                 rule,
@@ -473,8 +476,14 @@ def _alone(out: Out, lost: list[Loss], seconds: dict[str, list[dict[str, Any]]],
     lost packets while another receiver on the same channel got every one -> the cause is
     on that receiver's side (its Wi-Fi, the device), not the router or the sender. A
     tablet that scanned for Wi-Fi in those seconds (``wsc``, TAB-018) is named."""
-    by_key = {k: {int(x["e"]) + offsets[k]: x for x in v if x.get("type") == "s"}
-              for k, v in seconds.items() if k in offsets}  # fmt: skip
+    # on the run clock: each receiver's seconds start at its own fraction (offsets like
+    # 28.032 and 28.422), so a peer's seconds are the ones that overlap the loss, never
+    # the same keys (2026-11-26: R-24 never fired on a real run, R20261122-223747)
+    by_key = {
+        k: sorted(((int(x["e"]) + offsets[k], x) for x in v if x.get("type") == "s"),
+                  key=lambda tx: tx[0])
+        for k, v in seconds.items() if k in offsets
+    }  # fmt: skip
     hits: list[tuple[Loss, list[str], bool]] = []
     for x in lost:
         peers = []
@@ -482,14 +491,15 @@ def _alone(out: Out, lost: list[Loss], seconds: dict[str, list[dict[str, Any]]],
             dev, _, ch = key.rpartition("|")
             if dev == x.device or int(ch or 0) != x.ch:
                 continue
-            window = [at.get(t) for t in range(int(x.start_s), int(x.end_s) + 1)]
-            if window and all(r is not None and int(r.get("lost") or 0) == 0
-                              and int(r.get("rx") or 0) > 0 for r in window):  # fmt: skip
+            window = _overlapping(at, x.start_s, x.end_s)
+            whole = len(window) >= round(x.end_s - x.start_s) + 1  # no second missing
+            if whole and all(int(r.get("lost") or 0) == 0 and int(r.get("rx") or 0) > 0
+                             for r in window):  # fmt: skip
                 peers.append(dev)
         if peers:
-            mine = by_key.get(f"{x.device}|{x.ch}", {})
-            scanned = any(int((mine.get(t) or {}).get("wsc") or 0) > 0
-                          for t in range(int(x.start_s) - 1, int(x.end_s) + 2))  # fmt: skip
+            mine = by_key.get(f"{x.device}|{x.ch}", [])
+            scanned = any(int(r.get("wsc") or 0) > 0
+                          for r in _overlapping(mine, x.start_s - 1, x.end_s + 1))  # fmt: skip
             hits.append((x, peers, scanned))
     if not lost:
         out.lack("R-24", "no loss")
@@ -502,17 +512,30 @@ def _alone(out: Out, lost: list[Loss], seconds: dict[str, list[dict[str, Any]]],
     x, peers, _ = hits[0]
     why = (f" {scans} of them in seconds the tablet scanned for Wi-Fi: its radio left the "
            "channel (TAB-018).") if scans else ""  # fmt: skip
+    if len(devices) == 1:
+        where = (f"{len(hits)} loss burst(s) on {devices[0]} only, while {', '.join(peers)} "
+                 "on the same channel got every packet")  # fmt: skip
+    else:  # each burst on one receiver, at different times (R20261122-223747)
+        count = {d: sum(1 for y, _, _ in hits if y.device == d) for d in devices}
+        each = ", ".join(f"{d} {n}" for d, n in sorted(count.items(), key=lambda kv: -kv[1]))
+        where = (f"{len(hits)} loss burst(s), each on one receiver only while the others on "
+                 f"its channel got every packet ({each})")  # fmt: skip
     out.add(
         "R-24",
         "Receiver",
         "high",
-        f"{len(hits)} loss burst(s) on {', '.join(devices)} only, while {', '.join(peers)} on "
-        f"the same channel got every packet: the cause is on that receiver's side (its "
-        f"Wi-Fi or the device), not the router or the sender.{why} Next: check that "
-        "receiver (its Wi-Fi scans, power saving, place).",
+        f"{where}: the cause is on that receiver's side (its Wi-Fi or the device), not the "
+        f"router or the sender.{why} Next: check that receiver (its Wi-Fi scans, power "
+        "saving, place).",
         devices,
         x.start_s,
     )
+
+
+def _overlapping(at: list[tuple[float, dict[str, Any]]], start_s: float,
+                 end_s: float) -> list[dict[str, Any]]:  # fmt: skip
+    """The 1-second lines (run time of their start, line) that overlap [start_s, end_s + 1)."""
+    return [r for t, r in at if start_s - 1 < t < end_s + 1]
 
 
 def _held_and_released(

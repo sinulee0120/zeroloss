@@ -56,7 +56,9 @@ def test_every_build_command_stamps_a_new_version(tmp_path: Path, monkeypatch: A
     order: list[str] = []
 
     def fake_build(mid: str, out: Path) -> Path:
-        order.append("build " + stamp.read_text().strip())  # the stamp it builds with
+        order.append(
+            "build " + stamp.read_text(encoding="utf-8").strip()
+        )  # the stamp it builds with
         return out / "x.zlm"
 
     monkeypatch.setattr(build, "build_module", fake_build)
@@ -66,4 +68,4 @@ def test_every_build_command_stamps_a_new_version(tmp_path: Path, monkeypatch: A
     assert order == ["build 20260926.1605"]
     stamp.write_text("20260923.2359\n", encoding="ascii")
     assert build.main(["b", "module"], stamp) == 6  # usage: nothing stamped, nothing built
-    assert stamp.read_text().strip() == "20260923.2359" and len(order) == 1
+    assert stamp.read_text(encoding="utf-8").strip() == "20260923.2359" and len(order) == 1

@@ -219,18 +219,39 @@ class ReceiverService : Service() {
         if (bufferMs !in BUFFER_RANGE_MS) {
             throw ApiError(400, "ZL-DSC-012", "Request rejected", "buffer_ms must be 300..5000, got $bufferMs")
         }
+        val prime = params.optJSONObject("prime")?.let { Prime.of(it) }
         stopReceiving()
         // a new test: the earlier records go (2026-10-31 user: "메모리 쌓이지 않게"); the seq
         // numbers go on, so the receiving PC still takes only what comes after this start
         synchronized(records) { records.clear() }
         holdWifi()
         val j = Receiving(group, port, StreamAnalyzer(ch), if (play) TsPipe() else null, bufferMs, ::keep, monitor,
-            ::wifiReading)
+            ::wifiReading, prime)
         job = j
         j.start()
         j.pipe?.let { pipe -> main.post { if (job === j) channelPlayer = ChannelPlayer(this, pipe, bufferMs, monitor) } }
         return JSONObject().put("receiving", true).put("group", group).put("port", port).put("ch", ch)
-            .put("play", play).put("buffer_ms", bufferMs)
+            .put("play", play).put("buffer_ms", bufferMs).put("primed", prime != null)
+    }
+
+    /** iptv 4.5 (2026-11-26, a router without IGMP proxy): the channel as unicast through
+     *  the router's NAT. From the receive port, a small packet to the sender's P (opens a
+     *  port-restricted NAT) and Q (the sender learns where to send); 3 more at 1 s, then
+     *  every 10 s so the NAT keeps the path; at the end the stop, to Q only. */
+    private class Prime(val sender: InetAddress, val p: Int, val q: Int, val payload: ByteArray,
+                        val stop: ByteArray) {
+        companion object {
+            const val EVERY_MS = 10_000L
+            fun of(j: JSONObject): Prime {
+                val ip = j.optString("sender_ip")
+                val payload = j.optString("payload")
+                if (ip.isEmpty() || payload.isEmpty() || j.optInt("p") <= 0 || j.optInt("q") <= 0) {
+                    throw ApiError(400, "ZL-DSC-012", "Request rejected", "prime needs sender_ip, p, q, payload")
+                }
+                return Prime(InetAddress.getByName(ip), j.optInt("p"), j.optInt("q"),
+                    payload.toByteArray(Charsets.US_ASCII), j.optString("stop").toByteArray(Charsets.US_ASCII))
+            }
+        }
     }
 
     private fun stopReceiving(): Boolean {
@@ -285,6 +306,7 @@ class ReceiverService : Service() {
         private val keep: (JSONObject) -> Unit,
         private val monitor: PlaybackMonitor,
         private val wifiNow: (() -> Triple<Int?, Int?, Int?>?)? = null,
+        private val prime: Prime? = null,
     ) {
         private val wifi = com.zeroloss.receiver.measure.WifiKeys()
         @Volatile private var stopped = false
@@ -295,9 +317,28 @@ class ReceiverService : Service() {
             val s = MulticastSocket(InetSocketAddress(port))
             s.receiveBufferSize = 8 shl 20
             s.soTimeout = 500
-            val nif = wifiInterface()
-            s.joinGroup(InetSocketAddress(InetAddress.getByName(group), port), nif)
+            if (prime == null) {
+                val nif = wifiInterface()
+                s.joinGroup(InetSocketAddress(InetAddress.getByName(group), port), nif)
+            }
             socket = s
+            prime?.let { pr ->
+                thread(name = "zl-prime", isDaemon = true) {
+                    val waits = ArrayDeque(listOf(0L, 1000L, 1000L, 1000L))
+                    while (!stopped) {
+                        val wait = waits.removeFirstOrNull() ?: Prime.EVERY_MS
+                        if (wait > 0) Thread.sleep(wait)
+                        if (stopped) break
+                        for (port in intArrayOf(pr.p, pr.q)) {
+                            try {
+                                s.send(DatagramPacket(pr.payload, pr.payload.size, pr.sender, port))
+                            } catch (e: Exception) {
+                                // the next try in 10 s; the sender stops after 30 s (SND-021)
+                            }
+                        }
+                    }
+                }
+            }
             thread(name = "zl-receive", isDaemon = true) {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) // receiving first
                 val buf = ByteArray(2048)
@@ -333,6 +374,12 @@ class ReceiverService : Service() {
 
         fun stop() {
             stopped = true
+            prime?.let { pr -> // the sender stops this flow now, not after 30 s (iptv 4.5)
+                if (pr.stop.isNotEmpty()) try {
+                    socket?.send(DatagramPacket(pr.stop, pr.stop.size, pr.sender, pr.q))
+                } catch (e: Exception) {
+                }
+            }
             socket?.close()
             pipe?.close()
         }

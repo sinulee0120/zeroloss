@@ -18,6 +18,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -52,7 +53,10 @@ TABLET_TOOLS = Path("/opt/zeroloss/tools/platform-tools")  # the node's adb (too
 
 
 def _node_owns(path: Path) -> None:
-    """A copy or folder the Deployer makes for the node is the node account's (06 4.3)."""
+    """A copy or folder the Deployer makes for the node is the node account's (06 4.3).
+    Windows: both services run as LocalSystem, nothing to change (no ``chown`` there)."""
+    if sys.platform == "win32":
+        return
     with contextlib.suppress(LookupError, OSError):
         shutil.chown(path, "zeroloss", "zeroloss")
 

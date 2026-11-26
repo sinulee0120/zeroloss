@@ -707,6 +707,11 @@ class Node:
         if self.flow.state in ACTIVE:
             raise ZlError("RUN-012", "The ISP role can change only between tests", "A test runs.")
         on, nic, auto = req.params.get("on"), req.params.get("nic"), req.params.get("auto")
+        if req.params.get("move") is True:  # the router uses our range itself (2026-11-26)
+            try:
+                return self.wan.move(str(req.params.get("why") or ""))
+            except ValueError as e:
+                raise ZlError("RUN-012", "The router WAN side cannot move now", str(e)) from None
         if auto is True and on is None and nic is None:
             return self.wan.set(None)  # back to automatic (07 3.2 B)
         if not isinstance(on, bool) or not (nic is None or isinstance(nic, str)):
@@ -893,17 +898,27 @@ class Node:
         return {"accepted": self.desktop.report(str(params.get("desktop_id", "")), reports)}
 
     def _watchdog(self) -> None:
+        """CTL-008 (stop when the Controller is silent), RCV-008 (disk). 2026-11-21 review:
+        one unexpected error ended this thread, and with it the stop of a test whose
+        Controller had gone -- it is said once (SYS-008) and the watch goes on."""
         next_disk = 0.0
+        told = False
         while not self._closing.wait(min(WATCH_INTERVAL_S, self.disk_check_s)):
-            if self.awake_until and time.monotonic() >= self.awake_until:
-                self.awake_until = 0.0
-                self.want_awake("in a test", False)  # the Controller stopped saying so
-            why = self.silence_stop(time.monotonic())
-            if why:
-                self.safe_stop(why)
-            if time.monotonic() >= next_disk:
-                next_disk = time.monotonic() + self.disk_check_s
-                self._check_disk()
+            try:
+                if self.awake_until and time.monotonic() >= self.awake_until:
+                    self.awake_until = 0.0
+                    self.want_awake("in a test", False)  # the Controller stopped saying so
+                why = self.silence_stop(time.monotonic())
+                if why:
+                    self.safe_stop(why)
+                if time.monotonic() >= next_disk:
+                    next_disk = time.monotonic() + self.disk_check_s
+                    self._check_disk()
+            except Exception as e:
+                if not told:
+                    told = True
+                    self.bus.publish(Event("ZL-SYS-008", "warn",
+                                           f"Node watch error, it goes on: {e!r}"))  # fmt: skip
 
     def silence_stop(self, now: float) -> str | None:
         """F11 / CTL-008: the reason to stop because the Controller is silent, else None.
@@ -1026,29 +1041,46 @@ class Node:
     def _awake_loop(self) -> None:
         """SYS-005: probe once, then hold the sleep inhibitor while in a test. SYS-012:
         the same for automatic time sync; one a crash left off goes back on first."""
-        self.sleep_guard.probe()
-        self._time_sync_back()
+        told = False
+        try:
+            self.sleep_guard.probe()
+            self._time_sync_back()
+        except Exception as e:  # 2026-11-21 review: said; the loop below still runs
+            told = True
+            self.bus.publish(Event("ZL-SYS-008", "warn", f"Sleep/time-sync check error: {e!r}"))
         while True:
             self._awake_changed.wait()
             self._awake_changed.clear()
-            if self._closing.is_set():
-                self.sleep_guard.release()
-                self._time_sync_back()
-                return
-            if self._awake_wanted:
-                why = self.sleep_guard.hold()
-                if why:
-                    text = f"Could not keep this PC awake during the test: {why}"
-                    self.bus.publish(Event("ZL-SYS-005", "warn", text))
-                why = self.time_sync.hold()
-                if why and sys.platform != "win32":  # Windows: told in the status only
-                    self.bus.publish(Event(
-                        "ZL-SYS-012", "warn",
-                        f"Could not hold this PC's time sync during the test: {why}",
-                    ))  # fmt: skip
-            else:
-                self.sleep_guard.release()
-                self._time_sync_back()
+            try:
+                if self._awake_step():
+                    return
+            except Exception as e:  # one error must not leave the PC unheld or NTP off
+                if not told:
+                    told = True
+                    text = f"Sleep/time-sync hold error, it goes on: {e!r}"
+                    self.bus.publish(Event("ZL-SYS-008", "warn", text))
+
+    def _awake_step(self) -> bool:
+        """One change of "awake wanted"; True when the node is closing (all put back)."""
+        if self._closing.is_set():
+            self.sleep_guard.release()
+            self._time_sync_back()
+            return True
+        if self._awake_wanted:
+            why = self.sleep_guard.hold()
+            if why:
+                text = f"Could not keep this PC awake during the test: {why}"
+                self.bus.publish(Event("ZL-SYS-005", "warn", text))
+            why = self.time_sync.hold()
+            if why and sys.platform != "win32":  # Windows: told in the status only
+                self.bus.publish(Event(
+                    "ZL-SYS-012", "warn",
+                    f"Could not hold this PC's time sync during the test: {why}",
+                ))  # fmt: skip
+        else:
+            self.sleep_guard.release()
+            self._time_sync_back()
+        return False
 
     def _time_sync_back(self) -> None:
         back = self.time_sync.release()
@@ -1099,7 +1131,11 @@ def _free_mb(path: Path) -> int | None:
 
 
 def _prefix_of(ip: str) -> int | None:
-    """Prefix length of the NIC that has ``ip`` (Linux), else None."""
+    """Prefix length of the NIC that has ``ip``, else None."""
+    if ip and sys.platform == "win32":  # card names are Linux's (2026-11-21)
+        from core.blocks.win_links import prefix_of
+
+        return prefix_of(ip)
     nic = nic_of(ip) if ip else None
     mask = ipv4_netmask(nic) if nic else None
     if mask is None:

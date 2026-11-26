@@ -28,6 +28,7 @@ import contextlib
 import dataclasses
 import os
 import shutil
+import sys
 import threading
 import time
 from collections import deque
@@ -60,6 +61,10 @@ from modules.iptv.sender.prime import prime_payload, stop_payload
 from modules.iptv.summary_rules import make_summarizer, shape
 from modules.iptv.warmup import START_MAX_S
 
+# the session's own clock (ticks, channel-change times): 2026-11-21 review, Windows'
+# monotonic clock moves in 15.6 ms steps, so a Windows zap's times were 15 ms off and out
+# of order; elsewhere the high-resolution counter (Linux as before)
+_mono = time.monotonic if sys.platform.startswith("linux") else time.perf_counter
 CPU_BUSY_PCT = 90.0  # RCV-016 (05 4.2-1)
 REJOIN_AFTER_S = 3  # seconds with nothing before the group is joined again
 CPU_BUSY_S = 10
@@ -162,7 +167,7 @@ class ReceiverSession:
         self._switching = False
         self._tick_n = 0
         self._e0: int | None = None
-        self._mono0 = time.monotonic()
+        self._mono0 = _mono()
         self._lost_carry = 0  # loss of the analyzers already closed (heartbeat lost_total)
         self._rx_stop = threading.Event()  # ends the receive thread of one channel
         self._zap: Zap | None = None
@@ -318,10 +323,10 @@ class ReceiverSession:
                 self._crash(e)
 
     def _second_loop(self) -> None:
-        next_tick = time.monotonic() + 1.0
+        next_tick = _mono() + 1.0
         self._mono0 = next_tick - 1.0
         try:
-            while not self._halt.wait(max(0.0, next_tick - time.monotonic())):
+            while not self._halt.wait(max(0.0, next_tick - _mono())):
                 next_tick += 1.0
                 self._one_second()
         except RecordWriteError as e:  # 09 RCV-009: a new file failed too -> stop
@@ -753,7 +758,7 @@ class ReceiverSession:
 
     def _e_now(self) -> float:
         e0 = self._e0 if self._e0 is not None else 1
-        return time.monotonic() - self._mono0 - (e0 - 1)
+        return _mono() - self._mono0 - (e0 - 1)
 
     def _e_of_ns(self, ns: int) -> float:
         return self._e_now() - (clock_ns() - ns) / NS_PER_S
@@ -815,6 +820,7 @@ class ReceiverSession:
             url=f"rtp://@:{player_port}" if primed else f"rtp://@{self.cfg.group}:{self.cfg.port}",
             work_dir=self._player_dir,
             nic=None if primed else nic_of(self.cfg.interface_ip),
+            local_ip=None if primed else self.cfg.interface_ip,
             buffer_ms=int(pb.get("buffer_ms", DEFAULTS["S-25"])),
             window=str(pb.get("window", DEFAULTS["S-50"])),
             headless=os.environ.get("ZEROLOSS_PLAYER_HEADLESS") == "1",  # tests only

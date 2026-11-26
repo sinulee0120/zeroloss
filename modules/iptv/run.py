@@ -97,6 +97,15 @@ class IptvPlan:
         """Primed copies per receiver: analyzer, plus the player when playback is on."""
         return (0, 1) if self.playback is not None else (0,)
 
+    def flows_of(self, device: str) -> tuple[int, ...]:
+        """A tablet's app plays from the packets it measures: one primed copy (iptv 4.5)."""
+        return (0,) if device in self.tablets else self.flows
+
+    def slot_of(self, device: str) -> int:
+        """2026-11-26: the receiver's own primed ports (its place in the list): several
+        receivers on one channel each get their stream, never one another's."""
+        return next(i for i, (d, _) in enumerate(self.receivers) if d == device)
+
 
 def _bad(setting: str, rule: str) -> ZlError:
     return ZlError(
@@ -220,7 +229,7 @@ def validate(plan: dict[str, Any]) -> IptvPlan:
         prime_setting=str(prime),
         sources=sources,
         whole_movie=length == "Whole movie",
-        primed=prime == "On" and not tablets,  # tablets get the multicast (iptv 4.5: PCs)
+        primed=prime == "On",  # tablets too since 2026-11-26 (iptv 4.5: the app primes)
         sender_ip=_sender_ip(plan, sender),
         on_air=on_air,
         always_on=broadcast == "Always-on",
@@ -283,10 +292,14 @@ def _sender_ip(plan: dict[str, Any], sender: str) -> str | None:
     return None
 
 
-def prime_ports(port: int, ch: int, flow: int) -> tuple[int, int, int]:
+MAX_SLOTS = 4  # receivers in one test (three tablets and one PC)
+
+
+def prime_ports(port: int, ch: int, flow: int, slot: int = 0) -> tuple[int, int, int]:
     """(P, Q, R) of iptv 4.5: tsp sends from P, the sender hears primes on Q, the
-    receiver listens on R. Distinct for every channel and flow, even on one PC."""
-    base = port + 100 * ch + 10 * flow
+    receiver listens on R. Distinct for every channel, flow and receiver (``slot``,
+    2026-11-26: two receivers on one channel had the same ports), even on one PC."""
+    base = port + 100 * ch + 20 * slot + 10 * flow
     return base, base + 1, base + 2
 
 
@@ -406,6 +419,10 @@ def _tablet_start(p: IptvPlan, device: str, ch: int) -> Step:
               "buffer_ms": p.buffers.get(device, p.tablet_buffer_ms)}  # fmt: skip
     if device in p.tablet_wifi:  # the Controller adds the band's password (never in the plan)
         params["bands"] = [p.tablet_wifi[device]]
+    if p.primed:  # 2026-11-26: a router without IGMP proxy -- the app primes (iptv 4.5)
+        pp, q, r = prime_ports(p.port, ch, 0, p.slot_of(device))
+        params["port"] = r
+        params["prime"] = {"sender_ip": p.sender_ip, "p": pp, "q": q}
     # joining a Wi-Fi waits up to 30 s (TAB-014) before the app starts
     return Step(host, f"{PREFIX}/tablet/start", params, timeout_s=75.0)
 
@@ -423,17 +440,17 @@ def _primed_start_steps(p: IptvPlan) -> list[list[Step]]:
                 **({"length": "whole"} if ch in p.sources and p.whole_movie else {}),
                 "muxrate_bps": p.muxrate_bps,
                 "ttl": p.ttl,
-                "prime": dict(zip(("p", "q"), prime_ports(p.port, ch, f)[:2], strict=True))
-                | {"flow": f},
+                "prime": dict(zip(("p", "q"), prime_ports(p.port, ch, f, slot)[:2], strict=True))
+                | {"flow": f, **({"slot": slot} if slot else {})},
                 **({"local_address": p.nics[p.sender]} if p.sender in p.nics else {}),
             },
             timeout_s=15.0,
         )
-        for ch in _primed_channels(p)
-        for f in p.flows
+        for slot, device, ch in _primed_flows(p)
+        for f in p.flows_of(device)
     ]
     receivers = [
-        Step(
+        _tablet_start(p, device, ch) if device in p.tablets else Step(
             device,
             f"{PREFIX}/receiver/start",
             {
@@ -445,30 +462,35 @@ def _primed_start_steps(p: IptvPlan) -> list[list[Step]]:
                 "warmup_max_s": p.warmup_max_s,
                 "playback": p.playback_of(device),
                 "evidence": p.evidence,
-                "prime": _receiver_prime_params(p, ch),
+                "prime": _receiver_prime_params(p, ch, device),
                 **({"interface_ip": p.nics[device]} if device in p.nics else {}),
             },
         )
         for device, ch in p.receivers
-    ]
+    ]  # fmt: skip
     return [senders, receivers]
 
 
-def _receiver_prime_params(p: IptvPlan, ch: int) -> dict[str, Any]:
+def _receiver_prime_params(p: IptvPlan, ch: int, device: str) -> dict[str, Any]:
+    slot = p.slot_of(device)
     return {
         "sender_ip": p.sender_ip,
         "flows": [
-            dict(zip(("p", "q", "r"), prime_ports(p.port, ch, f), strict=True)) | {"f": f}
-            for f in p.flows
+            dict(zip(("p", "q", "r"), prime_ports(p.port, ch, f, slot), strict=True)) | {"f": f}
+            for f in p.flows_of(device)
         ],
     }
 
 
-def _primed_channels(p: IptvPlan) -> list[int]:
-    """A primed flow sends to one receiver: one per receiver, plus the other channels on
-    air that a receiver may change to (F19)."""
-    mine = [ch for _, ch in p.receivers]
-    return mine + [ch for ch in p.on_air if ch not in mine]
+def _primed_flows(p: IptvPlan) -> list[tuple[int, str, int]]:
+    """(slot, receiver, channel) the sender keeps a primed flow for: each receiver on its
+    own channel, and a PC also on the other channels on air it may change to (F19).
+    Nothing is sent until that receiver primes it."""
+    out = []
+    for slot, (device, ch) in enumerate(p.receivers):
+        others = [] if device in p.tablets else [c for c in p.on_air if c != ch]
+        out += [(slot, device, c) for c in (ch, *others)]
+    return out
 
 
 def stop_steps(p: IptvPlan, keep_send: bool = False) -> list[list[Step]]:
@@ -664,7 +686,7 @@ def channel_step(
         "mode": mode,
     }
     if p.primed:
-        params["prime"] = _receiver_prime_params(p, ch)
+        params["prime"] = _receiver_prime_params(p, ch, device)
     return Step(device, f"{PREFIX}/receiver/channel", params, timeout_s=15.0)
 
 
@@ -1138,12 +1160,15 @@ def link_need(plan: IptvPlan, device: str) -> dict[str, Any]:
     """What the device's test NIC must carry (05 1.8, decided 2026-09-24): the sender's
     WAN link all channels, a wired receiver's LAN link its own channels, the larger when
     one PC does both (full duplex)."""
-    copies = len(plan.flows) if plan.primed else 1  # primed: a copy per receiver flow
+
+    def copies(d: str) -> int:  # primed: a copy per receiver flow (a tablet: one)
+        return len(plan.flows_of(d)) if plan.primed else 1
+
     if plan.primed:
-        send = len(plan.receivers) * copies if device == plan.sender else 0
+        send = sum(copies(d) for d, _ in plan.receivers) if device == plan.sender else 0
     else:
         send = len(plan.on_air) if device == plan.sender else 0
-    recv = sum(1 for d, _ in plan.receivers if d == device) * copies
+    recv = sum(copies(d) for d, _ in plan.receivers if d == device)
     if not send and not recv:
         return {"bps": 0, "label": ""}
     label = "WAN" if send else "LAN"
@@ -1257,12 +1282,15 @@ def probe_steps(p: IptvPlan) -> list[list[Step]]:
 def _primed_probe_steps(p: IptvPlan) -> list[list[Step]]:
     """The same three stages, primed (iptv 4.5): the receiver primes from its test port
     every 0.5 s while listening; the sender waits for it, then sends back to it."""
-    channels = sorted({ch for _, ch in p.receivers})
+    # PC receivers only, each on its own ports: a tablet's path is checked at its warm-up
+    pcs = [(d, ch) for d, ch in p.receivers if d not in p.tablets]
+    if not pcs:
+        return [[], [], []]
     wait_s = 3
-    listen_s = (PROBE_SEND_S + wait_s) * len(channels) + 3
+    listen_s = (PROBE_SEND_S + wait_s) * len(pcs) + 3
     listen = []
-    for device, ch in p.receivers:
-        pp, q, r = prime_ports(p.port, ch, 0)
+    for device, ch in pcs:
+        pp, q, r = prime_ports(p.port, ch, 0, p.slot_of(device))
         listen.append(Step(device, f"{PREFIX}/receiver/probe", {
             "ch": ch, "group": p.groups[ch], "port": r, "seconds": listen_s,
             "prime": {"sender_ip": p.sender_ip, "p": pp, "q": q},
@@ -1277,13 +1305,15 @@ def _primed_probe_steps(p: IptvPlan) -> list[list[Step]]:
                 "seconds": PROBE_SEND_S,
                 "ttl": p.ttl,
                 "prime_wait_s": wait_s,
-                "prime": dict(zip(("p", "q"), prime_ports(p.port, ch, 0)[:2], strict=True))
+                "prime": dict(
+                    zip(("p", "q"), prime_ports(p.port, ch, 0, p.slot_of(device))[:2], strict=True)
+                )
                 | {"flow": 0},
                 **({"local_address": p.nics[p.sender]} if p.sender in p.nics else {}),
             },
             timeout_s=PROBE_SEND_S + wait_s + 10.0,
         )
-        for ch in channels
+        for device, ch in pcs  # one after another, each to its own receiver
     ]
     result = [
         Step(s.device, f"{PREFIX}/receiver/probe/result", {"ch": s.params["ch"]}, listen_s + 5.0)
@@ -1310,7 +1340,7 @@ def probe_fallback(p: IptvPlan) -> IptvPlan | None:
     the plan to try next — primed. None when there is nothing else to try."""
     if p.prime_setting != "Auto" or p.primed or p.sender_ip is None:
         return None
-    return replace(p, primed=True)
+    return replace(p, primed=True)  # tablets too: the app primes (2026-11-26)
 
 
 def path_note(p: IptvPlan) -> dict[str, Any]:

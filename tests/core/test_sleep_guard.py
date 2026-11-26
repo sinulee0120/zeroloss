@@ -147,7 +147,7 @@ def test_update_hold(tmp_path: Path) -> None:
     h.seen("IDLE", 0.0)
     assert not h.held
     h.seen("RUNNING", 1.0)
-    assert h.held and (tmp_path / FILE).read_text() == TEXT
+    assert h.held and (tmp_path / FILE).read_text(encoding="utf-8") == TEXT
     h.seen(None, 2.0)  # the node does not answer: keep it
     h.seen("IDLE", 3.0)
     assert h.held  # idle only just now
@@ -233,7 +233,9 @@ def test_deployer_holds_updates_while_the_node_tests(tmp_path: Path) -> None:
         node.state = "IDLE"
         d.update_hold._idle_since = time.monotonic() - IDLE_S  # skip the 5 s wait
         assert wait(lambda: d.health()["updates_held"] is False)
-        assert "ZL-SYS-005 automatic updates held" in (layout.deployer / "deployer.log").read_text()
+        assert "ZL-SYS-005 automatic updates held" in (layout.deployer / "deployer.log").read_text(
+            encoding="utf-8"
+        )
     finally:
         d.stop()
         node.close()

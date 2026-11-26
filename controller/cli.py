@@ -218,6 +218,8 @@ def _parser() -> argparse.ArgumentParser:
     srv.add_argument("--node-port", type=int, default=10992, help="node API port")
     srv.add_argument("--player-host", choices=["self", "desktop"], default="self",
                      help="who starts the PC player (03 F20)")  # fmt: skip
+    srv.add_argument("--windows-service", metavar="NAME",
+                     help="run as this Windows service (06 4.2)")  # fmt: skip
     return ap
 
 
@@ -482,6 +484,15 @@ def _serve(args: argparse.Namespace) -> int:
             local_port=args.port,
             player_host=args.player_host,
         )
+    name = getattr(args, "windows_service", None)
+    if name:  # 06 4.2 (2026-11-21): Windows starts it at boot, like systemd on Linux
+        from agent.deployer import win_service
+        from core.blocks.tool_dirs import add_windows_tool_dirs
+
+        add_windows_tool_dirs()  # the bundled tsp, ffmpeg, mpv (a service sees no new PATH)
+
+        if win_service.run(name, svc.start, svc.stop):
+            return 0
     svc.start()
     print(f"{utc_now()} ZeroLoss {args.role} running (build {svc_build(svc)}). Ctrl+C stops it.",
           flush=True)  # fmt: skip

@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,9 @@ from typing import Any
 RECORD = ".imported.json"
 EVERY_S = 60.0
 ROOM_BYTES = 1024 * 1024 * 1024  # a copy leaves at least 1 GB free
+# people's folders: /home on Linux, \Users on Windows (2026-11-21 review: a Windows sender
+# looked in \home and never brought a movie from anyone's Videos)
+PEOPLE = "Users" if sys.platform == "win32" else "home"
 _PART = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_. -]{0,63}$")  # one plain folder name
 
 
@@ -125,7 +129,7 @@ class MediaImport:
     def _wanted(self, ask: Ask) -> dict[str, Path]:
         """name -> source; the first user (by name) wins a name two people use."""
         found: dict[str, Path] = {}
-        home = self.root / "home"
+        home = self.root / PEOPLE
         for user in sorted(home.iterdir()) if home.is_dir() else []:
             folder = user / ask.src
             if not folder.is_dir() or folder.is_symlink():

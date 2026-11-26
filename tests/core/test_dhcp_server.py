@@ -7,6 +7,7 @@ import itertools
 import json
 import socket
 import struct
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -68,7 +69,7 @@ def test_discover_offer_request_ack_and_one_address_only(tmp_path: Path) -> None
         assert offer is not None and offer.kind == d.OFFER and offer.server_id == "10.0.0.1"
         ack = c.ask(sp, DUT, d.REQUEST, req=ip("10.0.0.100"), sid=ip("10.0.0.1"))
         assert ack is not None and ack.kind == d.ACK
-        saved = json.loads((tmp_path / "wan-lease.json").read_text())["lease"]
+        saved = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))["lease"]
         assert saved["mac"] == "02:00:00:00:00:01" and saved["ip"] == "10.0.0.100"
         assert any("got 10.0.0.100" in text for _, text in events)
         assert c.ask(sp, OTHER, d.DISCOVER) is None  # the one address is taken
@@ -165,7 +166,7 @@ def test_the_address_follows_the_cable_both_ways(tmp_path: Path) -> None:
         "Router WAN address moved from 02:00:00:00:00:01 to 02:00:00:00:00:02"
     )
     assert moved[-1][2]["clears"] == ["ZL-SND-024"]
-    saved = json.loads((tmp_path / "wan-lease.json").read_text())["lease"]
+    saved = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))["lease"]
     assert saved["mac"] == "02:00:00:00:00:02"
     clock[0] += 3600  # the cables go back: the router asks for its old address first
     assert ask(srv, DUT, d.REQUEST, "10.0.0.100") == d.NAK  # checked, not yet known
@@ -302,8 +303,11 @@ def test_role_on_picks_the_one_free_wired_nic_and_off_undoes_it(tmp_path: Path) 
     assert srv.running and srv.args[3] == LEASE_IP
     assert srv.kw["ignore_macs"] == frozenset({"aa:bb:cc:00:00:01"})  # our own NIC
     assert srv.kw["alive"] is isp.alive  # GAP-112: the server can check the held address
-    assert json.loads((tmp_path / "agent.json").read_text())["wan_isp"] == {"on": True, "nic": None}
-    doc = json.loads((tmp_path / "wan-lease.json").read_text())
+    assert json.loads((tmp_path / "agent.json").read_text(encoding="utf-8"))["wan_isp"] == {
+        "on": True,
+        "nic": None,
+    }
+    doc = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))
     assert doc["nic"] == "enp1s0" and doc["added_ip"] == SERVER
     isp.close()  # node shutdown: address stays, role stays on
     assert pc.ips["enp1s0"] == "10.0.0.1" and isp.config["on"]
@@ -312,13 +316,13 @@ def test_role_on_picks_the_one_free_wired_nic_and_off_undoes_it(tmp_path: Path) 
     off = again.set(False)
     assert off["state"] == "off" and pc.calls[-1] == ["ip", "addr", "del", SERVER, "dev", "enp1s0"]
     assert pc.ips["enp1s0"] is None and not pc.servers[-1].running
-    assert json.loads((tmp_path / "wan-lease.json").read_text())["added_ip"] is None
+    assert json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))["added_ip"] is None
     # receiverPC 2026-11-05: off forgets the lease too (it kept the Controller PC's MAC)
-    doc = json.loads((tmp_path / "wan-lease.json").read_text())
+    doc = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))
     (tmp_path / "wan-lease.json").write_text(json.dumps(
         {**doc, "lease": {"mac": "02:00:00:00:00:aa", "ip": LEASE_IP}}))  # fmt: skip
     again.set(False)
-    assert json.loads((tmp_path / "wan-lease.json").read_text())["lease"] is None
+    assert json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))["lease"] is None
 
 
 def test_two_candidates_wait_and_tell_once_then_a_set_nic_works(tmp_path: Path) -> None:
@@ -399,7 +403,7 @@ def test_address_that_will_not_go_is_snd_014(tmp_path: Path, fails: int, state: 
     assert st["state"] == state
     dels = [c for c in pc.calls if c[:3] == ["ip", "addr", "del"]]
     assert len(dels) == 2  # the first try and one more
-    lease = json.loads((tmp_path / "wan-lease.json").read_text())
+    lease = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))
     if state == "error":
         ((_, text),) = [e for e in pc.events if e[0] == "ZL-SND-014"]
         assert "Operation not permitted" in text and lease["added_ip"] == SERVER  # kept
@@ -521,7 +525,9 @@ def test_back_to_auto_keeps_the_role_running(tmp_path: Path) -> None:
     assert isp.status()["mode"] == "off"
     st = isp.set(None)
     assert st["mode"] == "auto"
-    assert json.loads((tmp_path / "agent.json").read_text())["wan_isp"]["on"] is None
+    assert (
+        json.loads((tmp_path / "agent.json").read_text(encoding="utf-8"))["wan_isp"]["on"] is None
+    )
 
 
 def test_auto_after_a_restart_comes_back_at_once(tmp_path: Path) -> None:
@@ -632,7 +638,7 @@ def test_moved_cable_keeps_an_old_lease_and_is_taken_over(tmp_path: Path) -> Non
     add = next(c for c in pc.calls if c[:3] == ["nmcli", "connection", "add"])
     assert "zeroloss-wan" in add and "10.0.0.1/24" in add and "ipv4.never-default" in add
     assert any("the cable moved to the WAN port" in text for _, text in pc.events)
-    doc = json.loads((tmp_path / "wan-lease.json").read_text())
+    doc = json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))
     assert doc["nm_profile"] == "zeroloss-wan"
     off = isp.set(False)  # the NIC's own profile comes back by itself
     assert off["state"] == "off" and pc.calls[-1] == ["nmcli", "connection", "delete",
@@ -715,3 +721,48 @@ def test_losses_spread_over_more_than_10_minutes_only_warn(tmp_path: Path) -> No
         isp._watch_address()
     assert isp.state == "ready" and not isp._fighting
     isp.close()
+
+
+def test_move_goes_to_the_next_range_and_bounces_the_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-11-26 (a new router used 10.0.0.x itself): POST /v1/wan move takes 10.0.0.1
+    off, puts the next range on, forgets the router's old lease and takes the WAN link
+    down and up so the router asks again. A restart stays in the new range."""
+    from core.blocks.wan_nets import NETS
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    pc = FakePC(tmp_path, {"enp1s0": {}})
+    isp = pc.isp(tmp_path)
+    isp.bounce_s = 0.0
+    assert isp.set(True)["server_ip"] == "10.0.0.1"
+    (tmp_path / "wan-lease.json").write_text(json.dumps({
+        **json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8")),
+        "lease": {"mac": "02:00:5e:10:00:64", "ip": LEASE_IP}}))  # fmt: skip
+    st = isp.move("the router uses 10.0.0.0/24 itself")
+    assert st["state"] == "ready" and st["server_ip"] == NETS[1][0].split("/")[0]
+    assert st["net"] == NETS[1][0]
+    assert ["ip", "addr", "del", SERVER, "dev", "enp1s0"] in pc.calls
+    down = pc.calls.index(["ip", "link", "set", "dev", "enp1s0", "down"])
+    assert pc.calls[down + 1] == ["ip", "link", "set", "dev", "enp1s0", "up"]
+    assert pc.calls[-1] == ["ip", "addr", "add", NETS[1][0], "dev", "enp1s0"]
+    assert pc.servers[-1].args[3] == NETS[1][1] and pc.servers[-1].running
+    assert json.loads((tmp_path / "wan-lease.json").read_text(encoding="utf-8"))["lease"] is None
+    assert any("moved from 10.0.0.1/24 to 100.64.0.1/24" in t for _, t in pc.events)
+    assert pc.isp(tmp_path).server == NETS[1][0]  # a restarted node stays there
+    # set on/off keeps the range; a role that is not ready cannot move
+    isp.set(False)
+    assert pc.isp(tmp_path).server == NETS[1][0]
+    with pytest.raises(ValueError):
+        isp.move()
+
+
+def test_a_node_without_a_config_file_has_the_default_range(tmp_path: Path) -> None:
+    """2026-11-26 (receiverPC): a new install had no agent.json, ``config`` had no "net"
+    and GET /v1/wan was SYS-008; the auto ISP role failed too."""
+    pc = FakePC(tmp_path, {"enp1s0": {}})
+    isp = pc.isp(tmp_path)
+    assert not (tmp_path / "agent.json").exists()
+    assert isp.server == SERVER and isp.lease_ip == LEASE_IP and isp.status()["net"] == SERVER
+    (tmp_path / "agent.json").write_text("{damaged", encoding="utf-8")
+    assert isp.server == SERVER

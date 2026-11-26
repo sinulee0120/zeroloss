@@ -252,11 +252,11 @@ def test_job_script(tmp_path: Path, locks: int, code: int, runs: int, want: int)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
     subprocess.run(["/bin/sh", "-c", job_script(tries=3, wait_s=0), "sh", "/x/new.deb",
                     str(log), str(status)], env=env, check=True, timeout=20)  # fmt: skip
-    assert int(status.read_text()) == want
-    assert int((bin_dir / "count").read_text()) == runs
+    assert int(status.read_text(encoding="utf-8")) == want
+    assert int((bin_dir / "count").read_text(encoding="utf-8")) == runs
     assert not status.with_name("exit.tmp").exists()
     # both services come back even when dpkg failed (the Deployer must live, 11.5)
-    assert (bin_dir / "systemctl.args").read_text().split() == [
+    assert (bin_dir / "systemctl.args").read_text(encoding="utf-8").split() == [
         "start", "zeroloss-deployer.service", "zeroloss-agent.service"]  # fmt: skip
 
 

@@ -7,9 +7,9 @@ import contextlib
 import json
 import os
 import shutil
-import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -21,6 +21,7 @@ import pytest
 from modules.iptv.receiver import player as pl
 from modules.iptv.receiver.player import MpvIpc, MpvPlayer, PlayerConfig, VlcPlayer, make_player
 from modules.iptv.sender.commands import QUALITIES, prepare_command, send_command
+from tests.iptv import procs
 from tests.iptv.test_player import Clock, player_pids, wait
 
 HAVE = bool(shutil.which("mpv") and shutil.which("tsp") and shutil.which("ffmpeg"))
@@ -44,6 +45,14 @@ def test_mpv_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "--fs" in full and full[-1] == "u"  # no card: the OS picks it
     head = pl.mpv_argv(PlayerConfig("u", Path("/w"), headless=True), "/s")
     assert {"--vo=null", "--ao=null", "--hwdec=no"} <= set(head)
+    # 2026-11-21 review: off Linux there are no card names; the test card's address is
+    # where it joins (a Windows PC with a home card too joined there and showed nothing)
+    by_ip = pl.mpv_argv(PlayerConfig("u", Path("/w"), local_ip="192.168.77.5"), "/s")
+    if sys.platform.startswith("linux"):
+        assert by_ip[-1] == "u"  # Linux: by card name only, as before
+    else:
+        assert by_ip[-1] == "u?localaddr=192.168.77.5"
+    assert pl.mpv_argv(PlayerConfig("u", Path("/w"), local_ip="0.0.0.0"), "/s")[-1] == "u"
     assert len(pl.ipc_path(Path("/very/long/" + "x" * 200))) < 100  # AF_UNIX allows 108
 
 
@@ -198,6 +207,67 @@ def test_ipc_answers_skips_events_and_comes_back(tmp_path: Path) -> None:
         srv.close()
 
 
+class FakeMpvPipe:
+    """mpv's IPC end on Windows (a named pipe), answering like ``FakeMpv``."""
+
+    def __init__(self, path: str, values: dict[str, Any]) -> None:
+        from multiprocessing.connection import Listener
+
+        self.values = values
+        self.ls = Listener(path, family="AF_PIPE")
+        self.conns: list[Any] = []
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                conn = self.ls.accept()
+            except OSError:
+                return
+            self.conns.append(conn)
+            threading.Thread(target=self._talk, args=(conn,), daemon=True).start()
+
+    def _talk(self, conn: Any) -> None:
+        with contextlib.suppress(OSError, EOFError):
+            while True:
+                for line in conn.recv_bytes().splitlines():
+                    cmd = json.loads(line)
+                    name = cmd["command"][1]
+                    conn.send_bytes(b'{"event":"audio-reconfig"}\n')
+                    if name in self.values:
+                        ans = {"data": self.values[name], "error": "success"}
+                    else:
+                        ans = {"error": "property unavailable"}
+                    conn.send_bytes(json.dumps({**ans, "request_id": cmd["request_id"]})
+                                    .encode() + b"\n")  # fmt: skip
+
+    def close(self) -> None:
+        self.ls.close()
+        for c in self.conns:
+            c.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="mpv IPC is a named pipe on Windows")
+def test_windows_pipe_answers_every_second_and_comes_back() -> None:
+    """2026-11-21 review: with a reader thread waiting on the pipe, every write waited
+    behind it and the player check hung for good. Each look is answered, many in a row."""
+    path = rf"\\.\pipe\zl-test-{os.getpid()}-{threading.get_ident()}"
+    ipc = MpvIpc(path)
+    assert ipc.get(("pid",)) is None  # nothing listening yet
+    srv = FakeMpvPipe(path, {"pid": 42, "estimated-frame-number": 7})
+    try:
+        assert ipc.get(("pid", "estimated-frame-number", "hwdec-current")) == {
+            "pid": 42, "estimated-frame-number": 7, "hwdec-current": None}  # fmt: skip
+        for n in range(8, 20):  # a look every second of a test
+            srv.values["estimated-frame-number"] = n
+            assert ipc.get(("estimated-frame-number",)) == {"estimated-frame-number": n}
+        srv.close()  # mpv went away (a restarted mpv gets a new pipe name, ipc_path)
+        assert wait(lambda: ipc.get(("pid",)) is None, 3)
+    finally:
+        ipc.close()
+        srv.close()
+
+
 # ---------------------------------------------------------------- real mpv
 
 
@@ -209,6 +279,18 @@ def stream(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     subprocess.run(prepare_command("ffmpeg", QUALITIES["HD"], 1, hd, seconds=4,
                                    preset="ultrafast"),
                    check=True, capture_output=True, timeout=300)  # fmt: skip
+    if procs.WINDOWS:
+        # Windows: tsp cannot send multicast out of 127.0.0.1 ("unreachable network");
+        # the product's own way, tsp -> the even-spacing sender on loopback, can
+        from core.events.bus import EventBus
+        from modules.iptv.sender.session import SenderConfig, SenderSession
+
+        cfg = SenderConfig(1, hd, GROUP, PORT, 10_000_000, ttl=1, local_address="127.0.0.1")
+        s = SenderSession(cfg, tmp_path_factory.mktemp("tx"), EventBus())
+        s.start()
+        yield
+        s.stop()
+        return
     tx = subprocess.Popen(
         send_command("tsp", hd, GROUP, PORT, 10_000_000, 78, ttl=1, local_address="127.0.0.1"),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -226,7 +308,7 @@ def test_real_mpv_plays_freezes_restarts_and_stops(
     monkeypatch.setattr(pl, "NONE_S", 4.0)
     before = player_pids()
     events: list[tuple[str, str, str]] = []
-    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, nic="lo", headless=True)
+    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, **procs.LOOPBACK, headless=True)
     p = MpvPlayer(cfg, lambda *e: events.append(e))
     p.start()
     try:
@@ -236,7 +318,7 @@ def test_real_mpv_plays_freezes_restarts_and_stops(
         time.sleep(2.2)
         assert p.take_second().pb == "ok"
         (pid,) = player_pids() - before
-        os.kill(pid, signal.SIGSTOP)
+        procs.pause(pid)
         seen = []
         end = time.monotonic() + 20
         while time.monotonic() < end and p._r.restarts == 0:

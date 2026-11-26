@@ -64,7 +64,10 @@ class Responder:
         while not self._halt.is_set():
             try:
                 data, src = self._sock.recvfrom(256)
-            except TimeoutError:
+            except (TimeoutError, ConnectionResetError):
+                # Windows (2026-11-21): an asker whose socket closed before our answer
+                # came makes the next receive fail with WSAECONNRESET; it ended this
+                # thread and the PC was not found again until it restarted
                 continue
             except OSError:
                 return
@@ -152,7 +155,9 @@ def ask(
             s.settimeout(max(0.01, min(left, gap_s)))
             try:
                 data, src = s.recvfrom(4096)
-            except TimeoutError:
+            except (TimeoutError, ConnectionResetError):
+                # Windows (2026-11-21): a target without ZeroLoss (port unreachable) makes
+                # the next receive fail with WSAECONNRESET; the search failed as a whole
                 continue
             try:
                 body = json.loads(data)

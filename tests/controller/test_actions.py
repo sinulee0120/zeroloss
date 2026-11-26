@@ -16,8 +16,8 @@ from core.records.experience import ACTION_ID
 def test_catalog_ids_texts_and_codes() -> None:
     """14 1: standard action_id names; F22: the representative actions; every opening
     code exists in 09 (via the Problems catalog); plain English screen text."""
-    assert len(CATALOG) == 17  # 03 F22 + wifi.check, card.put_back, add_wan_route, sender wifi,
-    # time_sync_on (DSC-017, 2026-10-31)
+    assert len(CATALOG) == 18  # 03 F22 + wifi.check, card.put_back, add_wan_route, sender wifi,
+    # time_sync_on (DSC-017, 2026-10-31), report.retry (CTL-007, 2026-11-22)
     for aid, a in CATALOG.items():
         assert ACTION_ID.match(aid), aid
         assert a["what"] and a["how"] and a["repeat"] in ("once", "every")

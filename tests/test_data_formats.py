@@ -177,7 +177,7 @@ def outputs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]
         out["actions"] = c.get("/v1/controller/actions")
         svc.actions.clock = asked
         out["run_state_running"] = json.loads(
-            (t / "reports" / run_id / "run-state.json").read_text()
+            (t / "reports" / run_id / "run-state.json").read_text(encoding="utf-8")
         )
         end = time.monotonic() + 60
         while c.get("/v1/controller/status")["run"]["state"] != "IDLE":
@@ -185,13 +185,15 @@ def outputs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]
             time.sleep(0.5)
         rdir = t / "reports" / run_id
         out["summary_piece"] = [
-            json.loads(x) for x in (rdir / "summaries.jsonl").read_text().splitlines()
+            json.loads(x)
+            for x in (rdir / "summaries.jsonl").read_text(encoding="utf-8").splitlines()
         ]
-        out["run_state"] = json.loads((rdir / "run-state.json").read_text())
-        out["summary_json"] = json.loads((rdir / "summary.json").read_text())
-        out["devices_json"] = json.loads((t / "ctl" / "devices.json").read_text())
+        out["run_state"] = json.loads((rdir / "run-state.json").read_text(encoding="utf-8"))
+        out["summary_json"] = json.loads((rdir / "summary.json").read_text(encoding="utf-8"))
+        out["devices_json"] = json.loads((t / "ctl" / "devices.json").read_text(encoding="utf-8"))
         out["events"] = [
-            json.loads(x) for x in (t / "agent" / "logs" / "events.log").read_text().splitlines()
+            json.loads(x)
+            for x in (t / "agent" / "logs" / "events.log").read_text(encoding="utf-8").splitlines()
         ]
         # 4-1: the discovery answer of the idle node, over UDP
         found = [b for b, _ in ask(["127.0.0.1"], agent.api.port, wait_s=1.0)
@@ -199,7 +201,8 @@ def outputs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]
         out["discovery"] = found[0]  # asked 3 times (lost datagrams), answered each time
         # 2-12: what Agent Desktop reads and sends (a real DesktopLink, fake player part)
         agent.desktop.want("R1/local/ch1/player", "iptv", "player",
-                           {"url": "rtp://@239.255.91.1:5004", "nic": "lo", "buffer_ms": 1000,
+                           {"url": "rtp://@239.255.91.1:5004", "nic": "lo", "local_ip": None,
+                            "buffer_ms": 1000,
                             "window": str(IPTV_DEFAULTS["S-50"]), "headless": True,
                             "lowered": False, "flowing": True})  # fmt: skip
         sent: list[dict[str, Any]] = []

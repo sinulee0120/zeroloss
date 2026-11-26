@@ -227,7 +227,9 @@ def test_events_reach_log_and_heartbeat_list(tmp_path: Path) -> None:
     for i in range(5):
         bus.publish(Event("ZL-INFO", "info", f"e{i}", device="pc", elapsed_s=float(i)))
     log.close()
-    lines = [json.loads(x) for x in (tmp_path / "events.log").read_text().splitlines()]
+    lines = [
+        json.loads(x) for x in (tmp_path / "events.log").read_text(encoding="utf-8").splitlines()
+    ]
     assert [x["text"] for x in lines] == [f"e{i}" for i in range(5)]
     assert set(lines[0]) == {"code", "level", "text", "device", "elapsed_s", "ts_utc"}
     assert [e.text for e in recent.take()] == ["e2", "e3", "e4"]

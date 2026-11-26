@@ -58,6 +58,7 @@ from controller.wifi_store import WifiConfig
 from core.blocks.link_monitor import nic_of, read_links
 from core.blocks.route_guard import default_route_nic
 from core.blocks.unicode_path import display_name
+from core.blocks.wan_nets import net_of
 from core.events.bus import Event, EventBus, Level, utc_now
 from core.modules.registry import load_run_entry
 from core.protocol.client import HEARTBEAT_TIMEOUT_S, NodeClient
@@ -168,6 +169,7 @@ class RunController:
         self.bus = bus
         self._failed_checks: set[tuple[str, str]] = set()  # (device, code), F17 step 4
         self.wan_route: Callable[[], str] = ensure_wan_route  # 13 1, tests replace it
+        self.wan_route_to: Callable[[str], str] = ensure_wan_route  # another range (wan_nets)
         # 05 5.3 trouble windows: device -> kind -> [[from, to or None, code]] (monotonic)
         self._windows: dict[str, dict[str, list[list[Any]]]] = {}
         self._seconds: dict[tuple[str, int], dict[int, tuple[float, dict[str, Any]]]] = {}
@@ -288,6 +290,13 @@ class RunController:
             except ZlError as e:
                 self._rollback(e)
                 raise
+            except Exception as e:  # 2026-11-26 (KeyError('tablet-1') at step 5): an
+                # unexpected error skipped the rollback, the run stayed PREPARING for good
+                # and Stop could not end it; now rolled back like any failed start
+                err = ZlError("SYS-008", "Internal error", f"The start stopped: {e!r}",
+                              "Press Start again; if it comes back, send the logs.")  # fmt: skip
+                self._rollback(err)
+                raise err from e
             self._measure_start = time.monotonic()
             self._started_utc = utc_now()
             self._plan_auto_changes()
@@ -593,12 +602,45 @@ class RunController:
                 try:
                     self._recover(state_file.parent, state)
                 except Exception as e:  # one bad run must not stop the others
-                    self._event(
-                        "ZL-CTL-007", "error", f"Recovery of {state_file.parent.name} failed: {e!r}"
-                    )
+                    name = state_file.parent.name
+                    self._report_failed(name, f"Recovery of {name} failed: {e!r}")
                     continue
             done.append(str(state.get("run_id")))
         return done
+
+    def _report_failed(self, run_id: str, text: str) -> None:
+        """09 CTL-007: the data is kept and the person gets [Retry report] (catalog fix)."""
+        retry = {"id": run_id, "label": f"Retry report {run_id}"}
+        self._event("ZL-CTL-007", "error", text, run_id=run_id,
+                    choose="retry_report", choices=[retry])  # fmt: skip
+
+    def retry_report(self, run_id: str) -> str:
+        """09 CTL-007 [Retry report]: make the report of a finished test again from what was
+        kept (the result in memory, else its summary.json), or run the recovery of a test
+        whose recovery failed. Between tests only; raises when it fails again."""
+        with self._lock:
+            if self.state not in (RunState.IDLE, RunState.FAULT):
+                raise ZlError("RUN-012", "The report is made again only between tests",
+                              f"It is {self.state}.")  # fmt: skip
+            run_dir = self.reports_dir / run_id
+            if not run_id or run_id != run_dir.name or not (run_dir / "plan.json").is_file():
+                raise ZlError("DSC-012", "Request rejected", detail=f"no test {run_id!r}")
+            state = _read_json(run_dir / "run-state.json")
+            if state.get("status") in ("running", "stopping"):  # its recovery failed
+                self._recover(run_dir, state)
+                return "recovered"
+            if self.result is not None and self.result.get("run_id") == run_id:
+                result = self.result
+            else:
+                result = _read_json(run_dir / "summary.json")
+            if not result:
+                raise ZlError("CTL-007", "Report could not be made",
+                              "Neither the result nor summary.json is left.")  # fmt: skip
+            raw = json.loads((run_dir / "plan.json").read_text(encoding="utf-8"))
+            write_report(run_dir, result, raw)
+            self._event("ZL-INFO", "info", f"The report of {run_id} was made",
+                        run_id=run_id, clears=["ZL-CTL-007"])  # fmt: skip
+            return "made"
 
     def _recover(self, run_dir: Path, state: dict[str, Any]) -> None:
         run_id = str(state.get("run_id"))
@@ -1225,7 +1267,13 @@ class RunController:
 
     def _route_to_wan(self) -> None:
         """13 1 (GAP-88): the Controller's route to the router WAN side (B: 10.0.0.0/24)
-        through its test NIC; told once when it had to be added."""
+        through its test NIC; told once when it had to be added. 2026-11-26: a sender
+        that moved to another range (core/blocks/wan_nets) gets the route to that one."""
+        moved = sorted({n for d in self.devices.all() if (n := net_of(d.host)) and n != WAN_B})
+        for subnet in moved:
+            got = self.wan_route_to(subnet)
+            if "now through" in got:
+                self._event("ZL-INFO", "info", got)
         done = self.wan_route()
         if "now through" in done:
             self._event("ZL-INFO", "info", done)
@@ -1724,7 +1772,13 @@ class RunController:
 
     def _wait_measuring(self) -> None:
         receivers = self._nodes()
-        limit = time.monotonic() + self._plan.warmup_max_s + 5
+        since = time.monotonic()
+        limit = since + self._plan.warmup_max_s + 5
+        # 2026-11-21 review: one missed answer during warm-up ended the start; it waits
+        # on. A PC that has not answered for its lost time (S-42) ends it at once, named as
+        # before (DeviceError), and so does one still not answering when the time is up
+        failed: dict[str, ZlError] = {}
+        failed_since: dict[str, float] = {}
         while time.monotonic() < limit:
             # the sender is asked too: it safe-stops after 10 s without a request, and
             # 2026-10-10 it got none for 7.5-10 s after its start (GAP-153; with a slow
@@ -1735,7 +1789,16 @@ class RunController:
                         self._heartbeat(w)
             done = True
             for name in receivers:
-                hb = self._asked(name)
+                try:
+                    hb = self._asked(name)
+                except ZlError as e:
+                    failed[name], done = e, False
+                    since = failed_since.setdefault(name, time.monotonic())
+                    if time.monotonic() - since >= self._lost_limit(name):
+                        raise
+                    continue
+                failed.pop(name, None)
+                failed_since.pop(name, None)
                 data = (hb.get("module_data") or {}).get(self._rules.heartbeat_key) or {}
                 done = done and bool(self._rules.measuring(data))
             if done:
@@ -1747,9 +1810,19 @@ class RunController:
             if self._watch[n].last_error
         )
         ready, missing = self._warmup_split(receivers)
+        if ready and not missing:
+            return  # 2026-11-21 review: the last one finished right at the deadline
         # 16 S-66: no stable video in warm-up is a problem too (2026-11-05: the tablets got
-        # nothing from a router without M2U; the test stops before any second is kept)
-        self.router_logger.trigger("no video during warm-up", ", ".join(missing or receivers))
+        # nothing from a router without M2U; the test stops before any second is kept).
+        # The router's only when no sender or receiving-PC window covers the warm-up
+        # (2026-11-21 review: it was started for any warm-up that failed)
+        now = time.monotonic()
+        for name in missing or sorted(receivers):
+            if self._routers(name, since, now):
+                self.router_logger.trigger("no video during warm-up", name)
+                break
+        if not ready and failed:
+            raise next(iter(failed.values()))  # that PC does not answer: it is named
         if ready and missing:
             # 2026-11-05 user ("PC부터 해결해"): two tablets with no video called the start
             # off and the PC that played stopped too. The test goes on with the receivers
@@ -1805,6 +1878,42 @@ class RunController:
     # ---------------------------------------------------------------- running
 
     def _run_loop(self) -> None:
+        """09 CTL-010 (2026-11-21 review): an unexpected error in a round ended this
+        thread and the run stayed RUNNING for good -- no end at the planned time, no
+        report, the PCs stopping on their own watchdog. It is said and the run is
+        safe-stopped like a lost PC: the report is made from what came (INCOMPLETE)."""
+        try:
+            self._run_rounds()
+        except Exception as e:
+            self._event("ZL-CTL-010", "error", f"The test loop stopped unexpectedly: {e!r}",
+                        run_id=self.run_id or "")  # fmt: skip
+            with self._lock:
+                if self.state is not RunState.RUNNING:
+                    return
+                try:
+                    self.fault = {"device": None, "reason": f"internal error: {e!r}",
+                                  "at_utc": utc_now(), "last_ok_utc": None,
+                                  "run_id": self.run_id}  # fmt: skip
+                    self._move(RunState.SAFE_STOP)
+                    self._stop_reason = f"internal_error: {type(e).__name__}"
+                    self._finish(safe=True)
+                except Exception as e2:  # the report itself failed too (the same cause)
+                    self._event("ZL-CTL-010", "error", f"Safe stop failed: {e2!r}; the PCs "
+                                "are stopped, the run is left for Reset All")  # fmt: skip
+                    with contextlib.suppress(Exception):
+                        self._stop_devices(keep_send=False)
+                    with contextlib.suppress(Exception):
+                        self._write_state("finished")
+                    # never left half-way for good: SAFE_STOP -> REPORTING -> FAULT (F11)
+                    if self._state_now() is RunState.SAFE_STOP:
+                        self._move(RunState.REPORTING)
+                    if self._state_now() is RunState.REPORTING:
+                        self._move(RunState.FAULT)
+
+    def _state_now(self) -> RunState:
+        return self.state  # read again (a `_move` changed it; mypy keeps the old one)
+
+    def _run_rounds(self) -> None:
         """Every second: heartbeat all devices, pull new summaries, end at planned time."""
         while True:
             # only the pause itself counts as "away" (the PC slept): a round that waited
@@ -1912,6 +2021,16 @@ class RunController:
         self._event("ZL-INFO", "info", f"The Controller was away for {away_s:.0f} s; "
                     "taking the test up again", run_id=self.run_id or "")  # fmt: skip
 
+    def _lost_limit(self, name: str) -> float:
+        """How long ``name`` may be silent before it counts as lost (S-42). A module that
+        slows the links itself (throughput: a 10 Mbps half-duplex case filled the only way
+        to the WAN-side PC, 2026-10-29 "no answer for 10 s" stopped the test) gives its PCs
+        longer. The warm-up uses the same limit (2026-11-21 review: it used the default)."""
+        longer = getattr(self._rules, "lost_after_s", None)
+        if longer is None or self._plan is None:
+            return self.lost_s
+        return max(self.lost_s, float(longer(self._plan, name)))
+
     def _check_devices(self) -> str | None:
         """F11: 3 s suspect, 10 s lost; a new boot ID is lost at once. Returns a reason."""
         now = time.monotonic()
@@ -1920,12 +2039,7 @@ class RunController:
                 hb = self._heartbeat(w)
             except ZlError:
                 silent = now - w.last_ok
-                # a module that slows the links itself (throughput: a 10 Mbps half-duplex
-                # case filled the only way to the WAN-side PC, 2026-10-29 "no answer for
-                # 10 s" stopped the test) gives its PCs longer before they count as lost
-                longer = getattr(self._rules, "lost_after_s", None)
-                limit = max(self.lost_s, float(longer(self._plan, name))) if longer else self.lost_s
-                if silent >= limit:
+                if silent >= self._lost_limit(name):
                     return f"{name}: no answer for {silent:.0f} s"
                 if silent >= self.suspect_s and not w.suspect:
                     w.suspect = True
@@ -2128,18 +2242,22 @@ class RunController:
         due = [w for w in self._logger_wait if w[0] <= now]
         self._logger_wait = [w for w in self._logger_wait if w[0] > now][-100:]
         for _, at, dev, why in due:
-            if self._routers(dev, at) and self.router_logger.trigger("; ".join(why), dev):
-                break  # one start; the rest are counted while it logs
+            # one start; the others of the router's are counted while it logs (each goes
+            # to trigger, which counts it then: 2026-11-21 review, they were dropped)
+            if self._routers(dev, at):
+                self.router_logger.trigger("; ".join(why), dev)
 
-    def _routers(self, device: str, at: float) -> bool:
-        """No trouble window says this second is the sender's or the receiving PC's."""
+    def _routers(self, device: str, at: float, until: float | None = None) -> bool:
+        """No trouble window says this second (or ``at``..``until``) is the sender's or
+        the receiving PC's."""
+        end = at if until is None else until
         node = self._node(device) if self._plan is not None else device
         sender = self._plan.sender if self._plan is not None else None
         for dev, kinds in self._windows.items():
             for kind, ws in kinds.items():
                 if dev != node and not (dev == sender and kind.startswith("sender")):
                     continue
-                if any(a <= at and (b is None or at <= b) for a, b, _ in ws):
+                if any(a <= end and (b is None or at <= b) for a, b, _ in ws):
                     return False
         return True
 
@@ -2331,6 +2449,15 @@ class RunController:
                 self._lock.acquire()
         always_on = bool(getattr(self._rules, "always_on", lambda p: False)(self._plan))
         self._stop_devices(keep_send=always_on and not safe)  # F18: a safe stop ends it all
+        if always_on and not safe and self._plan is not None:
+            # SND-015 (2026-11-21, a test that failed on Linux and Windows): the test's hold
+            # (S-56: to the planned end + 10 min) stayed on the sender until the broadcast's
+            # first keep-alive a second later; a Controller gone right then left the
+            # broadcast without an owner for 10 minutes. A heartbeat without a hold ends it
+            w = self._watch.get(str(self._plan.sender))
+            if w is not None:
+                with contextlib.suppress(ZlError):
+                    get_heartbeat(w.client)
         if safe:
             self._end_broadcast("the test stopped safely")
         self._pull_summaries()
@@ -2363,7 +2490,11 @@ class RunController:
         )
         assert self._run_dir is not None
         result.update(self._first_analysis())
-        write_report(self._run_dir, result, self._raw_plan)
+        try:
+            write_report(self._run_dir, result, self._raw_plan)
+        except Exception as e:  # 09 CTL-007 (2026-11-21 review): the run stayed REPORTING
+            self._report_failed(str(self.run_id), f"The report of {self.run_id} could not be "
+                                f"made: {e!r} (its data is kept)")  # fmt: skip
         self._write_state("finished")
         self.result = result
         self._event("ZL-INFO", "info", f"Run {self.run_id}: {result['verdict']}")
@@ -2651,17 +2782,11 @@ def _unreachable(e: ZlError, host: str) -> ZlError:
     """A PC that does not answer: when its address is on the router WAN side and this PC
     has no way there, the fix names the command to type (2026-10-22: after a restart the
     route was gone; the screen said only "check the cable")."""
-    if not e.code.endswith("DSC-014") or not _in(host, WAN_B):
+    subnet = net_of(host)  # any range the sender may have moved to (core/blocks/wan_nets)
+    if not e.code.endswith("DSC-014") or subnet is None:
         return e
-    fix = manual_fix(WAN_B)
+    fix = manual_fix(subnet)
     return ZlError(e.code, e.what, e.why, fix, e.detail) if fix else e
-
-
-def _in(host: str, subnet: str) -> bool:
-    try:
-        return ipaddress.ip_address(host) in ipaddress.ip_network(subnet)
-    except ValueError:
-        return False
 
 
 def _no_wifi(what: str, why: str) -> ZlError:
@@ -2711,6 +2836,15 @@ def get_heartbeat(
         extra["awake_s"] = AWAKE_ASK_S
     hb: dict[str, Any] = client.get("/v1/heartbeat", timeout_s=timeout_s, seq=seq, **extra)
     return hb
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    """A kept file as a dict; {} when it is missing or damaged."""
+    try:
+        got = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
 
 
 def _atomic_json(path: Path, data: dict[str, Any]) -> None:

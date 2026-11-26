@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,46 @@ def first(pid: int = 0) -> str:
             return f"nice {NICE_BEST}"
         except (PermissionError, OSError) as e:
             return f"normal ({e.strerror or e})"
+    if sys.platform == "win32":
+        return _first_windows(pid)
     return "normal (not on this OS)"
+
+
+HIGH_PRIORITY_CLASS = 0x80  # above every normal program; REALTIME would need an admin
+BELOW_NORMAL_PRIORITY_CLASS = 0x4000
+PROCESS_SET_INFORMATION = 0x0200
+
+
+def below_normal(pid: int) -> bool:
+    """Windows: ``pid`` gives way to normal programs (RCV-016, the player under the
+    measurement); False when it could not be set."""
+    import ctypes
+
+    k = getattr(ctypes, "windll").kernel32  # Windows only  # noqa: B009
+    h = k.OpenProcess(PROCESS_SET_INFORMATION, False, pid)
+    if not h:
+        return False
+    try:
+        return bool(k.SetPriorityClass(h, BELOW_NORMAL_PRIORITY_CLASS))
+    finally:
+        k.CloseHandle(h)
+
+
+def _first_windows(pid: int) -> str:
+    """Windows (2026-11-21 review: a Windows sender stayed at the normal class): the
+    process's priority class to High, which a normal user may set."""
+    import ctypes
+
+    k = getattr(ctypes, "windll").kernel32  # Windows only  # noqa: B009
+    h = k.OpenProcess(PROCESS_SET_INFORMATION, False, pid or k.GetCurrentProcessId())
+    if not h:
+        return f"normal (no access, error {k.GetLastError()})"
+    try:
+        if k.SetPriorityClass(h, HIGH_PRIORITY_CLASS):
+            return "high (Windows priority class)"
+        return f"normal (error {k.GetLastError()})"
+    finally:
+        k.CloseHandle(h)
 
 
 def first_all(pid: int, proc: Path = Path("/proc")) -> str:

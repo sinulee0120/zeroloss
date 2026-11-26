@@ -39,6 +39,23 @@ def test_results_are_read_from_the_receiving_side() -> None:
     assert u.ok and u.mbps == 900.0 and u.lost_pct == 0.01 and u.jitter_ms == 0.08
 
 
+def test_udp_is_the_rate_the_receiver_got_not_the_one_sent() -> None:
+    """2026-11-26 (iperf3 3.21, -R -u -b 3000M on this PC): ``sum`` was the sender's
+    2982 Mbps while the receiver got 2626 Mbps and 11.9 % was lost."""
+    sent = {"bits_per_second": 2982.19e6, "lost_percent": 0, "jitter_ms": 0, "sender": True}
+    got = {"bits_per_second": 2625.51e6, "lost_percent": 11.9, "jitter_ms": 0.016,
+           "sender": False}  # fmt: skip
+    u = parse(json.dumps({"end": {"sum": got, "sum_sent": sent, "sum_received": got}}), "udp")
+    assert u.mbps == 2625.51 and u.sender_mbps == 2982.19 and u.lost_pct == 11.9
+    assert u.jitter_ms == 0.016
+    # the client sent (no -R): ``sum`` is the sender's, the receiver's is sum_received
+    u = parse(json.dumps({"end": {"sum": sent, "sum_sent": sent, "sum_received": got}}), "udp")
+    assert u.mbps == 2625.51 and u.lost_pct == 11.9
+    # an iperf3 with only ``sum``, the sender's: less the lost share
+    old = {**sent, "lost_percent": 10.0}
+    assert parse(json.dumps({"end": {"sum": old}}), "udp").mbps == 2683.971
+
+
 @pytest.mark.parametrize(("text", "why"), [
     ("", "no output"),
     ("iperf3: error - unable to connect to server", "unable to connect"),
@@ -472,3 +489,14 @@ def test_a_wifi_setting_not_put_back_stops_for_safety() -> None:
     _finish(job)
     st = job.status()
     assert st["state"] == "failed" and "SAFETY: wlx58 could not be put back" in st["error"]
+
+
+def test_udp_loss_is_shown_both_ways() -> None:
+    from modules.throughput.run import cell_values
+
+    s = {"case": {"label": "Auto"}, "send": {"ok": True, "mbps": 950, "lost_pct": 0.0},
+         "receive": {"ok": True, "mbps": 830, "lost_pct": 11.904}}  # fmt: skip
+    got = {x["key"]: x["value"] for x in cell_values(s)}
+    assert got["lost_pct"] == "0 / 11.9"
+    tcp = {"case": {"label": "Auto"}, "send": {"ok": True, "mbps": 941}, "receive": {}}
+    assert {x["key"]: x["value"] for x in cell_values(tcp)}["lost_pct"] is None

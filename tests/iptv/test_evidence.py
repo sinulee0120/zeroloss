@@ -85,7 +85,7 @@ def test_a_trouble_second_keeps_10_s_before_and_5_s_after(tmp_path: Path) -> Non
     assert r.second({"lost": 1, "cc": 1}) is None  # e31: the window opens
     got = [r.second() for _ in range(5)]
     path = next(p for p in got if p is not None)
-    info = json.loads(path.read_text())
+    info = json.loads(path.read_text(encoding="utf-8"))
     assert path.name == "R1_ev_e000031_ch1.json" and info["why"] == ["lost 1", "CC errors 1"]
     assert info["pcap"] == "R1_ev_e000031_ch1.pcap" and info["picture"] == "R1_ev_e000031_ch1.jpg"
     _, recs = read_pcap((tmp_path / info["pcap"]).read_bytes())
@@ -100,7 +100,7 @@ def test_s30_off_keeps_the_packets_and_no_picture(tmp_path: Path) -> None:
     r = Rig(tmp_path, render=False)
     r.second({"pb": "freeze"})
     path = next(p for p in (r.second() for _ in range(6)) if p is not None)
-    info = json.loads(path.read_text())
+    info = json.loads(path.read_text(encoding="utf-8"))
     assert info["pcap"] and info["picture"] is None and r.drawn == []
 
 
@@ -112,7 +112,9 @@ def test_twenty_events_an_hour_then_the_json_only(
     infos = []
     for _ in range(22):
         r.second({"lost": 1})
-        infos += [json.loads(p.read_text()) for p in (r.second() for _ in range(6)) if p]
+        infos += [
+            json.loads(p.read_text(encoding="utf-8")) for p in (r.second() for _ in range(6)) if p
+        ]
     kept = [i for i in infos if i["pcap"]]
     assert len(infos) == 22 and len(kept) == ev.PER_HOUR
     assert "20 events this hour already" in infos[-1]["kept_less"]
@@ -121,7 +123,9 @@ def test_twenty_events_an_hour_then_the_json_only(
 def test_a_full_disk_keeps_the_json_only(tmp_path: Path) -> None:
     r = Rig(tmp_path, free=100)
     r.second({"lost": 3})
-    info = json.loads(next(p for p in (r.second() for _ in range(6)) if p).read_text())
+    info = json.loads(
+        next(p for p in (r.second() for _ in range(6)) if p).read_text(encoding="utf-8")
+    )
     assert info["pcap"] is None and "100 MB free" in info["kept_less"]
 
 
@@ -129,7 +133,7 @@ def test_a_stop_writes_the_open_window(tmp_path: Path) -> None:
     r = Rig(tmp_path)
     r.second({"lost": 1})
     path = r.e.flush()
-    assert path is not None and json.loads(path.read_text())["pcap"]
+    assert path is not None and json.loads(path.read_text(encoding="utf-8"))["pcap"]
     assert r.e.flush() is None
 
 
@@ -160,7 +164,9 @@ def test_files_at_most_once_a_minute(tmp_path: Path) -> None:
     infos = []
     for _ in range(4):  # trouble every 7 s
         r.second({"lost": 1})
-        infos += [json.loads(p.read_text()) for p in (r.second() for _ in range(6)) if p]
+        infos += [
+            json.loads(p.read_text(encoding="utf-8")) for p in (r.second() for _ in range(6)) if p
+        ]
     kept = [i for i in infos if i["pcap"]]
     assert len(infos) == 4 and len(kept) == 1
     assert "less than 60 s ago" in infos[-1]["kept_less"]

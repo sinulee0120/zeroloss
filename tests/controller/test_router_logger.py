@@ -6,9 +6,13 @@ be ready again. A fake window and clock; nothing real is pressed."""
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from controller import run as ctl
 from controller.router_logger import SLOW_SAVE_S, STABLE_S, START, STOP, RouterLogger, WinWindow
+from core.protocol.envelope import ZlError
 from modules.iptv import run as rules
 
 
@@ -224,17 +228,77 @@ def test_a_pc_with_video_goes_on_when_its_tablets_have_none() -> None:
         {"receivers": [{"measuring": True}],
          "tablets": [{"id": "tablet-1", "measuring": False}, {"id": "tablet-2"}]}, "rx"
     ) == (["rx"], ["tablet-1", "tablet-2"])  # fmt: skip
-    r = ctl.RunController.__new__(ctl.RunController)
-    r._rules = rules.create()
-    r._plan = SimpleNamespace(warmup_max_s=-10)  # time is up at once
-    r._watch = {"rx": SimpleNamespace(last_error=None)}  # type: ignore[dict-item]
-    r._nodes = lambda: {"rx"}  # type: ignore[method-assign]
-    tabs = [{"id": "tablet-1", "measuring": False}]
-    hb = {"module_data": {"iptv": {"receivers": [{"measuring": True}], "tablets": tabs}}}
-    r._asked = lambda name: hb  # type: ignore[method-assign]
-    said: list[tuple[str, str]] = []
-    r._event = lambda code, level, text, device="", **d: said.append((code, text))  # type: ignore[method-assign]
-    r.router_logger = SimpleNamespace(trigger=lambda why, dev: False)  # type: ignore[assignment]
+    r, said, started = _warming(
+        {"receivers": [{"measuring": True}], "tablets": [{"id": "tablet-1", "measuring": False}]}
+    )
     r._wait_measuring()  # no error: the PC's test goes on
     assert said == [("ZL-NET-003", "tablet-1: no video after warm-up — the test goes on; "
                                    "it counts as nothing received")]  # fmt: skip
+    assert started == [("no video during warm-up", "tablet-1")]  # nothing else covers it
+
+
+def _warming(
+    data: dict[str, Any], windows: dict[str, Any] | None = None
+) -> tuple[ctl.RunController, list[tuple[str, str]], list[tuple[str, str]]]:
+    """A Controller whose warm-up time is up at once; heartbeats say ``data``."""
+    r = ctl.RunController.__new__(ctl.RunController)
+    r._rules = rules.create()
+    r._plan = SimpleNamespace(warmup_max_s=-10, sender="tx")  # time is up at once
+    r._watch = {"rx": SimpleNamespace(last_error=None)}  # type: ignore[dict-item]
+    r._nodes = lambda: {"rx"}  # type: ignore[method-assign]
+    r._node = lambda device: "rx"  # type: ignore[method-assign]
+    r._windows = windows or {}
+    r._asked = lambda name: {"module_data": {"iptv": data}}  # type: ignore[method-assign]
+    said: list[tuple[str, str]] = []
+    r._event = lambda code, level, text, device="", **d: said.append((code, text))  # type: ignore[method-assign]
+    started: list[tuple[str, str]] = []
+
+    def trigger(why: str, dev: str) -> bool:
+        started.append((why, dev))
+        return True
+
+    r.router_logger = SimpleNamespace(trigger=trigger)  # type: ignore[assignment]
+    return r, said, started
+
+
+def test_a_warm_up_that_finished_at_the_deadline_is_not_a_failed_start() -> None:
+    """2026-11-21 review: the last look found every receiver measuring, yet the start
+    failed with "no stable video at <all of them>" and the Router Logger was started."""
+    r, said, started = _warming({"receivers": [{"measuring": True}],
+                                 "tablets": [{"id": "tablet-1", "measuring": True}]})  # fmt: skip
+    r._wait_measuring()  # no error
+    assert said == [] and started == []
+
+
+def test_a_warm_up_under_a_sender_window_does_not_start_the_logger() -> None:
+    """2026-11-21 review: a failed warm-up started the Router Logger even when the
+    sender's own trouble (a dead tsp, SND-005) explained it; only the router's do."""
+    r, _, started = _warming({"receivers": [{"measuring": False}]},
+                             {"tx": {"sender": [[0.0, None, "ZL-SND-005"]]}})  # fmt: skip
+    with pytest.raises(ZlError) as e:
+        r._wait_measuring()
+    assert e.value.code.endswith("RUN-009")
+    assert started == []
+
+
+def test_every_routers_problem_of_a_second_reaches_the_logger() -> None:
+    """2026-11-21 review: after one started it, the others due in the same look were
+    dropped, so its "N more problem(s) meanwhile" count was short."""
+    r = ctl.RunController.__new__(ctl.RunController)
+    r._rules = rules.create()
+    r._plan = SimpleNamespace(sender="tx")
+    r._windows = {}
+    r._logger_wait = []
+    r.state = ctl.RunState.RUNNING
+    got: list[str] = []
+
+    def trigger(why: str, dev: str) -> bool:
+        got.append(dev)
+        return True
+
+    r.router_logger = SimpleNamespace(cfg={"jitter_ms": 50.0}, trigger=trigger)  # type: ignore[assignment]
+    r._node = lambda device: device  # type: ignore[method-assign]
+    for dev in ("tablet-1", "tablet-2", "t460-rx"):
+        r._note_logger(dev, {"lost": 2}, 100.0)
+    r._note_logger("tablet-1", {"lost": 0}, 100.0 + ctl.LOGGER_JUDGE_S)
+    assert got == ["tablet-1", "tablet-2", "t460-rx"]

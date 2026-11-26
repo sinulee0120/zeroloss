@@ -11,10 +11,11 @@ Host keys: trusted and saved the first time, a different key later stops (INS-00
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shlex
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -151,6 +152,13 @@ class LinuxInstaller:
         result["host_key"] = {"sha256": key.get_fingerprint("sha256"), "status": seen}
         self._step(steps, "host_key", seen)
         conn = await _login(t, key)
+        with _over_ssh(t, lambda: steps[-1]["name"]):
+            return await self._session(conn, t, steps, result)
+
+    async def _session(
+        self, conn: asyncssh.SSHClientConnection, t: Target, steps: list[dict[str, Any]],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:  # fmt: skip
         async with conn:
             self._step(steps, "login")
             sudo = "" if t.user == "root" else "sudo -S -p '' "
@@ -179,8 +187,9 @@ class LinuxInstaller:
                     self._step(steps, "tools_install", got["detail"])
                     missing = got["missing"]
                 self._step(steps, "tools", ", ".join(missing) or "all present")
-            finally:
-                await conn.run(f"rm -rf {work}", check=False)
+            finally:  # never hides why it stopped (a link that is gone fails here too)
+                with contextlib.suppress(asyncssh.Error, OSError):
+                    await conn.run(f"rm -rf {work}", check=False)
         return {"tools_missing": missing}
 
     async def _host_key(self, t: Target) -> asyncssh.SSHKey:
@@ -415,6 +424,26 @@ async def _login(t: Target, key: asyncssh.SSHKey) -> asyncssh.SSHClientConnectio
     return conn
 
 
+@contextlib.contextmanager
+def _over_ssh(t: Target, step: Callable[[], str]) -> Iterator[None]:
+    """2026-11-26 review: the link dropping (cable, the PC restarting) or the PC refusing
+    a file (a full /tmp) mid-install came out as SYS-008 "Internal error, send the logs".
+    Now the code that says what happened and after which step."""
+    try:
+        yield
+    except ZlError:
+        raise
+    except (asyncssh.DisconnectError, ConnectionError, TimeoutError) as e:
+        raise ZlError("DSC-014", f"Lost the SSH connection to {t.host} after step {step()}",
+                      str(e) or repr(e),
+                      "Check the PC and its cable, then do it again.") from None  # fmt: skip
+    except (asyncssh.Error, OSError) as e:
+        raise ZlError("INS-028", f"Failed on {t.host} after step {step()}",
+                      _last(str(e)) or repr(e),
+                      "Read the line above, fix the cause on that PC, then do it again.",
+                      ) from None  # fmt: skip
+
+
 def newest_deb(folder: Path) -> Path:
     """The newest ``zeroloss-agent_<build>_amd64.deb`` the Controller holds (06 11.3)."""
     debs = sorted(folder.glob("zeroloss-agent_*_amd64.deb"))
@@ -463,6 +492,11 @@ class LinuxRemover:
         key = await installer._host_key(t)
         self.known_hosts.check(t.host, key, False)  # the key it was installed with
         conn = await _login(t, key)
+        with _over_ssh(t, lambda: "login"):
+            return await self._session(conn, t, purge, installer)
+
+    async def _session(self, conn: asyncssh.SSHClientConnection, t: Target, purge: bool,
+                       installer: LinuxInstaller) -> dict[str, Any]:  # fmt: skip
         async with conn:
             sudo = "" if t.user == "root" else "sudo -S -p '' "
             if sudo:

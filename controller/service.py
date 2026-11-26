@@ -45,6 +45,7 @@ from core import self_check, self_checks
 from core.blocks import diag_bundle, run_storage
 from core.blocks.link_monitor import ipv4_netmask, read_links
 from core.blocks.route_guard import never_default
+from core.blocks.wan_nets import net_of
 from core.events.bus import Event
 from core.modules.registry import discover as discover_modules
 from core.modules.registry import load_run_entry
@@ -59,6 +60,7 @@ P = "/v1/controller"
 GUIDE = "설치_및_사용_안내.html"  # tools/kit, and next to an installed program (06 4.1-2)
 THIS_PC = "controller"  # the Controller PC as a LAN-side PC (throughput; user: not "this-pc")
 RELOCATE_EVERY_S = 30.0  # a registered device that does not answer: look for it again
+WAN_MOVE_WAIT_S = 90.0  # the router asks for its new WAN address after the link bounce
 TABLET_APP_WAIT_S = 120.0  # Update PCs: a PC restarting on its new build, then its tablets
 RUN_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 STORAGE_TIMEOUT_S = 10.0  # per device (02 2-13)
@@ -282,6 +284,10 @@ class ControllerService:
                                            "answer": {"choice": choice}})  # fmt: skip
             self.actions.done(key)
             return {"key": key, "choice": choice, "resumed": got.get("resumed")}
+        if kind == "retry_report":  # CTL-007: the report again from the kept data
+            made = self.run.retry_report(choice)
+            self.actions.done(key)
+            return {"key": key, "choice": choice, "report": made}
         raise ZlError("DSC-012", "Request rejected", detail=f"unknown choice kind {kind!r}")
 
     def start(self) -> None:
@@ -474,6 +480,7 @@ class ControllerService:
                         if a not in seen:
                             seen.insert(0, str(a))
                     self._follow(row, wired)
+                    self._wan_range_move(row)
             return self._found != before
         finally:
             self._relocate_lock.release()
@@ -501,11 +508,69 @@ class ControllerService:
             pick = next((c for c in cables if any(same_network(c, w) for w in wired)), None)
             if pick is None:
                 continue
+            if self.run.state not in (RunState.IDLE, RunState.FAULT):
+                return  # 2026-11-21 review: a Start began during the search; between tests only
             try:
                 self._set_address(dev, pick, port)
             except ZlError:
                 continue  # another PC answers there, or none: the person picks in the IP box
             return
+
+    def _wan_range_move(self, row: dict[str, Any]) -> None:
+        """2026-11-26 (a new router; user: "새 공유기 인식 못하는 버그잖아 / 앱이 다시 연결하게
+        해야지 / 너가 하면 안되고"): the router took the sender's lease 10.0.0.100 but used
+        10.0.0.x itself, so 10.0.0.1 never answered through it ("10.0.0.2 reports:
+        Destination host unreachable"). The sender, still found on another of its cards,
+        is told to move to its next range (core/blocks/wan_nets) and is saved there.
+        Between tests only; the move bounces its WAN link so the router asks again."""
+        dev = next((d for d in self.devices.all() if d.device_id == row.get("device_id")), None)
+        addrs = [str(a) for a in row.get("addresses") or [row.get("address")] if a]
+        if dev is None or dev.host in addrs or net_of(dev.host) is None:
+            return  # answering where it is, or not a sender on the router WAN side
+        port = int(row.get("port") or dev.port)
+        client = NodeClient(addrs[0], port, self.run.boot_id, dev.name)
+        try:
+            st = client.get("/v1/wan", timeout_s=5.0)
+            if st.get("state") != "ready" or st.get("server_ip") != dev.host:
+                return  # its ISP role is not the one at that address: nothing to move
+            lease = str((st.get("lease") or {}).get("ip") or "")
+            if not lease:
+                return  # the router took no address: its WAN is not on this cable (SND-011)
+            self.run.wan_route_to(str(net_of(dev.host)))  # the way there is the router
+            # the router's own WAN address saying "unreachable" is a sender that is gone,
+            # not the router using our range (a cable out must never move it)
+            taken = wan_route.range_taken(dev.host, besides=(lease,))
+            if taken is None:
+                return  # nobody else answers for it: a cable or the PC itself (DSC-014)
+            if self.run.state not in (RunState.IDLE, RunState.FAULT):
+                return
+            why = f"the router uses {net_of(dev.host)} itself ({taken} answered for {dev.host})"
+            got = client.command("/v1/wan", self.run.generation, None, timeout_s=60.0,
+                                 move=True, why=why)  # fmt: skip
+        except ZlError as e:
+            self.node.bus.publish(Event("ZL-SND-028", "warn",
+                                        f"{dev.name} could not leave {dev.host}: {e.what}",
+                                        device=dev.name))  # fmt: skip
+            return
+        finally:
+            client.close()
+        new = str(got.get("net") or "").split("/")[0]
+        if not new or new == dev.host:
+            return
+        self.node.bus.publish(Event("ZL-SND-028", "warn", f"The router uses "
+                                    f"{net_of(dev.host)} itself: {dev.name} moved to {new}",
+                                    device=dev.name, data={"why": why}))  # fmt: skip
+        self.run.wan_route_to(str(net_of(new)))
+        end = time.monotonic() + WAN_MOVE_WAIT_S
+        while time.monotonic() < end and not self._closing.is_set():
+            try:
+                self._set_address(dev, new, port)
+                self.node.bus.publish(Event("ZL-INFO", "info", f"{dev.name} answers at {new} "
+                                            "through the router", device=dev.name,
+                                            data={"clears": ["ZL-SND-028"]}))  # fmt: skip
+                return
+            except ZlError:
+                self._closing.wait(3.0)  # the router is asking for its new address
 
     def _links_at(self, host: str, port: int, dev: Any) -> list[dict[str, Any]]:
         """The cards of the PC that answers at ``host``, when it is ``dev`` (else none)."""
@@ -629,7 +694,11 @@ class ControllerService:
                 out.append(row)
             # 2026-10-31 (the tablet rows showed the old app until Start): the app goes onto
             # each tablet now, not at the next Start
+            on_build = {r["device"] for r in out
+                        if r["updated"] or r.get("why") == "already this build"}  # fmt: skip
             for dev in self.devices.all():
+                if dev.name not in on_build:  # its update failed: it never comes back on
+                    continue  # this build, so no 2-minute wait for it (2026-11-26 review)
                 got = self._tablet_apps(dev, build)
                 for r in out:
                     if r["device"] == dev.name and got:
@@ -987,11 +1056,18 @@ class ControllerService:
     def _awake_watch(self) -> None:
         """SYS-005 on the Controller PC (GAP-116): awake while a test or the broadcast
         runs — a sleeping Controller makes every PC safe-stop after 10 s (CTL-008)."""
+        told = False
         while not self._closing.wait(AWAKE_WATCH_S):
-            busy = self.run.state is not RunState.IDLE or bool(
-                self.run.broadcast_status().get("on")
-            )
-            self.node.want_awake("test", busy)
+            try:
+                busy = self.run.state is not RunState.IDLE or bool(
+                    self.run.broadcast_status().get("on")
+                )
+                self.node.want_awake("test", busy)
+            except Exception as e:  # 2026-11-21 review: the watch never dies (it ended)
+                if not told:
+                    told = True
+                    text = f"Controller awake watch error: {e!r}"
+                    self.node.bus.publish(Event("ZL-SYS-008", "warn", text))
         self.node.want_awake("test", False)
 
     def _idle_watch(self) -> None:

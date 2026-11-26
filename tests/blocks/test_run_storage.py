@@ -46,7 +46,7 @@ def test_sizes_and_what_raw_only_removes(tmp_path: Path) -> None:
     assert sorted(p.name for p in (tmp_path / "R1").iterdir()) == ["summary.json"]
     got = run_storage.delete(tmp_path, "R2", raw_only=False)
     assert got["left_bytes"] == 0 and got["errors"] == [] and not (tmp_path / "R2").exists()
-    assert outside.read_text() == "x"
+    assert outside.read_text(encoding="utf-8") == "x"
     again = run_storage.delete(tmp_path, "R2", raw_only=False)  # twice: the same, nothing
     assert again == {"deleted_bytes": 0, "left_bytes": 0, "errors": []}
     for bad in ("..", ".", "../x", "a/b", ""):

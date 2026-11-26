@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import itertools
-import os
 import random
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -31,6 +29,7 @@ from modules.iptv.sender.commands import (
     send_command,
 )
 from modules.iptv.sender.session import SenderConfig, SenderSession
+from tests.iptv import procs
 
 HAVE_TOOLS = bool(shutil.which("tsp") and shutil.which("ffmpeg"))
 _ports = itertools.count(47100)
@@ -131,9 +130,8 @@ class Rx:
         self.sock.close()
 
 
-def tsp_pids() -> list[int]:
-    out = subprocess.run(["pgrep", "-x", "tsp"], capture_output=True, text=True)
-    return [int(x) for x in out.stdout.split()]
+def tsp_pids() -> set[int]:
+    return procs.pids("tsp")
 
 
 def state(s: SenderSession) -> State:
@@ -196,14 +194,14 @@ def test_tsp_death_restarts_once_then_fault(hd_file: Path, tmp_path: Path) -> No
     s.start()
     first = s._runner.pid  # type: ignore[union-attr]
     assert first is not None
-    os.kill(first, signal.SIGKILL)
+    procs.kill(first)
     end = time.monotonic() + 20
     while (s.restarts == 0 or s._runner.pid == first) and time.monotonic() < end:  # type: ignore[union-attr]
         time.sleep(0.2)
     assert s.restarts == 1 and state(s) is State.RUNNING
     second = s._runner.pid  # type: ignore[union-attr]
     assert second is not None
-    os.kill(second, signal.SIGKILL)
+    procs.kill(second)
     end = time.monotonic() + 10
     while state(s) is not State.FAULT and time.monotonic() < end:
         time.sleep(0.2)
@@ -211,6 +209,57 @@ def test_tsp_death_restarts_once_then_fault(hd_file: Path, tmp_path: Path) -> No
     assert [x.code for x in got].count("ZL-SND-005") == 2, [(x.code, x.text) for x in got]
     s.stop()
     assert s.flow.state is State.IDLE
+
+
+def test_the_pace_log_is_closed_when_the_pacer_stops(tmp_path: Path) -> None:
+    """2026-11-21 review: the pace log stayed open, so on Windows the restart could not
+    delete it for the new log (WinError 32) and the tsp restart failed."""
+    from modules.iptv.sender.session import _PaceLog
+
+    s = SenderSession(cfg(tmp_path / "ch1.ts", 1), tmp_path, EventBus())
+    log = tmp_path / "pace_ch1.log"
+    log.write_bytes(b'{"pace": {"listening": 1}}\n')
+    s._pace_log = _PaceLog(log)
+    assert s._pace_log.new() == []  # it is open now
+    assert s._stop_pacer()
+    log.unlink()  # what the restart's _start_pacer does; Windows refused it before
+    assert not log.exists()
+
+
+class _BrokenLog:
+    def new_rates(self) -> list[int]:
+        raise OSError("the log went away")
+
+    def close(self) -> None:
+        return
+
+
+class _Running:
+    exit_code = None
+
+    def poll(self) -> Any:
+        return None
+
+
+def test_an_unexpected_error_in_the_watch_is_said_once_and_it_goes_on(tmp_path: Path) -> None:
+    """09 SND-027 (2026-11-21 review): the watch thread ended silently on any error that
+    was not a ZlError; a later tsp death was then neither restarted nor told. Now it is
+    said once and the watch goes on; the sending is left as it is (as on Linux before)."""
+    got: list[Event] = []
+    bus = EventBus()
+    bus.subscribe(got.append)
+    s = SenderSession(cfg(tmp_path / "ch1.ts", 1), tmp_path, bus)
+    s.flow.move(State.STARTING)
+    s.flow.move(State.RUNNING)
+    s._runner, s._log = _Running(), _BrokenLog()  # type: ignore[assignment]
+    t = threading.Thread(target=s._watch_loop, daemon=True)
+    t.start()
+    time.sleep(3.5)  # three looks, each failing
+    assert t.is_alive() and state(s) is State.RUNNING
+    s._halt.set()
+    t.join(3)
+    assert not t.is_alive()
+    assert [x.code for x in got if x.code == "ZL-SND-027"] == ["ZL-SND-027"]
 
 
 @live

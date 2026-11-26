@@ -25,6 +25,7 @@ from core.events.bus import Event, EventBus, Level, utc_now
 from core.records.recorder import Recorder
 from modules.iptv import record_keys as k
 from modules.iptv.receiver.evidence import MIN_GAP_S, PER_HOUR, trouble
+from modules.iptv.sender.prime import prime_payload, stop_payload
 from modules.iptv.summary_rules import make_summarizer, shape
 
 PULL_EVERY_S = 1.0
@@ -69,6 +70,9 @@ class TabletConfig:
     cell_s: int = 300
     play: bool = True  # S-49
     buffer_ms: int = 1000  # S-25 or this tablet's own (02 plan devices.receivers[].buffer_ms)
+    # 2026-11-26 (a router without IGMP proxy): the app primes {sender_ip, p, q} from its
+    # receive port and gets the channel as unicast through the NAT (iptv 4.5); None = multicast
+    prime: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -135,8 +139,11 @@ class TabletReceiver:
 
     def start(self) -> None:
         c = self.cfg
-        params = {"group": c.group, "port": c.port, "ch": c.ch, "play": c.play,
-                  "buffer_ms": c.buffer_ms}  # fmt: skip
+        params: dict[str, Any] = {"group": c.group, "port": c.port, "ch": c.ch, "play": c.play,
+                                  "buffer_ms": c.buffer_ms}  # fmt: skip
+        if c.prime is not None:  # the payload names the run, the channel and flow 0
+            params["prime"] = {**c.prime, "payload": prime_payload(c.run_id, c.ch, 0).decode(),
+                               "stop": stop_payload(c.run_id, c.ch, 0).decode()}  # fmt: skip
         try:
             # the picture needs the app in front (2026-10-23: started from the home screen,
             # it measured but showed nothing, pb "none"); measuring goes on behind anyway
@@ -251,6 +258,18 @@ class TabletReceiver:
     # ---------------------------------------------------------------- records
 
     def _pull_loop(self) -> None:
+        """09 RCV-018 (2026-11-21 review): an error that was not the tablet's own (a
+        record file that could not be written, a reading the code did not expect) ended
+        this thread with nothing said; the tablet's cells only went grey. It is said and
+        the tablet's part ends in FAULT, as a PC receiver's does."""
+        try:
+            self._pull_rounds()
+        except Exception as e:
+            self.state = "FAULT"
+            self._event("ZL-RCV-018", "error",
+                        f"{self.cfg.device}: measuring stopped unexpectedly: {e!r}")  # fmt: skip
+
+    def _pull_rounds(self) -> None:
         while not self._wait(PULL_EVERY_S):
             try:
                 self._pull()

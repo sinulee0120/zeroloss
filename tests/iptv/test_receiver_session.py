@@ -84,7 +84,7 @@ def wait_state(s: ReceiverSession, st: State, timeout_s: float = 10) -> bool:
 
 def records(tmp_path: Path) -> list[dict[str, Any]]:
     path = tmp_path / "raw" / "pc" / "R1_h000.jsonl"
-    return [json.loads(x) for x in path.read_text().splitlines()]
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_full_cycle_counts_injected_loss(tmp_path: Path, bus: Any) -> None:
@@ -203,7 +203,7 @@ def test_monkey_start_stop_wait(tmp_path_factory: pytest.TempPathFactory, ops: l
         assert wait_state(s, State.IDLE, 5)
     assert not [t for t in threading.enumerate() if t.name.startswith("iptv-") and t.is_alive()]
     for f in (d / "raw" / "pc").glob("*.jsonl") if (d / "raw" / "pc").exists() else []:
-        last = json.loads(f.read_text().splitlines()[-1])
+        last = json.loads(f.read_text(encoding="utf-8").splitlines()[-1])
         assert last["type"] == "footer"
 
 

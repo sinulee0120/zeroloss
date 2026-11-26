@@ -184,7 +184,8 @@ class IptvModule:
             ttl=int(p.get("ttl", DEFAULT_TTL)),
             local_address=p.get("local_address"),
         )
-        key = (ch, prime.flow if prime else -1)
+        # (ch, flow): -1 multicast; primed 2 * slot + flow, a flow per receiver (2026-11-26)
+        key = (ch, 2 * prime.slot + prime.flow if prime else -1)
         with self._lock:
             if key in self.senders and self.senders[key].flow.state in ACTIVE:
                 raise ZlError("RUN-012", f"CH{cfg.ch} is already sending")
@@ -384,6 +385,7 @@ class IptvModule:
             cell_s=int(p.get("cell_s", 300)),
             play=p.get("play", True) is not False,
             buffer_ms=buffer_ms,
+            prime=_tablet_prime(p.get("prime")),
         )
         with self._lock:
             old = self.tablet_rx.get(cfg.device)
@@ -545,6 +547,14 @@ class IptvModule:
         p = req.params
         ch = _need(p, "ch", int)
         self._idle_only()
+        # 2026-11-26 (a new router, S-18 On): the primed probe's packet to the sender left
+        # on this PC's default route (the home Wi-Fi), never the router: "no prime from
+        # the receiver in 3 s". The way to the sender, as receiver_start does (GAP-158)
+        given = p.get("prime")
+        sender_ip = given.get("sender_ip") if isinstance(given, dict) else None
+        interface_ip = str(p.get("interface_ip") or "")
+        if sender_ip and interface_ip not in ("", "0.0.0.0"):
+            self.node.reach_sender(str(sender_ip), interface_ip)
         probe_id = self.listener.start(
             _need(p, "group", str), _need(p, "port", int),
             str(p.get("interface_ip", "0.0.0.0")), _seconds(p, LISTEN_S_MAX, 4),
@@ -738,6 +748,16 @@ def _probe_prime(value: Any, run_id: str | None, ch: int) -> tuple[str, int, int
     return value["sender_ip"], _need(value, "p", int), _need(value, "q", int), payload
 
 
+def _tablet_prime(value: Any) -> dict[str, Any] | None:
+    """``prime`` of tablet/start (iptv 4.5, 2026-11-26): {"sender_ip", "p", "q"}."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("sender_ip"), str):
+        raise ZlError("DSC-012", "Request rejected", detail="params.prime needs sender_ip, p, q")
+    return {"sender_ip": value["sender_ip"], "p": _need(value, "p", int),
+            "q": _need(value, "q", int)}  # fmt: skip
+
+
 def _prime_flow(value: Any, run_id: str | None) -> PrimeFlow | None:
     """``prime`` of sender/start (iptv 4.5): {"flow", "p", "q"}; None = multicast."""
     if value is None:
@@ -745,9 +765,12 @@ def _prime_flow(value: Any, run_id: str | None) -> PrimeFlow | None:
     if not isinstance(value, dict):
         raise ZlError("DSC-012", "Request rejected", detail="params.prime must be an object")
     flow, p, q = _need(value, "flow", int), _need(value, "p", int), _need(value, "q", int)
+    slot = value.get("slot", 0)
     if flow not in (0, 1) or not (1024 <= p <= 65535 and 1024 <= q <= 65535) or p == q:
         raise ZlError("DSC-012", "Request rejected", detail="params.prime flow 0/1, ports P != Q")
-    return PrimeFlow(run_id or "no-run", flow, p, q)
+    if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < 8:
+        raise ZlError("DSC-012", "Request rejected", detail="params.prime.slot 0..7")
+    return PrimeFlow(run_id or "no-run", flow, p, q, slot)
 
 
 def _seconds(params: dict[str, Any], most: int, default: int) -> float:

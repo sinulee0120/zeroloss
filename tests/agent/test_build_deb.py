@@ -86,7 +86,9 @@ def test_package_contents(deb: Path) -> None:
     assert "Recommends: libxcb-cursor0" in info  # Agent Desktop's screen (GAP-73 ②)
     control = subprocess.run(["dpkg-deb", "-e", str(deb), str(deb.parent / "ctl")], check=True)
     assert control.returncode == 0
-    assert (deb.parent / "ctl/conffiles").read_text() == "/etc/zeroloss/zeroloss.conf\n"
+    assert (deb.parent / "ctl/conffiles").read_text(
+        encoding="utf-8"
+    ) == "/etc/zeroloss/zeroloss.conf\n"
     for script in ("postinst", "prerm", "postrm"):
         assert (deb.parent / "ctl" / script).stat().st_mode & 0o111
 

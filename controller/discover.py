@@ -17,10 +17,13 @@ from typing import Any
 
 from controller.devices import DeviceList
 from core.blocks.discovery import ask, broadcast_addresses
+from core.blocks.wan_nets import FIXED_IP_SENDER, server_ips
 from core.protocol.client import NodeClient
 from core.protocol.envelope import ZlError
 
-SENDER_TRY = ("10.0.0.1", "10.0.0.2")  # 07 3: DHCP way (B) and fixed IP way (A) defaults
+# 07 3: DHCP way (B) in each of its ranges (2026-11-26: a router that used 10.0.0.x itself
+# made the sender move, core/blocks/wan_nets.py) and the fixed IP way (A)
+SENDER_TRY = (*server_ips(), FIXED_IP_SENDER)
 SCAN_TIMEOUT_S = 0.3
 SCAN_WORKERS = 64
 WIDEST_SCAN = 22  # /22 = 1022 addresses at most

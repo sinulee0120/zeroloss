@@ -34,6 +34,7 @@ class PrimeFlow:
     flow: int  # 0 analyzer, 1 player
     p: int  # tsp sends from here
     q: int  # primes arrive here
+    slot: int = 0  # which receiver (2026-11-26: several on one channel, each its own flow)
 
 
 def prime_payload(run_id: str, ch: int, flow: int) -> bytes:
@@ -76,7 +77,8 @@ class PrimedSender:
         procs_dir: Path | None = None,
         lost_s: float = PRIME_LOST_S,
     ) -> None:
-        self.cfg = replace(cfg, local_port=prime.p, tag=f"_f{prime.flow}")
+        tag = f"_f{prime.flow}" + (f"_s{prime.slot}" if prime.slot else "")  # its own files
+        self.cfg = replace(cfg, local_port=prime.p, tag=tag)
         self.prime = prime
         self.bus = bus
         self.lost_s = lost_s

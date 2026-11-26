@@ -565,13 +565,23 @@ def cell_values(summary: dict[str, Any]) -> list[dict[str, Any]]:
              threshold_mbps(summary, pct) if j.get("wired", True) else None, detail=True),
         item("retransmits", "TCP retransmits (LAN→WAN)", "", send.get("retransmits"),
              detail=True),
-        item("lost_pct", "UDP loss", "%", send.get("lost_pct"), detail=True),
+        # both ways (2026-11-26 review: WAN→LAN loss was never shown)
+        item("lost_pct", "UDP loss (LAN→WAN / WAN→LAN)", "%", _both(send, recv, "lost_pct"),
+             detail=True),
         item("unsupported", "Not changeable on this PC", "",
              "; ".join(summary.get("unsupported") or []) or None, detail=True),
         item("command", "iperf3 command", "",
              " / ".join(str(x.get("command")) for x in (send, recv) if x.get("command"))
              or None, detail=True),
     ]  # fmt: skip
+
+
+def _both(send: dict[str, Any], recv: dict[str, Any], key: str) -> str | None:
+    """ "0 / 11.9": one value per direction, "—" for a direction without one."""
+    vals = [send.get(key), recv.get(key)]
+    if all(v is None for v in vals):
+        return None
+    return " / ".join("—" if v is None else f"{round(float(v), 2):g}" for v in vals)
 
 
 def receiver_minimum_met(summaries: list[dict[str, Any]]) -> tuple[bool, str]:

@@ -36,9 +36,13 @@ class UNICAST(ctypes.Structure):
     pass
 
 
-UNICAST._fields_ = [  # IP_ADAPTER_UNICAST_ADDRESS_LH (the part read here)
+UNICAST._fields_ = [  # IP_ADAPTER_UNICAST_ADDRESS_LH (up to the prefix length)
     ("length", ctypes.c_ulong), ("flags", wintypes.DWORD),
     ("next", ctypes.POINTER(UNICAST)), ("address", SOCKET_ADDRESS),
+    ("prefix_origin", ctypes.c_int), ("suffix_origin", ctypes.c_int),
+    ("dad_state", ctypes.c_int), ("valid_lifetime", ctypes.c_ulong),
+    ("preferred_lifetime", ctypes.c_ulong), ("lease_lifetime", ctypes.c_ulong),
+    ("on_link_prefix_length", ctypes.c_ubyte),
 ]  # fmt: skip
 
 
@@ -62,14 +66,31 @@ ADAPTER._fields_ = [  # IP_ADAPTER_ADDRESSES_LH up to the link speeds
 
 
 def _ipv4(first: Any) -> str | None:
+    got = _ipv4_and_prefix(first)
+    return got[0] if got else None
+
+
+def _ipv4_and_prefix(first: Any) -> tuple[str, int] | None:
     node = first
     while node:
         sa = node.contents.address.sockaddr
         if sa and sa.contents.family == AF_INET:
             ip = socket.inet_ntoa(bytes(sa.contents.data[2:6]))
             if not ip.startswith("169.254."):
-                return ip
+                return ip, int(node.contents.on_link_prefix_length)
         node = node.contents.next
+    return None
+
+
+def prefix_of(ip: str) -> int | None:
+    """The prefix length of the card that has ``ip`` (2026-11-21: a Windows sender
+    behind the NAT never had the same-subnet check, SND-010; its prefix was unknown)."""
+    if ip.startswith("127."):
+        return 8
+    for a in adapters():
+        if a["ip"] == ip:
+            p = a.get("prefix")
+            return int(p) if isinstance(p, int) else None
     return None
 
 
@@ -94,8 +115,10 @@ def adapters() -> list[dict[str, Any]]:
         if a.if_type in (IF_TYPE_ETHERNET, IF_TYPE_WIFI) and not virtual:
             up = a.oper_status == OPER_UP
             speed = int(a.transmit_link_speed // 1_000_000) if up else None
-            out.append({"nic": a.friendly_name, "ip": _ipv4(a.first_unicast), "up": up,
+            got = _ipv4_and_prefix(a.first_unicast)
+            out.append({"nic": a.friendly_name, "ip": got[0] if got else None, "up": up,
                         "link_mbps": speed or None, "wireless": a.if_type == IF_TYPE_WIFI,
-                        "description": a.description, "index": int(a.if_index)})  # fmt: skip
+                        "description": a.description, "index": int(a.if_index),
+                        "prefix": got[1] if got else None})  # fmt: skip
         node = a.next
     return out

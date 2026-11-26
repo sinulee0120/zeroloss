@@ -128,6 +128,7 @@ class SenderSession:
         self._log: _RateLog | None = None
         self._halt = threading.Event()
         self._watch: threading.Thread | None = None
+        self._silent = 0  # seconds in a row without a rate report
 
     # ---------------------------------------------------------------- commands
 
@@ -235,6 +236,11 @@ class SenderSession:
 
     def _stop_pacer(self) -> bool:
         pacer, self._pacer = self._pacer, None
+        # its log is read here: closed, or Windows cannot delete it for the restart's new
+        # log (WinError 32) and the restart failed (2026-11-21 review)
+        pace = getattr(self, "_pace_log", None)
+        if pace is not None:
+            pace.close()
         if pacer is None:
             return True
         try:
@@ -246,32 +252,50 @@ class SenderSession:
             return False
 
     def _watch_loop(self) -> None:
-        silent = 0
+        """09 SND-027 (2026-11-21 review): an unexpected error in one look is said once
+        and the watch goes on the next second (the sending is not touched). Before, the
+        thread ended silently and a later tsp death was neither restarted nor told."""
+        told = False
+        self._silent = 0
         while not self._halt.wait(1.0):
-            runner, log = self._runner, self._log
-            if runner is None or log is None:
-                return
-            rates = log.new_rates()
-            # every second while it lasts: the Controller's trouble window follows it (05 5.3)
-            if rates:
-                silent = 0
-                self.last_rate = rates[-1]
-                if rates[-1] < self.cfg.muxrate_bps * (1 - UNSTABLE_TOLERANCE):
-                    self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} unstable: {rates[-1]} b/s")
-                elif rates[-1] < self.cfg.muxrate_bps * (1 - SLOW_TOLERANCE):
-                    self._event("ZL-SND-017", "warn", f"CH{self.cfg.ch} slow: {rates[-1]} b/s")
-            else:
-                silent += 1
-                if silent >= 2:  # the rate report comes once a second
-                    self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} no rate report")
-            self._watch_pace()
-            self._watch_shaper()
-            pacer_died = self._pacer is not None and self._pacer.poll() is ProcState.FAULT
-            if (runner.poll() is ProcState.FAULT or pacer_died) and not self._halt.is_set():
-                self._process_died(runner.exit_code)
-                if self.flow.state is State.FAULT:
+            try:
+                if not self._watch_once():
                     return
-                silent = 0
+            except Exception as e:
+                if self._halt.is_set():
+                    return  # stopping anyway
+                if not told:
+                    told = True
+                    self._event("ZL-SND-027", "warn", f"CH{self.cfg.ch} sender watch: "
+                                f"unexpected error, it goes on: {e!r}")  # fmt: skip
+
+    def _watch_once(self) -> bool:
+        """One look (every second); False when there is nothing more to watch."""
+        runner, log = self._runner, self._log
+        if runner is None or log is None:
+            return False
+        rates = log.new_rates()
+        # every second while it lasts: the Controller's trouble window follows it (05 5.3)
+        if rates:
+            self._silent = 0
+            self.last_rate = rates[-1]
+            if rates[-1] < self.cfg.muxrate_bps * (1 - UNSTABLE_TOLERANCE):
+                self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} unstable: {rates[-1]} b/s")
+            elif rates[-1] < self.cfg.muxrate_bps * (1 - SLOW_TOLERANCE):
+                self._event("ZL-SND-017", "warn", f"CH{self.cfg.ch} slow: {rates[-1]} b/s")
+        else:
+            self._silent += 1
+            if self._silent >= 2:  # the rate report comes once a second
+                self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} no rate report")
+        self._watch_pace()
+        self._watch_shaper()
+        pacer_died = self._pacer is not None and self._pacer.poll() is ProcState.FAULT
+        if (runner.poll() is ProcState.FAULT or pacer_died) and not self._halt.is_set():
+            self._process_died(runner.exit_code)
+            if self.flow.state is State.FAULT:
+                return False
+            self._silent = 0
+        return True
 
     def _watch_shaper(self) -> None:
         """SND-026 every second a shaper (netem, tbf, ...) sits on this sender's card: what
@@ -288,6 +312,11 @@ class SenderSession:
         behind real time, so what the receivers lost then is the sender's (purple)."""
         pace = getattr(self, "_pace_log", None)
         for d in pace.new() if pace is not None else []:
+            if int(d.get("send_errors") or 0):  # 2026-11-21: the OS refused sends (SND-016)
+                why = d.get("error") or "network error"
+                n = d["send_errors"]
+                text = f"CH{self.cfg.ch}: {n} datagrams could not be sent ({why})"
+                self._event("ZL-SND-016", "warn", text + ": the sender's network")
             late_ms = float(d.get("late_us") or 0) / 1000
             dropped = int(d.get("dropped") or 0)
             if late_ms >= PACE_LATE_MS or dropped:

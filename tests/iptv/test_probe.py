@@ -140,3 +140,32 @@ def test_two_cards_on_one_lan_are_both_listed_most_first() -> None:
     assert arrived_cards(cards) == [{"nic": "999999", "ip": "192.168.45.190", "packets": 40},
                                     {"nic": "lo", "ip": "127.0.0.1", "packets": 3}]  # fmt: skip
     assert arrived_on(cards) == {"nic": "999999", "ip": "192.168.45.190"}
+
+
+def test_a_primed_probe_routes_to_the_sender_first() -> None:
+    """2026-11-26 (a new router, S-18 On): the primed probe's packet to the sender left on
+    the receiver PC's default route (its home Wi-Fi) -- "no prime from the receiver in
+    3 s". The probe now sets the way to the sender through the test card, as the
+    receiver start does (GAP-158)."""
+    from types import SimpleNamespace
+
+    from modules.iptv.module import IptvModule
+
+    reached: list[tuple[str, str]] = []
+
+    def reach(target: str, ip: str) -> dict[str, Any]:
+        reached.append((target, ip))
+        return {"ok": True}
+
+    fake = SimpleNamespace(_idle_only=lambda: None, node=SimpleNamespace(reach_sender=reach),
+                           listener=SimpleNamespace(start=lambda *a, **k: "P1"))  # fmt: skip
+    prime = {"sender_ip": "100.64.0.1", "p": 5104, "q": 5105}
+    req = SimpleNamespace(run_id="R1", params={"ch": 1, "group": "239.1.1.1", "port": 5106,
+                                               "seconds": 10, "interface_ip": "172.30.1.74",
+                                               "prime": prime})  # fmt: skip
+    assert IptvModule.receiver_probe(fake, req) == {"probe_id": "P1"}  # type: ignore[arg-type]
+    assert reached == [("100.64.0.1", "172.30.1.74")]
+    reached.clear()
+    plain = {**req.params, "prime": None}
+    IptvModule.receiver_probe(fake, SimpleNamespace(run_id="R1", params=plain))  # type: ignore[arg-type]
+    assert reached == []  # multicast: nothing to route

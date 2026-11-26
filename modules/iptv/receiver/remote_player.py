@@ -26,7 +26,8 @@ _ORDER = ("ok", "audio_gap", "drop", "glitch", "restart", "freeze", "none")
 
 def job_config(cfg: PlayerConfig) -> dict[str, Any]:
     """What the Desktop needs to start the same player (its own folders, 02 2-12)."""
-    return {"url": cfg.url, "nic": cfg.nic, "buffer_ms": cfg.buffer_ms, "window": cfg.window,
+    return {"url": cfg.url, "nic": cfg.nic, "local_ip": cfg.local_ip,
+            "buffer_ms": cfg.buffer_ms, "window": cfg.window,
             "headless": cfg.headless, "lowered": False, "flowing": None,
             "player": cfg.kind}  # fmt: skip
 

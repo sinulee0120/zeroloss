@@ -110,12 +110,23 @@ class Deploy:
                 "from_build": up["from_build"], "result": "updated", "update": up}  # fmt: skip
 
     def _client_health(self, node: str) -> dict[str, Any]:
-        client = self._client(node)
-        try:
-            result: dict[str, Any] = client.get("/v1/deployer/health", timeout_s=5.0)
-            return result
-        finally:
-            client.close()
+        """Once on each address of that PC, like ``_call`` (2026-11-26 review: the wait
+        asked only the address in use; a Deployer that answers on its other card -- the
+        ProBook of 2026-10-17 -- left every update "did not finish" after 15 minutes)."""
+        last: ZlError | None = None
+        for host in self.hosts(node):
+            client = self._client(node, host)
+            try:
+                result: dict[str, Any] = client.get("/v1/deployer/health", timeout_s=5.0)
+                return result
+            except ZlError as e:
+                if e.code != "ZL-DSC-014":
+                    raise
+                last = e
+            finally:
+                client.close()
+        raise last or ZlError("INS-014", f"The Deployer on {node} does not answer",
+                              "No address is known for that PC.", "Find Devices.")  # fmt: skip
 
     def modules(self, node: str) -> dict[str, Any]:
         return self._call(node, lambda c: c.get("/v1/deployer/modules"))

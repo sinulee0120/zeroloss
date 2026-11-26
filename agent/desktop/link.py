@@ -81,8 +81,17 @@ class DesktopLink:
         self._client.close()
 
     def _loop(self) -> None:
+        """2026-11-21 review: one unexpected error in a round (a player's report, an
+        answer of another shape) ended this thread for good; the node then saw no
+        reports (RCV-020) and the players were never stopped. Said once, tried again."""
+        told = False
         while not self._halt.wait(POLL_S):
-            self.step()
+            try:
+                self.step()
+            except Exception as e:
+                if not told:
+                    told = True
+                    self.tell("ZL-SYS-008", "warn", f"Agent Desktop link error, it goes on: {e!r}")
 
     # ---------------------------------------------------------------- one round
 

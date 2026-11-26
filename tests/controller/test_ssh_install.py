@@ -94,9 +94,9 @@ def test_install_end_to_end(pc: FakeLinuxPC, tmp_path: Path) -> None:
         info = NodeClient("127.0.0.1", node.port, "t").get("/v1/info")
         assert info["modules"] == [{"id": "iptv", "enabled": True, "reason": ""}]
         assert not list((pc.root / "tmp").glob("zeroloss-install-*"))  # temp files removed
-        saved = (tmp_path / "ctl" / "ssh-known-hosts.json").read_text()
+        saved = (tmp_path / "ctl" / "ssh-known-hosts.json").read_text(encoding="utf-8")
         assert json.loads(saved)["hosts"]["127.0.0.1"]["sha256"] == r["host_key"]["sha256"]
-        everything = json.dumps(r) + saved + (tmp_path / "devices.json").read_text()
+        everything = json.dumps(r) + saved + (tmp_path / "devices.json").read_text(encoding="utf-8")
         assert PASSWORD not in everything  # used once, never kept (06 11.3)
         assert pc.stdin_seen and set(pc.stdin_seen) == {PASSWORD}  # only on sudo's stdin
         assert not any(PASSWORD in c for c in pc.commands)  # never on a command line
@@ -295,3 +295,30 @@ def test_remove_takes_zeroloss_off_and_out_of_devices(
     assert pc.commands[-1] == f"sudo -S -p '' dpkg {how} zeroloss-agent"
     assert inst.devices.all() == [] and PASSWORD not in json.dumps(r)
     assert not any(PASSWORD in c for c in pc.commands)
+
+
+def test_a_pc_that_refuses_mid_install_is_told_not_internal(pc: FakeLinuxPC,
+                                                            tmp_path: Path) -> None:  # fmt: skip
+    """2026-11-26 review: an SSH failure after the login (here the PC cannot make the
+    upload folder: /tmp is a file) was SYS-008 "Internal error, send the logs"."""
+    (pc.root / "tmp").write_text("not a folder", encoding="utf-8")
+    with pytest.raises(ZlError) as e:
+        installer(tmp_path).install(target(pc))
+    assert e.value.code in ("ZL-INS-028", "ZL-DSC-014") and "after step sudo" in e.value.what
+    assert PASSWORD not in json.dumps(e.value.to_dict())
+
+
+@pytest.mark.parametrize(("error", "code"), [
+    (lambda: __import__("asyncssh").ConnectionLost("Connection lost"), "ZL-DSC-014"),
+    (lambda: ConnectionResetError(104, "Connection reset by peer"), "ZL-DSC-014"),
+    (lambda: __import__("asyncssh").SFTPFailure("No space left on device"), "ZL-INS-028"),
+])  # fmt: skip
+def test_ssh_failures_get_their_codes(error: Any, code: str) -> None:
+    from controller.ssh_install import _over_ssh
+
+    with (
+        pytest.raises(ZlError) as e,
+        _over_ssh(Target("10.0.0.5", "u", PASSWORD), lambda: "upload"),
+    ):
+        raise error()
+    assert e.value.code == code and "after step upload" in e.value.what

@@ -76,6 +76,7 @@ def player_job(config: dict[str, Any], work_dir: Path, procs_dir: Path,
                on_event: Callable[[str, str, str], None]) -> PlayerJob:  # fmt: skip
     cfg = PlayerConfig(
         url=str(config["url"]), work_dir=work_dir, nic=config.get("nic"),
+        local_ip=config.get("local_ip"),  # off Linux the card is its address (2026-11-21)
         buffer_ms=int(config.get("buffer_ms", 1000)), window=str(config.get("window", "")),
         headless=bool(config.get("headless")), procs_dir=procs_dir,
         kind=str(config.get("player", "VLC")),  # an older node does not say: VLC (S-26)

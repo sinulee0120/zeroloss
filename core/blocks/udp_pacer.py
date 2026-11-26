@@ -8,8 +8,8 @@ at 35 Mbps). This relay takes the datagrams on a loopback port and sends each on
 byte for byte, to the real destination on that even schedule.
 
 - The rate comes from the bytes: each datagram waits ``len x 8 / rate`` after the one
-  before. The source keeps the long-term rate; a queue that grows beyond
-  ``CATCH_UP_QUEUE`` makes the spacing slightly shorter so the relay never falls behind.
+  before. The source keeps the long-term rate; a queue that waits longer than
+  ``CATCH_UP_S`` makes the spacing slightly shorter so the relay never falls behind.
 - Waiting: sleep until ``SPIN_S`` before the time, then spin (sleep alone is too coarse).
 - Live, like a broadcast (2026-10-23 user: "실제 iptv는 실시간 방송이라 보낼때 늦게보내고
   천천히 보내고 이런걸 하지 않아"): a datagram that has waited here longer than
@@ -39,7 +39,19 @@ from typing import Any
 from core.blocks import priority
 
 SPIN_S = 0.0001  # measured on the T460: p99 0.41 ms, 29 % of a core (0.0002: 0.32 ms, 57 %)
-CATCH_UP_QUEUE = 64  # datagrams waiting: send a little faster until it drains
+IDLE_S = SPIN_S / 2  # nothing queued: look again after this
+if sys.platform == "win32":
+    # 2026-11-21 review, measured on the Controller PC: Windows' shortest sleep is ~0.55 ms
+    # (p99 1.3 ms), so with 0.1 ms the datagrams left 0.09 ms apart (median, 39 % back to
+    # back) for a 0.30 ms spacing -- the bursts of GAP-160 again. Spinning the last
+    # 1.5 ms gave the 0.300 ms median, at about one core while it sends
+    SPIN_S = 0.0015
+# waiting longer than this: send a little faster until it drains. A time, not a count
+# (2026-11-21, measured on the Controller PC): the spacing counts the RTP header the
+# source's rate does not, so the queue always grows to the threshold; 64 datagrams were
+# 20 ms at 35 Mbps (UHD, as on the T460) but 70 ms at 10 Mbps, where a 13 ms hiccup put
+# datagrams past LIVE_LATE_S and they were dropped (SND-025, purple cells)
+CATCH_UP_S = 0.02
 CATCH_UP = 0.98  # spacing factor while catching up
 LIVE_LATE_S = 0.1  # waited longer than this: too late for live, dropped (usual wait ~25 ms)
 REPORT_S = 1.0
@@ -48,7 +60,7 @@ RCVBUF = 8 << 20
 
 def spacing_s(size: int, rate_bps: float, queued: int) -> float:
     gap = size * 8 / rate_bps
-    return gap * CATCH_UP if queued > CATCH_UP_QUEUE else gap
+    return gap * CATCH_UP if queued * gap > CATCH_UP_S else gap
 
 
 class Pacer:
@@ -68,6 +80,11 @@ class Pacer:
         self.dropped = 0  # too late for live, this second
         self.max_queue = 0
         self.late_s = 0.0
+        # 2026-11-21 review: one send the OS refused ("network unreachable": the card's
+        # cable or Wi-Fi gone for a moment) ended this process, and the sender took it
+        # for a dead tsp. It is counted and said each second; the schedule goes on
+        self.send_errors = 0  # this second
+        self.error = ""
 
     def _drain(self) -> None:
         while True:
@@ -76,14 +93,14 @@ class Pacer:
             except (BlockingIOError, InterruptedError):
                 return
 
-    def run(self, until: Callable[[], bool], report: Callable[[dict[str, float]], None]) -> None:
+    def run(self, until: Callable[[], bool], report: Callable[[dict[str, Any]], None]) -> None:
         self.listen.setblocking(False)
         due = self.clock()
         next_report = due + REPORT_S
         while not until():
             self._drain()
             if not self.queue:
-                self.sleep(SPIN_S / 2)
+                self.sleep(IDLE_S)
                 due = max(due, self.clock())  # an empty queue does not bank time
                 continue
             self.max_queue = max(self.max_queue, len(self.queue))
@@ -99,13 +116,21 @@ class Pacer:
                 self.dropped += 1  # live: too late to send, its slot is gone
                 due = max(due, now - 0.002)
             else:
-                self.send.sendto(data, self.dest)
-                self.sent += 1
+                try:
+                    self.send.sendto(data, self.dest)
+                    self.sent += 1
+                except OSError as e:
+                    self.send_errors += 1
+                    self.error = str(e.strerror or e)
                 due = max(due + spacing_s(len(data), self.rate, len(self.queue)), now - 0.002)
             if now >= next_report:
-                report({"sent": self.sent, "dropped": self.dropped, "max_queue": self.max_queue,
-                        "late_us": round(self.late_s * 1e6)})  # fmt: skip
-                self.max_queue, self.late_s, self.dropped = 0, 0.0, 0
+                line: dict[str, Any] = {"sent": self.sent, "dropped": self.dropped,
+                                        "max_queue": self.max_queue,
+                                        "late_us": round(self.late_s * 1e6)}  # fmt: skip
+                if self.send_errors:
+                    line |= {"send_errors": self.send_errors, "error": self.error}
+                report(line)
+                self.max_queue, self.late_s, self.dropped, self.send_errors = 0, 0.0, 0, 0
                 next_report = now + REPORT_S
 
 
@@ -120,7 +145,10 @@ def open_sockets(listen_port: int, dest: str, ttl: int, local_address: str | Non
         tx.bind((local_address or "0.0.0.0", local_port or 0))
     if dest.split(".")[0].isdigit() and 224 <= int(dest.split(".")[0]) <= 239:
         tx.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, struct.pack("b", ttl))
-        if local_address:
+        # loopback: bound to it above is enough. Windows refused the card chosen by the
+        # address 127.0.0.1 once another card had multicast routes ("network unreachable",
+        # 2026-11-21); a real card's address works everywhere
+        if local_address and not local_address.startswith("127."):
             tx.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
                           socket.inet_aton(local_address))  # fmt: skip
     else:

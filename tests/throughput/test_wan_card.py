@@ -36,7 +36,9 @@ def test_a_mode_with_no_link_puts_the_card_back_at_once(tmp_path: Path) -> None:
     m._wan_step(1, "t1", "next")
     assert m.link["mode"] == "10 Mbps half" and not m.link["link"]
     assert m.link["restored"] and card.adv == ALL.split()
-    assert "enp37s0" not in (tmp_path / "c.json").read_text()  # nothing left to put back
+    assert "enp37s0" not in (tmp_path / "c.json").read_text(
+        encoding="utf-8"
+    )  # nothing left to put back
 
 
 def test_the_wan_card_goes_through_its_speeds_again_for_the_next_lan_card(

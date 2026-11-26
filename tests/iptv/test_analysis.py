@@ -300,3 +300,34 @@ def test_one_receiver_loses_while_another_on_its_channel_gets_all() -> None:
     both = analyze({"summaries": {}, "events": [], "offsets": {"a|1": 0.0, "b|1": 0.0},
                     "seconds": same})  # fmt: skip
     assert "R-24" not in rules(both)  # both lost: not one receiver's side
+
+
+def test_one_receiver_alone_is_found_with_real_clock_offsets() -> None:
+    """2026-11-26 (R20261122-223747): every receiver's seconds start at its own fraction
+    on the run clock (28.032, 28.422, 30.547); R-24 looked them up by whole seconds and
+    so never fired, though tablet-1 lost 37 packets while the others got every one."""
+    offsets = {"tablet-1|1": 28.032, "t460-rx|1": 28.422, "tablet-2|1": 30.547}
+    seconds = {"tablet-1|1": secs({5: 4, 99: 2, 100: 3}, rx=3300),
+               "t460-rx|1": secs({}, rx=3300), "tablet-2|1": secs({}, rx=3300)}  # fmt: skip
+    r = analyze({"summaries": {}, "events": [], "offsets": offsets, "seconds": seconds})
+    hit = next(x for x in r["findings"] if x["rule"] == "R-24")
+    assert hit["devices"] == ["tablet-1"] and "2 loss burst(s)" in hit["text"]
+    # a peer that has no line for that moment proves nothing
+    gap = [x for x in secs({}, rx=3300) if x["e"] not in (4, 5, 6)]
+    r = analyze({"summaries": {}, "events": [], "offsets": {"a|1": 0.25, "b|1": 0.75},
+                 "seconds": {"a|1": secs({5: 4}, rx=3300), "b|1": gap}})  # fmt: skip
+    assert "R-24" not in {f["rule"] for f in r["findings"]}
+
+
+def test_a_link_drop_explains_only_its_own_receivers_loss() -> None:
+    """2026-11-26 review: R-19 put one receiver's cable drop on another's loss."""
+    seconds = {"a|1": secs({100: 5}), "b|1": secs({})}
+    offsets = {"a|1": 0.0, "b|1": 0.0}
+
+    def r19(events: list[dict[str, Any]]) -> bool:
+        r = analyze({"summaries": {}, "events": events, "seconds": seconds, "offsets": offsets})
+        return "R-19" in {f["rule"] for f in r["findings"]}
+
+    assert not r19([event("ZL-NET-013", "b", 90.0)])  # the other receiver's cable
+    assert r19([event("ZL-NET-013", "a", 90.0)])  # its own
+    assert r19([event("ZL-NET-013", "sender", 90.0)])  # the sender's: everyone's

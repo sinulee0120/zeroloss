@@ -131,7 +131,9 @@ def test_a_link_that_stays_slower_is_not_back(tmp_path: Path) -> None:
     ns.set_mode("enp37s0", nic_speed.Mode(10, "full", "10baseT/Full"))
     back = ns.restore("enp37s0")
     assert not back["ok"] and "came back at 100 Mbps; it was 1000 Mbps" in back["why"]
-    assert "enp37s0" in (tmp_path / "c.json").read_text()  # kept: tried again at the next start
+    assert "enp37s0" in (tmp_path / "c.json").read_text(
+        encoding="utf-8"
+    )  # kept: tried again at the next start
 
 
 def test_what_the_other_end_offers_is_read() -> None:

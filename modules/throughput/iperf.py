@@ -96,13 +96,26 @@ def parse(text: str, protocol: str = "tcp") -> IperfResult:
     found = doc.get("end")
     end: dict[str, Any] = found if isinstance(found, dict) else {}
     if protocol == "udp":
-        total = end.get("sum") if isinstance(end.get("sum"), dict) else {}
-        bps = _num(total, "bits_per_second")
+        # 2026-11-26 review (iperf3 3.21, -R at 3 Gbps: sum 2982, sum_received 2626 Mbps,
+        # 11.9 % lost): ``sum`` is the sender's rate, so the loss never showed in Mbps.
+        # The receiving side is ``sum_received``; an iperf3 without it: ``sum`` less the
+        # lost share when ``sum`` is the sender's
+        total: dict[str, Any] = end["sum"] if isinstance(end.get("sum"), dict) else {}
+        rcv: dict[str, Any] = (end["sum_received"] if isinstance(end.get("sum_received"), dict)
+                               else {})  # fmt: skip
+        snt = end["sum_sent"] if isinstance(end.get("sum_sent"), dict) else total
+        lost = _num(rcv, "lost_percent") if rcv else _num(total, "lost_percent")
+        bps = _num(rcv, "bits_per_second")
+        if bps is None:
+            bps = _num(total, "bits_per_second")
+            if bps and total.get("sender") is True and lost:
+                bps *= max(0.0, 1 - lost / 100)
         if not bps:
             return IperfResult(False, error="iperf3 UDP result has no rate")
-        return IperfResult(True, mbps=round(bps / 1e6, 3), sender_mbps=round(bps / 1e6, 3),
-                           lost_pct=_num(total, "lost_percent"),
-                           jitter_ms=_num(total, "jitter_ms"))  # fmt: skip
+        sbps = _num(snt, "bits_per_second")
+        return IperfResult(True, mbps=round(bps / 1e6, 3),
+                           sender_mbps=round(sbps / 1e6, 3) if sbps else None, lost_pct=lost,
+                           jitter_ms=_num(rcv or total, "jitter_ms"))  # fmt: skip
     got = end.get("sum_received") if isinstance(end.get("sum_received"), dict) else {}
     sent = end.get("sum_sent") if isinstance(end.get("sum_sent"), dict) else {}
     bps, sbps = _num(got, "bits_per_second"), _num(sent, "bits_per_second")

@@ -136,7 +136,7 @@ def _registered_at(tmp_path: Path, node: Node, host: str) -> DeviceList:
 
     path = tmp_path / "devices.json"
     DeviceList(path).add("tx-pc", "127.0.0.1", node.api.port, "b")
-    doc = json.loads(path.read_text())
+    doc = json.loads(path.read_text(encoding="utf-8"))
     doc["devices"][0]["host"] = host
     path.write_text(json.dumps(doc))
     return DeviceList(path)

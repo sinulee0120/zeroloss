@@ -22,6 +22,53 @@ def test_spacing_follows_the_bytes_and_catches_up() -> None:
     assert udp_pacer.spacing_s(1328, 35e6, 100) < udp_pacer.spacing_s(1328, 35e6, 0)
 
 
+def test_it_catches_up_by_the_time_waiting_at_any_rate() -> None:
+    """2026-11-21: by a count (64) the queue waited 20 ms at 35 Mbps but 70 ms at 10 Mbps,
+    and a hiccup then dropped datagrams as too late. It is the same time at every rate."""
+    for rate in (10e6, 35e6, 100e6):
+        gap = 1328 * 8 / rate
+        just_under = int(udp_pacer.CATCH_UP_S / gap)
+        assert udp_pacer.spacing_s(1328, rate, just_under) == gap
+        assert udp_pacer.spacing_s(1328, rate, just_under + 2) < gap
+    assert udp_pacer.CATCH_UP_S * 2 < udp_pacer.LIVE_LATE_S  # room for a hiccup
+
+
+class _Refusing:
+    """A send socket the OS refuses for a while (the card's cable or Wi-Fi gone)."""
+
+    def __init__(self, refused: set[int]) -> None:
+        self.refused, self.n, self.sent = refused, 0, 0
+
+    def sendto(self, data: bytes, dest: tuple[str, int]) -> int:
+        self.n += 1
+        if self.n in self.refused:
+            raise OSError(101, "Network is unreachable")
+        self.sent += 1
+        return len(data)
+
+
+def test_a_refused_send_is_counted_and_the_pacer_goes_on() -> None:
+    """2026-11-21 review: one refused send ended the pacer process, and the sender took
+    it for a dead tsp (SND-005, restart, then FAULT) while the network was only gone
+    for a moment."""
+    listen = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listen.bind(("127.0.0.1", 0))
+    src = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    for i in range(40):
+        src.sendto(i.to_bytes(4, "big") + bytes(1324), listen.getsockname())
+    time.sleep(0.2)  # all queued in the listening socket
+    tx = _Refusing(set(range(5, 15)))
+    p = udp_pacer.Pacer(listen, tx, ("127.0.0.1", 9), 100e6)  # type: ignore[arg-type]
+    reports: list[dict[str, object]] = []
+    end = time.monotonic() + 3
+    p.run(lambda: tx.n >= 40 or time.monotonic() > end, reports.append)
+    assert tx.n == 40 and tx.sent == 30  # every one tried, the refused ones not sent
+    assert p.send_errors == 10 or any(r.get("send_errors") for r in reports)
+    assert p.error == "Network is unreachable"
+    listen.close()
+    src.close()
+
+
 def test_the_installed_program_runs_it_as_its_own_process(monkeypatch: object) -> None:
     import sys
 

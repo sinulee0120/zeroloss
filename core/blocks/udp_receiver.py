@@ -7,7 +7,8 @@ same group and port (4.2, port sharing); the analyzer never relays packets to th
 - The receive buffer request (default 16 MB) is checked; the applied size is kept so a
   short buffer can be reported (RCV-001).
 - Linux: kernel arrival time (``SO_TIMESTAMPNS``) and this socket's own drop counter
-  (``SO_RXQ_OVFL``, RCV-002). Elsewhere: monotonic clock right after receive, drops unknown.
+  (``SO_RXQ_OVFL``, RCV-002). Elsewhere: the high-resolution counter right after receive
+  (``clock_ns``), drops unknown.
   The kernel attaches the drop count to the next packet queued, so drops at the very end
   are only seen by ``own_drops()`` (read from ``/proc/net/udp``); call it once per second.
 - ``receive()`` only receives. Counting and writing happen in another thread (4.2).
@@ -34,17 +35,24 @@ _SO_TIMESTAMPNS = 35  # Linux asm-generic/socket.h (not exported by the socket m
 _SO_RXQ_OVFL = 40
 _IP_MULTICAST_ALL = 49  # Linux in.h: 0 = only groups this socket joined
 _IP_PKTINFO = getattr(socket, "IP_PKTINFO", 8)
+# the card's network is gone for now (errno; Windows: WSAENETDOWN, WSAENETUNREACH,
+# WSAENETRESET, WSAEHOSTUNREACH)
+_NETWORK_GONE = frozenset({errno.ENETDOWN, errno.ENETUNREACH, errno.ENETRESET,
+                           errno.EHOSTUNREACH, 10050, 10051, 10052, 10065})  # fmt: skip
 
 
 def clock_ns() -> int:
-    """The clock ``Packet.arrival_ns`` uses, for second boundaries on the same scale."""
-    return time.time_ns() if _LINUX else time.monotonic_ns()
+    """The clock ``Packet.arrival_ns`` uses, for second boundaries on the same scale.
+    Elsewhere than Linux the high-resolution counter (2026-11-21 review, measured on the
+    Controller PC: Windows' monotonic clock is GetTickCount64 and moves in 15.6 ms steps,
+    so a Windows receiver's jitter and delay variation came in 15.6 ms steps)."""
+    return time.time_ns() if _LINUX else time.perf_counter_ns()
 
 
 @dataclass(frozen=True)
 class Packet:
     data: bytes
-    arrival_ns: int  # Linux: kernel real-time clock. Others: monotonic clock
+    arrival_ns: int  # Linux: kernel real-time clock. Others: high-resolution counter
     drops_total: int | None  # this socket's own buffer drops so far (None = unknown on this OS)
     card_index: int | None = None  # the card it came in on (``arrival_card``), else None
     card_ip: str | None = None  # that card's address
@@ -154,6 +162,20 @@ class UdpReceiver:
                 arrival = None
         except TimeoutError:
             return None
+        except ConnectionResetError:
+            # Windows (2026-11-21, tried on the Controller PC): a datagram this socket sent
+            # earlier (``send_to``) to a port nobody listened on yet makes the next
+            # receive fail with WSAECONNRESET; nothing was lost, it is no packet. Linux
+            # never says this for a socket that is not connected
+            return None
+        except OSError as e:
+            # the card went down or lost its network for a moment (cable out, Wi-Fi gone;
+            # Windows says so on the receive itself): no packet. The silent seconds then
+            # say it and the group is joined again (2026-11-21 review: it ended the
+            # receive thread, RCV-018, and the test)
+            if e.errno in _NETWORK_GONE or getattr(e, "winerror", None) in _NETWORK_GONE:
+                return None
+            raise
         if arrival is None:  # same clock as the kernel time on Linux
             arrival = clock_ns()
         if card is None:

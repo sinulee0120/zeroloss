@@ -61,31 +61,35 @@ def active(text: str) -> dict[str, str]:
 def test_on_and_back(tmp_path: Path) -> None:
     conf, orig = files(tmp_path)
     r = al.enable(conf, orig, "tester")
-    assert r["changed"] and active(conf.read_text()) == {
+    assert r["changed"] and active(conf.read_text(encoding="utf-8")) == {
         "AutomaticLoginEnable": "true", "AutomaticLogin": "tester"}  # fmt: skip
     al.enable(conf, orig, "tester")  # twice = once
-    assert conf.read_text().count(al.MARK) == 1
+    assert conf.read_text(encoding="utf-8").count(al.MARK) == 1
     assert al.disable(conf, orig) is None
-    assert conf.read_text() == UBUNTU and not orig.exists()  # exactly as before
+    assert conf.read_text(encoding="utf-8") == UBUNTU and not orig.exists()  # exactly as before
 
 
 def test_the_persons_own_setting_comes_back(tmp_path: Path) -> None:
     mine = UBUNTU.replace("#  AutomaticLogin = user1", "AutomaticLogin = bob")
     conf, orig = files(tmp_path, mine)
     al.enable(conf, orig, "tester")
-    assert active(conf.read_text())["AutomaticLogin"] == "tester"  # ours wins meanwhile
-    conf.write_text(conf.read_text() + "\n[extra]\nX=1\n")  # changed by the person since
+    assert (
+        active(conf.read_text(encoding="utf-8"))["AutomaticLogin"] == "tester"
+    )  # ours wins meanwhile
+    conf.write_text(
+        conf.read_text(encoding="utf-8") + "\n[extra]\nX=1\n"
+    )  # changed by the person since
     al.disable(conf, orig)
-    got = conf.read_text()
+    got = conf.read_text(encoding="utf-8")
     assert al.MARK not in got and active(got) == {"AutomaticLogin": "bob"} and "[extra]" in got
 
 
 def test_no_daemon_section_and_no_gdm(tmp_path: Path) -> None:
     conf, orig = files(tmp_path, "[security]\n")
     al.enable(conf, orig, "tester")
-    assert active(conf.read_text())["AutomaticLogin"] == "tester"
+    assert active(conf.read_text(encoding="utf-8"))["AutomaticLogin"] == "tester"
     al.disable(conf, orig)
-    assert conf.read_text() == "[security]\n"
+    assert conf.read_text(encoding="utf-8") == "[security]\n"
     conf2, orig2 = files(tmp_path / "none", None)
     with pytest.raises(al.NotSupported):
         al.enable(conf2, orig2, "tester")
@@ -97,7 +101,7 @@ def test_bad_users(tmp_path: Path, user: str) -> None:
     conf, orig = files(tmp_path)
     with pytest.raises(ValueError):
         al.enable(conf, orig, user)
-    assert conf.read_text() == UBUNTU
+    assert conf.read_text(encoding="utf-8") == UBUNTU
 
 
 def test_monkey_files(tmp_path: Path) -> None:
@@ -112,10 +116,10 @@ def test_monkey_files(tmp_path: Path) -> None:
             text = text.rstrip("\n")
         conf, orig = files(tmp_path / str(seed), text)
         al.enable(conf, orig, "tester")
-        on = active(conf.read_text())
+        on = active(conf.read_text(encoding="utf-8"))
         assert on.get("AutomaticLogin") == "tester" and on.get("AutomaticLoginEnable") == "true"
         al.disable(conf, orig)
-        assert conf.read_text() == text, seed
+        assert conf.read_text(encoding="utf-8") == text, seed
 
 
 def test_removal_puts_it_back(tmp_path: Path) -> None:
@@ -124,11 +128,11 @@ def test_removal_puts_it_back(tmp_path: Path) -> None:
     paths.gdm_conf.parent.mkdir(parents=True)
     paths.gdm_conf.write_text(UBUNTU)
     turn_on_auto_login(paths, "tester")
-    m = json.loads(paths.manifest.read_text())
+    m = json.loads(paths.manifest.read_text(encoding="utf-8"))
     assert {"type": "auto_login", "path": str(paths.gdm_conf)} in [
         {k: i[k] for k in ("type", "path")} for i in m["items"]]  # fmt: skip
     out = node_remove(paths, fake)
-    assert out["left"] == [] and paths.gdm_conf.read_text() == UBUNTU
+    assert out["left"] == [] and paths.gdm_conf.read_text(encoding="utf-8") == UBUNTU
     assert not paths.auto_login_orig.exists()
 
 

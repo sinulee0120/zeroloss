@@ -8,10 +8,8 @@ the scene filter proves progress; a killed VLC is restarted; Stop leaves nothing
 from __future__ import annotations
 
 import itertools
-import os
 import random
 import shutil
-import signal
 import subprocess
 import time
 from collections.abc import Iterator
@@ -23,6 +21,7 @@ import pytest
 from modules.iptv.receiver import player as pl
 from modules.iptv.receiver.player import PlayerConfig, VlcPlayer
 from modules.iptv.sender.commands import QUALITIES, prepare_command, send_command
+from tests.iptv import procs
 
 HAVE = bool(shutil.which("cvlc") and shutil.which("tsp") and shutil.which("ffmpeg"))
 GROUP, PORT = "239.255.96.1", 5004
@@ -209,29 +208,13 @@ def stream(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
 def vlc_pids() -> set[int]:
     """Our players only: a VLC process (by name) started with the scene filter. Matching
     the command line alone also matched a shell that merely mentioned the option."""
-    out = subprocess.run(["pgrep", "-x", "vlc"], capture_output=True, text=True)
-    pids = set()
-    for x in out.stdout.split():
-        try:
-            if b"--scene-prefix=f" in Path(f"/proc/{x}/cmdline").read_bytes():
-                pids.add(int(x))
-        except OSError:
-            continue  # ended meanwhile
-    return pids
+    return procs.pids("vlc", "--scene-prefix=f")
 
 
 def player_pids() -> set[int]:
     """Our players of either kind (S-26): VLC with the scene filter, or mpv with our window
     title (GAP-152)."""
-    pids = vlc_pids()
-    out = subprocess.run(["pgrep", "-x", "mpv"], capture_output=True, text=True)
-    for x in out.stdout.split():
-        try:
-            if b"--title=ZeroLoss player" in Path(f"/proc/{x}/cmdline").read_bytes():
-                pids.add(int(x))
-        except OSError:
-            continue
-    return pids
+    return vlc_pids() | procs.pids("mpv", "--title=ZeroLoss player")
 
 
 def wait(cond: Any, timeout_s: float) -> bool:
@@ -246,7 +229,7 @@ def wait(cond: Any, timeout_s: float) -> bool:
 def test_real_vlc_plays_restarts_and_stops(stream: None, tmp_path: Path) -> None:
     before = vlc_pids()
     events: list[tuple[str, str, str]] = []
-    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, nic="lo", headless=True)
+    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, **procs.LOOPBACK, headless=True)
     p = VlcPlayer(cfg, lambda *e: events.append(e))
     p.start()
     try:
@@ -259,7 +242,7 @@ def test_real_vlc_plays_restarts_and_stops(stream: None, tmp_path: Path) -> None
         assert p.take_second().pb == "ok"  # pictures kept coming
         assert len(list((tmp_path / "scene").glob("f*.png"))) <= 2  # old pictures removed
         (pid,) = vlc_pids() - before
-        os.kill(pid, signal.SIGKILL)  # the player dies (RCV-003)
+        procs.kill(pid)  # the player dies (RCV-003)
         assert wait(lambda: p._r.restarts == 1 and p.first_frame, 15)
         assert any(code == "ZL-RCV-020" for code, _, _ in events)
         seen = {p.take_second().pb}
@@ -280,7 +263,7 @@ def test_real_vlc_without_a_stream_never_plays(tmp_path: Path, monkeypatch: Any)
     monkeypatch.setattr(pl, "RESTARTS_PER_HOUR", 1)
     before = vlc_pids()
     events: list[tuple[str, str, str]] = []
-    cfg = PlayerConfig("rtp://@239.255.96.9:5004", tmp_path, nic="lo", headless=True)
+    cfg = PlayerConfig("rtp://@239.255.96.9:5004", tmp_path, **procs.LOOPBACK, headless=True)
     p = VlcPlayer(cfg, lambda *e: events.append(e))
     p.start()
     try:
@@ -299,7 +282,7 @@ def test_real_vlc_paused_is_freeze_then_none_then_restarted(
     """10 "재생기는 있는데 재생 안 함" ①: SIGSTOP -> freeze, then none, then restart."""
     monkeypatch.setattr(pl, "NONE_S", 4.0)
     before = vlc_pids()
-    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, nic="lo", headless=True)
+    cfg = PlayerConfig(f"rtp://@{GROUP}:{PORT}", tmp_path, **procs.LOOPBACK, headless=True)
     p = VlcPlayer(cfg, lambda *e: None)
     p.start()
     try:
@@ -307,7 +290,7 @@ def test_real_vlc_paused_is_freeze_then_none_then_restarted(
         time.sleep(1.5)
         p.take_second()
         (pid,) = vlc_pids() - before
-        os.kill(pid, signal.SIGSTOP)
+        procs.pause(pid)
         seen = []
         end = time.monotonic() + 20
         while time.monotonic() < end and p._r.restarts == 0:

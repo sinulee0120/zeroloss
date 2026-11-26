@@ -43,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--service", required=True, help="systemd:<unit> | windows:<name>")
     ap.add_argument("--data-owner", help="account that owns module data folders (Linux)")
     ap.add_argument("--no-watch", action="store_true", help="do not restart a silent node")
+    ap.add_argument("--windows-service", metavar="NAME",
+                    help="run as this Windows service (06 4.2)")  # fmt: skip
     ns = ap.parse_args(args)
     service: ServiceControl
     kind, _, name = ns.service.partition(":")
@@ -54,7 +56,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--service must be systemd:<unit> or windows:<name>")
     dep = Deployer(Layout(ns.data, ns.modules), AgentLink(service, ns.agent_port),
                    ns.host, ns.port, watch=not ns.no_watch, owner=ns.data_owner,
-                   apt_dir=APT_DIR, media_root=Path("/"))  # fmt: skip
+                   apt_dir=APT_DIR, media_root=_system_root())  # fmt: skip
+    if ns.windows_service:  # 06 4.2 (2026-11-21): started by Windows at boot
+        from agent.deployer import win_service
+
+        if win_service.run(ns.windows_service, dep.start, dep.stop):
+            return 0
     dep.start()
     print(f"ZeroLoss Deployer on {dep.port}", flush=True)
     try:
@@ -64,6 +71,15 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         dep.stop()
     return 0
+
+
+def _system_root() -> Path:
+    """``/``, or the Windows system drive (where ``Users`` is)."""
+    if sys.platform == "win32":
+        import os
+
+        return Path(os.environ.get("SYSTEMDRIVE", "C:") + "\\")
+    return Path("/")
 
 
 def _node(args: list[str]) -> int:

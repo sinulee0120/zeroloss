@@ -77,6 +77,12 @@
    "grace_s": 15,
    "opened_by": {}
   },
+  "human.report.retry": {
+   "what": "Make the test report again",
+   "how": "Press Retry report. The test's data is kept; ZeroLoss makes the report from it again. If it fails again, check that the Reports folder has free space and is not open in another program.",
+   "repeat": "every",
+   "opened_by": {"ZL-CTL-007": true}
+  },
   "human.pc.add_wan_route": {
    "what": "Let this PC reach the WAN-side PC",
    "how": "Press Add the route and answer Yes in the Windows question. ZeroLoss sends the router WAN side (10.0.0.0/24) through the router of this PC's test card. It is gone after a restart.",

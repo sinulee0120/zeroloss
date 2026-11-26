@@ -23,6 +23,12 @@ Usage:
                                              --tools: files for packages/tools (TSDuck);
                                              --port: only to check the setup beside a
                                              running Controller
+  python -m tools.build win-agent [--out DIR]
+                                             Windows sender/receiver node (06 4.2), on
+                                             Windows: agent\\, deployer\\, desktop\\, modules\\
+  python -m tools.build installer-agent --app DIR --tools DIR [--out DIR]
+                                             ZeroLoss-Agent-Setup-<build>.exe: that folder
+                                             and the tools (TSDuck\\, ffmpeg\\, mpv\\ in DIR)
 """
 
 from __future__ import annotations
@@ -80,6 +86,20 @@ def main(argv: list[str], version_file: Path | None = None) -> int:
     if args[:1] == ["win"] and (len(args) == 1 or (len(args) == 3 and args[1] == "--out")):
         print(f"VERSION        {read_version()}")  # the node build's stamp, not a new one
         print(build_win(Path(args[2]) if len(args) == 3 else ROOT / "dist"))
+        return 0
+    if args[:1] == ["win-agent"] and (len(args) == 1 or (len(args) == 3 and args[1] == "--out")):
+        print(f"VERSION        {read_version()}")  # the node build's stamp, not a new one
+        print(build_win_agent(Path(args[2]) if len(args) == 3 else ROOT / "dist"))
+        return 0
+    if args[:1] == ["installer-agent"]:
+        opts = dict(zip(args[1::2], args[2::2], strict=False))
+        if len(args) % 2 == 0 or not {"--app", "--tools"} <= set(opts) or (
+                set(opts) - {"--app", "--tools", "--out"}):  # fmt: skip
+            print(__doc__, file=sys.stderr)
+            return 6
+        print(f"VERSION        {read_version()}")
+        print(build_agent_installer(Path(opts["--app"]), Path(opts["--tools"]),
+                                    Path(opts.get("--out", ROOT / "dist"))))  # fmt: skip
         return 0
     if args[:1] == ["tablet"] and (len(args) == 1 or (len(args) == 3 and args[1] == "--out")):
         print(f"VERSION        {read_version()}")  # the node build's stamp, not a new one
@@ -266,6 +286,80 @@ def build_win(out: Path) -> Path:
     guide = guide_text((KIT / GUIDE).read_text(encoding="utf-8"), build)
     (stage / GUIDE).write_text(guide, encoding="utf-8")
     return Path(shutil.make_archive(str(stage), "zip", stage.parent, stage.name))
+
+
+# ---------------------------------------------------------------- Windows sender/receiver
+
+
+def build_win_agent(out: Path) -> Path:
+    """``ZeroLoss-Agent-<build>`` (06 4.2, 2026-11-21 user: "윈도우즈 sender,receiver도
+    원클릭 인스톨되게"): the node (``agent\\zeroloss.exe``, the ZeroLossAgent service),
+    the Deployer (``deployer\\zeroloss-deployer.exe``, ZeroLossDeployer) and Agent Desktop
+    (``desktop\\zeroloss-agent-desktop.exe``, at every login), with the modules the node
+    loads at run time. The same three programs as the Linux package, frozen on Windows."""
+    if sys.platform != "win32":
+        raise SystemExit("build the Windows node on Windows (06 11.3 build location)")
+    build = read_version()
+    sep = ";"
+    data = [f"--add-data={ROOT / src}{sep}{dest}" for src, dest in DATA_FILES]
+    hidden = [f"--hidden-import={m}" for m in module_stdlib_imports()]
+    node = freeze("zeroloss-cli", "node.py", out, [
+        *data, *hidden, "--collect-submodules=core", "--exclude-module=PySide6",
+        "--exclude-module=modules", "--exclude-module=tests", "--exclude-module=controller.ui",
+        "--exclude-module=core.ui_qt", "--exclude-module=agent.desktop",
+    ])  # fmt: skip
+    deployer = freeze("zeroloss-deployer", "deployer.py", out, [
+        f"--add-data={ROOT / 'VERSION'}{sep}.", "--exclude-module=core",
+        "--exclude-module=controller", "--exclude-module=modules", "--exclude-module=PySide6",
+        "--exclude-module=asyncssh",
+    ])  # fmt: skip
+    desktop = freeze("zeroloss-agent-desktop", "desktop.py", out, [
+        *data, *hidden, "--windowed", "--collect-submodules=core", "--exclude-module=modules",
+        "--exclude-module=tests", "--exclude-module=controller",
+        "--exclude-module=PySide6.QtWebEngineCore", "--exclude-module=PySide6.QtQml",
+        "--exclude-module=PySide6.QtQuick", "--exclude-module=PySide6.Qt3DCore",
+    ])  # fmt: skip
+    stage = out / f"ZeroLoss-Agent-{build}"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(node, stage / "agent")
+    (stage / "agent" / "zeroloss-cli.exe").rename(stage / "agent" / "zeroloss.exe")
+    shutil.copytree(deployer, stage / "deployer")
+    shutil.copytree(desktop, stage / "desktop")
+    shutil.copytree(ROOT / "modules", stage / "modules",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))  # fmt: skip
+    return stage
+
+
+AGENT_TOOLS = ("TSDuck", "ffmpeg", "mpv")  # core/blocks/tool_dirs.py TOOLS: one folder each
+
+
+def build_agent_installer(app: Path, tools: Path, out: Path) -> Path:
+    """``ZeroLoss-Agent-Setup-<build>.exe`` (06 4.2, 11.4): the built node folder and the
+    tools (2026-11-21 user: in the kit, TSDuck, ffmpeg, mpv; ``tools`` has one folder each,
+    installed apart from ZeroLoss)."""
+    if sys.platform != "win32":
+        raise SystemExit("build the Windows installer on Windows")
+    build = read_version()
+    if not (app / "agent" / "zeroloss.exe").is_file():
+        raise SystemExit(f"{app} has no agent\\zeroloss.exe: build it with 'tools.build win-agent'")
+    missing = [t for t in AGENT_TOOLS if not (tools / t).is_dir()]
+    if missing:
+        raise SystemExit(f"{tools} has no {', '.join(missing)} folder")
+    if not ISCC.is_file():
+        raise SystemExit(f"no Inno Setup compiler at {ISCC} (set ZEROLOSS_ISCC)")
+    out = out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    iss = out / "zeroloss-agent.iss"  # ISCC reads Korean text right with a BOM
+    iss.write_text((ROOT / "installer" / "windows" / iss.name).read_text(encoding="utf-8"),
+                   encoding="utf-8-sig")  # fmt: skip
+    defines = {"AppVer": build, "FileVer": windows_file_version(build), "Src": app.resolve(),
+               "Tools": tools.resolve(), "OutDir": out}  # fmt: skip
+    try:
+        subprocess.run([str(ISCC), "/Q", *(f"/D{k}={v}" for k, v in defines.items()), str(iss)],
+                       check=True)  # fmt: skip
+    finally:
+        iss.unlink(missing_ok=True)
+    return out / f"ZeroLoss-Agent-Setup-{build}.exe"
 
 
 ANDROID = Path(os.environ.get("ZEROLOSS_ANDROID", r"C:\Android"))  # jdk17, sdk (06 11.3)

@@ -18,6 +18,7 @@ from core.node import Node
 from core.protocol.client import NodeClient
 from core.protocol.envelope import ZlError
 from modules.iptv.sender.commands import QUALITIES, prepare_command
+from tests.iptv import procs
 
 REPO = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(
@@ -151,7 +152,7 @@ def test_silent_controller_safe_stops_sender_and_receiver(tmp_path: Path, hd_fil
         c.command(f"{S}/receiver/start", 0, "R3", **rx)
         c.close()  # Controller goes silent
         assert wait(lambda: n.flow.state is State.IDLE, 10)
-        out = subprocess.run(["pgrep", "-x", "tsp"], capture_output=True, text=True).stdout
+        out = " ".join(str(x) for x in procs.pids("tsp"))
         assert out.strip() == ""  # tsp stopped and confirmed
         mod = next(m for m in n.modules if m.id == "iptv").instance
         assert mod is not None and not mod.senders and not mod.receivers  # type: ignore[attr-defined]

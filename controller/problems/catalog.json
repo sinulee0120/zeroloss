@@ -47,6 +47,11 @@
    "why": "The screen app ended or hung and was started again.",
    "fix": "Nothing to do."
   },
+  "ZL-CTL-010": {
+   "what": "The test loop stopped unexpectedly",
+   "why": "An internal error in the Controller's test loop. The test was stopped safely and the report was made from what came (INCOMPLETE).",
+   "fix": "Send the logs (Export diagnostics), then press Start again."
+  },
   "ZL-DSC-001": {
    "what": "No agent found",
    "why": "No ZeroLoss node answered the scan.",
@@ -961,6 +966,16 @@
    "what": "A traffic shaper is on the sender PC's card",
    "why": "Something on the sender PC (tc netem, tbf, ...) delays or drops the test stream after it was sent. What the receivers lose then is the sender's, not the router's.",
    "fix": "Remove it on the sender PC if it is not on purpose (tc qdisc del dev <card> root). ZeroLoss only reads it."
+  },
+  "ZL-SND-027": {
+   "what": "Sender watch had an unexpected error",
+   "why": "An internal error in one of the sender's own checks of its sending. The sending is not touched and the checks go on the next second; this is said once.",
+   "fix": "Send the logs (Export diagnostics) so it can be fixed. The test goes on."
+  },
+  "ZL-SND-028": {
+   "what": "The router uses the sender's WAN range itself",
+   "why": "The router took the sender's WAN address, but it also uses that address range on another side of its own, so nothing reached the sender through it. The sender moves to its next range and the router asks for a new address.",
+   "fix": "Nothing to do: it moves by itself. If it does not answer within a few minutes, unplug and plug the router WAN cable."
   },
   "ZL-TAB-019": {
    "what": "A tablet left the Wi-Fi it was kept on",

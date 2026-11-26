@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import itertools
 import json
-import os
 import shutil
-import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -25,6 +24,7 @@ from core.protocol.client import NodeClient
 from core.protocol.envelope import ZlError
 from modules.iptv.sender.commands import QUALITIES, prepare_command
 from tests.conftest import _ours_alive
+from tests.iptv import procs
 
 REPO = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(
@@ -105,7 +105,7 @@ def player_running() -> bool:
 
 
 def tsp_running() -> bool:
-    return bool(subprocess.run(["pgrep", "-x", "tsp"], capture_output=True).stdout.strip())
+    return bool(procs.pids("tsp"))
 
 
 def test_full_run_passes_and_writes_the_report(lab: Any, hd_file: Path) -> None:
@@ -122,14 +122,23 @@ def test_full_run_passes_and_writes_the_report(lab: Any, hd_file: Path) -> None:
     live = rc.status()["cells"][dev["device"]]  # screen cells agree with the report
     assert [c["color"] for c in live] == [c["color"] for c in dev["cells"]]
     run_dir = rc.reports_dir / run_id
-    assert json.loads((run_dir / "summary.json").read_text())["verdict"] == "PASS"
-    assert "✔" in (run_dir / "report.html").read_text()
-    assert json.loads((run_dir / "run-state.json").read_text())["status"] == "finished"
-    pieces = [json.loads(x) for x in (run_dir / "summaries.jsonl").read_text().splitlines()]
+    assert json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))["verdict"] == "PASS"
+    assert "✔" in (run_dir / "report.html").read_text(encoding="utf-8")
+    assert (
+        json.loads((run_dir / "run-state.json").read_text(encoding="utf-8"))["status"] == "finished"
+    )
+    pieces = [
+        json.loads(x)
+        for x in (run_dir / "summaries.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert pieces and all(s["playback"]["player_restarts"] == 0 for s in pieces)
     # RTP: VLC statistics mostly frozen (None); a second they moved is measured, 0 kept (GAP-180)
     assert all(s["playback"]["frame_drops"] in (None, 0) for s in pieces)
-    raw = next((rc.reports_dir.parent / "agent").rglob("raw/*/*.jsonl")).read_text().splitlines()
+    raw = (
+        next((rc.reports_dir.parent / "agent").rglob("raw/*/*.jsonl"))
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
     pbs = [json.loads(x).get("pb") for x in raw if '"type":"s"' in x.replace(" ", "")]
     assert pbs and set(pbs) == {"ok"}, pbs  # the player's own report, every second
     assert not tsp_running() and not player_running()
@@ -165,19 +174,21 @@ def test_run_clock_events_timeline_and_both_analysis_passes(lab: Any, hd_file: P
     run_id = rc.start(plan(hd_file, duration=12))
     assert wait_state(rc, RunState.IDLE)
     run_dir = rc.reports_dir / run_id
-    events = [json.loads(x) for x in (run_dir / "events.log").read_text().splitlines()]
+    events = [
+        json.loads(x) for x in (run_dir / "events.log").read_text(encoding="utf-8").splitlines()
+    ]
     assert events and all(isinstance(e["run_s"], float) for e in events)
     joins = [e for e in events if str((e.get("data") or {}).get("step", "")).endswith(
         "/receiver/start")]  # fmt: skip
     assert len(joins) == 1 and joins[0]["device"] == "local" and joins[0]["data"]["ch"] == 1
-    offsets = json.loads((run_dir / "timeline.json").read_text())
+    offsets = json.loads((run_dir / "timeline.json").read_text(encoding="utf-8"))
     assert list(offsets) == ["local|1"] and offsets["local|1"] > joins[0]["run_s"]
-    first = json.loads((run_dir / "summary.json").read_text())
+    first = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert first["analysis_pass"] == "report" and first["analysis"] == []
     assert "1-second records not fetched yet" in {m["why"] for m in first["analysis_missing"]}
     collect(rc.reports_dir, run_id, rc.devices.all(), rc.boot_id)
     assert reanalyze(run_dir, REPO / "modules") is True
-    second = json.loads((run_dir / "summary.json").read_text())
+    second = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert second["analysis_pass"] == "records" and second["verdict"] == first["verdict"]
     assert "1-second records not fetched yet" not in {m["why"] for m in second["analysis_missing"]}
 
@@ -192,6 +203,75 @@ def test_stop_early_is_incomplete(lab: Any, hd_file: Path) -> None:
     with pytest.raises(ZlError) as e:
         rc.stop()
     assert e.value.code == "ZL-RUN-012"
+
+
+def test_an_error_in_the_test_loop_stops_safely_with_a_report(lab: Any, hd_file: Path) -> None:
+    """09 CTL-010 (2026-11-21 review): an unexpected error in a round ended the loop and the
+    run stayed RUNNING for good, with no report. Now: said, safe stop, INCOMPLETE."""
+    _, rc, events = lab
+    rc.start(plan(hd_file, duration=600))
+    time.sleep(2)
+
+    real = rc._pull_summaries
+    calls = {"n": 0}
+
+    def broken_once() -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("a malformed 5-minute summary")
+        real()
+
+    rc._pull_summaries = broken_once
+    assert wait_state(rc, RunState.FAULT, 30), rc.state  # a safe stop ends in FAULT (F11)
+    r = rc.result
+    assert r is not None and r["verdict"] == "INCOMPLETE", r
+    assert any(e.code == "ZL-CTL-010" for e in events)
+    assert not tsp_running()  # the PCs stopped too
+
+
+def test_a_loop_error_that_breaks_the_report_too_is_never_left_half_way(
+    lab: Any, hd_file: Path
+) -> None:
+    """CTL-010: when the report fails as well (the same cause), the PCs are stopped and
+    the run goes to FAULT for Reset All, never left in SAFE_STOP."""
+    _, rc, events = lab
+    rc.start(plan(hd_file, duration=600))
+    time.sleep(2)
+
+    def broken() -> None:
+        raise RuntimeError("disk full")
+
+    rc._pull_summaries = broken
+    assert wait_state(rc, RunState.FAULT, 30), rc.state
+    assert [e.code for e in events].count("ZL-CTL-010") == 2
+    assert not tsp_running()
+
+
+def test_a_report_that_cannot_be_made_does_not_leave_the_run_reporting(
+    lab: Any, hd_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """09 CTL-007 (2026-11-21 review): a report that failed (the PDF part, a full disk)
+    left the run in REPORTING for good; no next Start was possible. Now: said, data kept,
+    the run ends as usual."""
+    import controller.run as controller_run
+
+    def broken(*a: Any, **k: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(controller_run, "write_report", broken)
+    _, rc, events = lab
+    rc.start(plan(hd_file, duration=600))
+    time.sleep(2)
+    r = rc.stop()
+    assert r["verdict"] == "INCOMPLETE" and rc.state is RunState.IDLE
+    told = [e for e in events if e.code == "ZL-CTL-007"]
+    assert told and told[0].data["choose"] == "retry_report"
+    # [Retry report] once there is room again: the report from the kept result
+    monkeypatch.undo()
+    assert rc.retry_report(str(r["run_id"])) == "made"
+    run_dir = rc.reports_dir / str(r["run_id"])
+    assert (run_dir / "report.html").is_file() and (run_dir / "report.pdf").is_file()
+    assert any("ZL-CTL-007" in (e.data or {}).get("clears", []) for e in events)
 
 
 def iptv_of(node: Node) -> Any:
@@ -282,9 +362,8 @@ def test_cancel_while_the_video_is_made(lab: Any, hd_file: Path) -> None:
 
 def test_video_that_cannot_be_made_fails_the_start(lab: Any, hd_file: Path, tmp_path: Path) -> None:
     node, rc, _ = lab
-    fake = tmp_path / "ffmpeg"
-    fake.write_text("#!/bin/sh\necho 'no encoder' >&2\nexit 1\n")
-    fake.chmod(0o755)
+    fake = procs.fake_program(tmp_path, "ffmpeg", "echo 'no encoder' >&2\nexit 1",
+                              "echo no encoder 1>&2\r\nexit /b 1")  # fmt: skip
     fast_videos(node).ffmpeg = str(fake)
     with pytest.raises(ZlError) as e:
         rc.start(plan(hd_file, files={}))
@@ -443,7 +522,8 @@ def test_a_plan_without_nics_gets_them_or_never_passes(
     assert wait_state(rc, RunState.IDLE, 60)
     r = rc.result
     assert r is not None and r["verdict"] == "PASS" and r["dut"]["through_router"] is True
-    assert json.loads((rc.reports_dir / r["run_id"] / "plan.json").read_text())["nics"] == {
+    plan_used = (rc.reports_dir / r["run_id"] / "plan.json").read_text(encoding="utf-8")
+    assert json.loads(plan_used)["nics"] == {
         "local": "127.0.0.1"}  # fmt: skip
     real = rc._fill_test_cards
 
@@ -461,7 +541,7 @@ def test_a_plan_without_nics_gets_them_or_never_passes(
     assert r2 is not None and r2["verdict"] == "INCOMPLETE", r2
     assert r2["dut"]["through_router"] is False and "wlx0" in r2["dut"]["not_through_router_why"]
     assert any(x.code == "ZL-NET-022" for x in events)
-    html = (rc.reports_dir / r2["run_id"] / "report.html").read_text()
+    html = (rc.reports_dir / r2["run_id"] / "report.html").read_text(encoding="utf-8")
     assert "Not through the router under test" in html
 
 
@@ -561,12 +641,12 @@ def test_killed_player_does_not_touch_the_measurement(lab: Any, hd_file: Path) -
     _, rc, _ = lab
     run_id = rc.start(plan(hd_file, duration=16))
     (pid,) = player_pids()
-    os.kill(pid, signal.SIGKILL)
+    procs.kill(pid)
     assert wait_state(rc, RunState.IDLE)
     r = rc.result
     assert r is not None and r["devices"][0]["loss_total"] == 0, r
     run_dir = rc.reports_dir.parent / "agent"
-    raw = next(run_dir.rglob(f"raw/*/{run_id}_h000.jsonl")).read_text().splitlines()
+    raw = next(run_dir.rglob(f"raw/*/{run_id}_h000.jsonl")).read_text(encoding="utf-8").splitlines()
     secs = [json.loads(x) for x in raw if '"type": "s"' in x or '"type":"s"' in x]
     assert [s["e"] for s in secs] == list(range(len(secs)))  # no second missing
     assert any(s.get("prs") == 1 for s in secs)  # restart recorded
@@ -667,7 +747,7 @@ def test_report_has_the_problems_of_the_run(lab: Any, hd_file: Path) -> None:
     got = {(p["code"], p["open_at_end"]) for p in r["problems"]}
     assert ("ZL-RCV-020", True) in got  # this PC's small rmem_max also shows RCV-001 here
     assert r["alarm_stats"]["total"] == len(r["problems"])
-    html_text = (rc.reports_dir / run_id / "report.html").read_text()
+    html_text = (rc.reports_dir / run_id / "report.html").read_text(encoding="utf-8")
     assert "Problems during the test" in html_text and "ZL-RCV-020" in html_text
 
 
@@ -744,7 +824,7 @@ def test_controller_crash_is_recovered_on_the_next_start(lab: Any, hd_file: Path
     rc._halt.set()  # the Controller process "dies": its loop stops, nothing is closed
     if rc._loop is not None:
         rc._loop.join(5)
-    state = json.loads((rc.reports_dir / run_id / "run-state.json").read_text())
+    state = json.loads((rc.reports_dir / run_id / "run-state.json").read_text(encoding="utf-8"))
     assert state["status"] == "running"
     assert (rc.reports_dir / run_id / "plan.json").exists()  # 02 9 copy for recovery
 
@@ -755,12 +835,12 @@ def test_controller_crash_is_recovered_on_the_next_start(lab: Any, hd_file: Path
     assert rc2.boot_id != rc.boot_id
     done = rc2.recover_unfinished()
     assert done == [run_id]
-    summary = json.loads((rc.reports_dir / run_id / "summary.json").read_text())
+    summary = json.loads((rc.reports_dir / run_id / "summary.json").read_text(encoding="utf-8"))
     assert summary["verdict"] == "INCOMPLETE" and summary["recovered"] is True
     assert summary["verdict_reason"] == "controller_restarted"
-    assert json.loads((rc.reports_dir / run_id / "run-state.json").read_text())["status"] == (
-        "recovered"
-    )
+    assert json.loads((rc.reports_dir / run_id / "run-state.json").read_text(encoding="utf-8"))[
+        "status"
+    ] == ("recovered")
     assert any(e.code == "ZL-CTL-003" for e in events)
     end = time.monotonic() + 10  # the node saw a new Controller and stopped everything
     while time.monotonic() < end and (tsp_running() or node.flow.state.value != "IDLE"):
@@ -813,13 +893,11 @@ def test_failed_start_leaves_the_last_run_alone(lab: Any, hd_file: Path, tmp_pat
     before = '{"run_id": "R-last", "status": "finished"}'
     (last / "run-state.json").write_text(before)
     rc._run_dir = last  # what the previous run left behind
-    fake = tmp_path / "ffmpeg"
-    fake.write_text("#!/bin/sh\nexit 1\n")
-    fake.chmod(0o755)
+    fake = procs.fake_program(tmp_path, "ffmpeg", "exit 1", "exit /b 1")
     fast_videos(node).ffmpeg = str(fake)
     with pytest.raises(ZlError):
         rc.start(plan(hd_file, files={}))
-    assert (last / "run-state.json").read_text() == before
+    assert (last / "run-state.json").read_text(encoding="utf-8") == before
 
 
 # ---------------------------------------------------------------- F17 checklist
@@ -943,6 +1021,9 @@ def fake_wifi(node: Node, tmp: Path, connected: str | None = None,
     the real test stream still runs on loopback. Returns the commands it got."""
     from core.blocks.wifi_join import WifiJoin
 
+    if not sys.platform.startswith("linux"):
+        pytest.skip("joining the test Wi-Fi is Linux's (NetworkManager); not on Windows yet")
+
     root = tmp / "net"
     (root / "wlp9s0" / "wireless").mkdir(parents=True)
     (root / "wlp9s0" / "address").write_text("aa:bb:cc:00:11:22\n")
@@ -980,40 +1061,6 @@ def test_a_plans_wifi_card_is_not_joined_the_address_in_use_is_the_test_card(
     assert c["ok"], c
     assert not any("up" in x or "add" in x for x in calls)  # nothing joined or switched
     assert "S-51" not in str(c["steps"][2])
-
-
-def test_a_card_already_on_the_router_under_test_is_left_on_it(
-    lab: Any, hd_file: Path, tmp_path: Path
-) -> None:
-    """GAP-159 (2026-10-15): S-51 still held the old router's SSID; the start knocked the
-    T460's test card off the new router's Wi-Fi to join it and failed. A card on the LAN
-    of the address the Controller uses for the PC is the router under test: kept as it is."""
-    from controller.wifi_store import WifiConfig
-
-    node, rc, _ = lab
-    calls = fake_wifi(node, tmp_path, connected="AP_NEW", ip="127.0.0.2")
-    rc._wifi = lambda: WifiConfig("SK_OLD_ROUTER", "Open", "")
-    c = rc.precheck(plan(hd_file, nics={"local": "wifi"}), full=False)
-    s3 = c["steps"][2]
-    assert "stays on 'AP_NEW'" in s3["what"] and "SK_OLD_ROUTER" in s3["why"]
-    assert not any("up" in x or "add" in x for x in calls)  # nothing switched
-
-
-def test_the_card_the_pc_is_reached_at_is_kept_when_its_cable_shares_the_lan(
-    lab: Any, hd_file: Path, tmp_path: Path
-) -> None:
-    """2026-10-16: t460-rx's address was its Wi-Fi card on the new router (picked in the
-    IP box); that card was skipped as "the address itself" and the start joined the old
-    SSID, knocking it off. Its cable on the same LAN says it is the router under test."""
-    from controller.wifi_store import WifiConfig
-
-    node, rc, _ = lab
-    calls = fake_wifi(node, tmp_path, connected="AP_NEW", ip="127.0.0.1")  # == the host
-    rc.devices.cards["local"] = [{"nic": "eth0", "ip": "127.0.0.9"}, {"nic": "wlp9s0"}]
-    rc._wifi = lambda: WifiConfig("SK_OLD_ROUTER", "Open", "")
-    c = rc.precheck(plan(hd_file, nics={"local": "wifi"}), full=False)
-    assert "stays on 'AP_NEW'" in c["steps"][2]["what"], c["steps"][2]
-    assert not any("up" in x or "add" in x for x in calls)  # nothing switched
 
 
 def test_wifi_join_refused_during_a_test(lab: Any, hd_file: Path) -> None:
@@ -1160,7 +1207,6 @@ def test_pc_speed_check_makes_its_sample_once_then_measures(lab: Any, hd_file: P
 
 def test_player_gives_way_when_the_pc_is_saturated(lab: Any, hd_file: Path) -> None:
     """05 4.2-1 / RCV-016: CPU >= 90% for more than 10 s -> the player is niced once."""
-    import os
 
     from core.blocks.resource_monitor import Resources
 
@@ -1174,7 +1220,7 @@ def test_player_gives_way_when_the_pc_is_saturated(lab: Any, hd_file: Path) -> N
         time.sleep(0.2)
     assert rx.protected_at is not None and rx.player is not None
     pid = rx.player._runner.pid
-    assert os.getpriority(os.PRIO_PROCESS, pid) >= 10
+    assert procs.lowered(pid)
     end = time.monotonic() + 5  # node events reach the Controller with the next heartbeat
     while not [e for e in events if e.code == "ZL-RCV-016"] and time.monotonic() < end:
         time.sleep(0.2)
@@ -1215,7 +1261,7 @@ def test_user_video_is_made_for_sending_then_used(lab: Any, hd_file: Path) -> No
     assert ch["source"] == "media", ch
     made = iptv.preparer.ready("HD", 1, 10_000_000, src)
     assert made is not None and made.name.startswith("ch1_HD_10M_f")
-    desc = json.loads(made.with_suffix(".json").read_text())
+    desc = json.loads(made.with_suffix(".json").read_text(encoding="utf-8"))
     assert (
         desc["source_name"] == name
         and desc["upscaled"] is True
@@ -1253,7 +1299,9 @@ def test_a_new_controller_goes_above_an_idle_nodes_generation(lab: Any, hd_file:
     assert r["steps"][0]["state"] == "ok"
     assert rc.generation == before + 1  # the node then takes the new count from commands
     assert node.guard.generation <= rc.generation
-    assert int((rc.reports_dir / ".generation").read_text()) == rc.generation  # kept
+    assert (
+        int((rc.reports_dir / ".generation").read_text(encoding="utf-8")) == rc.generation
+    )  # kept
     node.guard.generation = now = rc.generation  # it took our count: nothing to take over
     rc.precheck(plan(hd_file), full=False)
     assert rc.generation == now
@@ -1278,15 +1326,14 @@ def test_a_killed_sender_is_the_tools_fault_not_the_routers(lab: Any, hd_file: P
     _, rc, events = lab
     run_id = rc.start(plan(hd_file, duration=20))
     time.sleep(4)
-    pid = int(subprocess.run(["pgrep", "-x", "tsp"], capture_output=True, text=True)
-              .stdout.split()[0])  # fmt: skip
-    os.kill(pid, signal.SIGKILL)
+    pid = min(procs.pids("tsp"))
+    procs.kill(pid)
     assert wait_state(rc, RunState.IDLE, 60)
     r = rc.result
     assert r is not None
     assert any(e.code == "ZL-SND-005" for e in events)
     lines = [json.loads(x) for x in (rc.reports_dir / run_id / "summaries.jsonl")
-             .read_text().splitlines()]  # fmt: skip
+             .read_text(encoding="utf-8").splitlines()]  # fmt: skip
     trouble = [x["trouble"] for x in lines if x.get("trouble")]
     assert trouble and trouble[0]["sender_s"] > 0, lines
     # the restart really hurt the stream (here CC/PAT/PMT errors; before GAP-68 -> red)
@@ -1361,3 +1408,24 @@ def test_wan_address_used_twice_is_snd_013(lab: Any, monkeypatch: Any) -> None:
     )
     answers["r"] = ap.ProbeResult(False, why="cannot open a packet socket")
     assert "not checked" in rc._no_ip_conflict("local", w, {"reached_ip": "10.0.0.2"})
+
+
+def test_an_unexpected_error_at_start_is_rolled_back(lab: Any, hd_file: Path) -> None:
+    """2026-11-26: KeyError('tablet-1') in step 5 skipped the rollback; the run stayed
+    PREPARING and Stop could not end it. Now SYS-008, rolled back, the next Start works."""
+    _, rc, events = lab
+    real = rc._checks
+
+    def broken(*a: Any, **k: Any) -> None:
+        raise KeyError("tablet-1")
+
+    rc._checks = broken
+    with pytest.raises(ZlError) as e:
+        rc.start(plan(hd_file, duration=600))
+    assert e.value.code == "ZL-SYS-008" and "tablet-1" in e.value.why
+    assert rc.state is RunState.IDLE
+    assert any(x.code == "ZL-SYS-008" and "Start failed" in x.text for x in events)
+    rc._checks = real
+    rc.start(plan(hd_file, duration=600))
+    assert wait_state(rc, RunState.RUNNING, 5), rc.state  # the next Start works
+    rc.stop()

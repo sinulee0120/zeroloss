@@ -25,6 +25,7 @@ from agent.desktop.link import DesktopLink
 from agent.desktop.screen_guard import Bus, ScreenGuard
 from agent.desktop.view import ACTIVE, StatusView, status_view
 from agent.desktop.window import StatusWindow
+from core.blocks.tool_dirs import add_windows_tool_dirs
 from core.modules.registry import load_desktop_entries
 from core.node import LOCAL_PORT, read_build
 from core.settings import CORE_DEFAULTS
@@ -86,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--modules", type=Path, default=INSTALLED_MODULES, help="module folder")
     ap.add_argument("--data", type=Path, default=None, help="this Desktop's own folder")
     args = ap.parse_args(argv)
+    add_windows_tool_dirs()  # Windows node setup: the bundled mpv (06 4.2, 2026-11-21)
     prepare_hidpi()
     app = QApplication(sys.argv[:1])
     app.setApplicationName("ZeroLoss Agent Desktop")

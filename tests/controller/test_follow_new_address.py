@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from controller.run import RunState
 from controller.service import ControllerService
 from core.protocol.envelope import ZlError
 
@@ -18,6 +19,7 @@ def _svc(host: str) -> tuple[ControllerService, list[tuple[str, int]]]:
     s = ControllerService.__new__(ControllerService)
     dev = SimpleNamespace(name="rx", host=host, port=10992, device_id="dev-rx")
     s.devices = SimpleNamespace(all=lambda: [dev])  # type: ignore[assignment]
+    s.run = SimpleNamespace(state=RunState.IDLE)  # type: ignore[assignment]  # between tests
     saved: list[tuple[str, int]] = []
 
     def set_address(d: Any, h: str, p: int) -> dict[str, Any]:

@@ -32,10 +32,12 @@ from core.blocks.arp_probe import alive as arp_alive
 from core.blocks.arp_probe import probe as arp_probe
 from core.blocks.dhcp_server import OneLeaseServer, other_servers
 from core.blocks.link_monitor import gateway_of, ipv4_of
+from core.blocks.wan_nets import NETS
 from core.blocks.wifi_join import Runner, run_command
 
-SERVER = "10.0.0.1/24"  # 07 3 table, B: the sender PC is the gateway
-LEASE_IP = "10.0.0.100"
+SERVER, LEASE_IP = NETS[0]  # 07 3 table, B: the sender PC is the gateway (the default)
+BOUNCE_S = 3.0  # move(): the WAN link stays down this long, so the router asks again
+LINK_BACK_S = 20.0  # move(): the link must be up again within this
 LOST_WINDOW_S = 600.0  # 09 SND-023: more than LOST_MAX losses in this window = stop
 LOST_MAX = 3
 RETRY_S = 10.0  # waiting for the cable to move from LAN to WAN (first install)
@@ -76,6 +78,7 @@ class WanIsp:
         self.gateway, self.alive = gateway, alive
         self.data_dir, self.emit, self.run = data_dir, emit, run
         self.undo_wait_s = 1.0
+        self.bounce_s, self.link_back_s = BOUNCE_S, LINK_BACK_S
         self.sys_root, self.ip_of, self.probe = sys_root, ip_of, probe
         self.server_factory, self.retry_s, self.no_request_s = server_factory, retry_s, no_request_s
         self.state, self.why = "off", ""
@@ -100,19 +103,34 @@ class WanIsp:
     def config(self) -> dict[str, Any]:
         try:
             doc = json.loads((self.data_dir / CONFIG).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"on": None, "nic": None}
+        except (OSError, ValueError):  # a new install, or a damaged file: the default range
+            return {"on": None, "nic": None, "net": 0}
         w = (doc.get("wan_isp") if isinstance(doc, dict) else None) or {}
         on = w.get("on")  # None: auto (nothing chosen)
-        return {"on": on if isinstance(on, bool) else None, "nic": w.get("nic")}
+        net = w.get("net")
+        net = net if isinstance(net, int) and 0 <= net < len(NETS) else 0
+        return {"on": on if isinstance(on, bool) else None, "nic": w.get("nic"), "net": net}
 
-    def _save_config(self, on: bool | None, nic: str | None) -> None:
+    @property
+    def server(self) -> str:
+        """This PC's address on the router WAN side, with its prefix (``NETS``)."""
+        return NETS[int(self.config["net"])][0]
+
+    @property
+    def lease_ip(self) -> str:
+        return NETS[int(self.config["net"])][1]
+
+    def _save_config(self, on: bool | None, nic: str | None, net: int | None = None) -> None:
         path = self.data_dir / CONFIG
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             doc = {"schema_version": 1}
+        was = doc.get("wan_isp")
+        kept = was.get("net") if isinstance(was, dict) else None
         doc["wan_isp"] = {"on": on, "nic": nic}
+        if (net if net is not None else kept) is not None:  # only once it moved (wan_nets)
+            doc["wan_isp"]["net"] = net if net is not None else kept
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8")
         tmp.replace(path)
@@ -172,6 +190,38 @@ class WanIsp:
                 self._bring_up()
             return self.status()
 
+    def move(self, why: str = "") -> dict[str, Any]:
+        """``POST /v1/wan`` ``move`` (2026-11-26, a new router that used 10.0.0.x itself:
+        it took our lease but sent everything for 10.0.0.1 to its own 10.0.0.x side). Go
+        to the next range in ``NETS``: our address off, the next one on, and the WAN
+        link down for ``BOUNCE_S`` so the router sees its cable come back and asks for
+        an address again (it would keep the old lease for days otherwise)."""
+        with self._lock:
+            nic = self.nic
+            if self.state != "ready" or nic is None:
+                raise ValueError(f"the ISP role is not ready ({self.state})")
+            old = self.server
+            self._stop_server()
+            self._write_lease_doc(lease=None)  # the router's old address is not lent again
+            if not self._undo_address():
+                return self.status()  # _undo_address said why (SND-014)
+            nxt = (int(self.config["net"]) + 1) % len(NETS)
+            cfg = self.config
+            self._save_config(cfg["on"], cfg["nic"], nxt)
+            self._set("waiting_nic", f"moving from {old} to {self.server}")
+            self.run(["ip", "link", "set", "dev", nic, "down"], 10.0)
+            self._halt.wait(self.bounce_s)
+            self.run(["ip", "link", "set", "dev", nic, "up"], 10.0)
+            end = self.clock() + self.link_back_s
+            while _read(self.sys_root / nic / "operstate") != "up" and self.clock() < end:
+                self._halt.wait(0.5)
+            self.emit("ZL-INFO", "info",
+                      f"Router WAN side moved from {old} to {self.server}"
+                      + (f": {why}" if why else ""),
+                      {"nic": nic, "from": old, "to": self.server})  # fmt: skip
+            self._bring_up(nic, probed=True)  # not ready yet: the loop tries again
+            return self.status()
+
     def status(self) -> dict[str, Any]:
         """Without the lock: a step may hold it for seconds (DHCP and ARP checks), and the
         Controller (2 s) and the status window (every second) must not wait for that."""
@@ -182,8 +232,8 @@ class WanIsp:
         return {"on": mode is True or (auto and state == "ready"),
                 "mode": "on" if mode else "auto" if auto else "off",
                 "state": state, "nic": nic,
-                "server_ip": SERVER.split("/")[0] if state == "ready" else None,
-                "lease": srv.get("lease"), "why": why or None}  # fmt: skip
+                "server_ip": self.server.split("/")[0] if state == "ready" else None,
+                "net": self.server, "lease": srv.get("lease"), "why": why or None}  # fmt: skip
 
     # ---------------------------------------------------------------- steps
 
@@ -239,7 +289,7 @@ class WanIsp:
         # RFC 5227: is 10.0.0.1 free there? Another PC holding it, or asking for it at this
         # very moment (two PCs on one link without DHCP), means wait a random while and
         # look again; the address goes on right after this check (no gap to race in).
-        server_ip = SERVER.split("/")[0]
+        server_ip = self.server.split("/")[0]
         arp = self.arp(server_ip, nic)
         if not arp.checked:
             self._set("off", f"cannot check that {server_ip} is free on {nic}: {arp.why}")
@@ -289,10 +339,10 @@ class WanIsp:
                 return
         if not self._has_address(nic) and not self._add_address(nic):
             return  # the record is not enough: the address itself must be there (GAP-98)
-        net = ipaddress.ip_interface(SERVER)
+        net = ipaddress.ip_interface(self.server)
         try:
             self._server = self.server_factory(
-                nic, str(net.ip), net.network.prefixlen, LEASE_IP, self.data_dir / LEASE_FILE,
+                nic, str(net.ip), net.network.prefixlen, self.lease_ip, self.data_dir / LEASE_FILE,
                 self._server_event, ignore_macs=frozenset({mac} if mac else ()),
                 alive=self.alive,  # GAP-112: the address follows the cable to another device
             )  # fmt: skip
@@ -304,7 +354,7 @@ class WanIsp:
         self.nic = nic
         self._started_at = time.monotonic()
         self._set("ready", "")
-        self.emit("ZL-INFO", "info", f"ISP role ready on {nic} ({SERVER})",
+        self.emit("ZL-INFO", "info", f"ISP role ready on {nic} ({self.server})",
                   {"nic": nic, "clears": ["ZL-SND-022", "ZL-DSC-006", "ZL-SND-012"]})  # fmt: skip
 
     def _candidates(self) -> list[str]:
@@ -368,11 +418,11 @@ class WanIsp:
     def _ours(self, nic: str) -> bool:
         """We added our address on this NIC before (the record; it may be gone since)."""
         doc = self._lease_doc()
-        return doc.get("nic") == nic and doc.get("added_ip") == SERVER
+        return doc.get("nic") == nic and doc.get("added_ip") == self.server
 
     def _has_address(self, nic: str) -> bool:
         """The NIC really has our address now (07 3.2 B, GAP-98)."""
-        return self.ip_of(nic) == SERVER.split("/")[0]
+        return self.ip_of(nic) == self.server.split("/")[0]
 
     def _watch_address(self) -> None:
         """While ready: another program may take our address off (NetworkManager's own
@@ -386,17 +436,17 @@ class WanIsp:
         if len(self._lost_at) > LOST_MAX:
             self._stop_server()
             self._fighting = True
-            why = f"another program keeps taking {SERVER} off {nic}"
+            why = f"another program keeps taking {self.server} off {nic}"
             self._set("error", why)
             fix = (f"Stop the NIC's own NetworkManager profile from connecting by itself: nmcli "
                    f"connection modify '<profile on {nic}>' connection.autoconnect no")  # fmt: skip
-            self.emit("ZL-SND-023", "error", f"Another program keeps taking {SERVER} off {nic}",
-                      {"nic": nic, "times": len(self._lost_at), "fix": fix})  # fmt: skip
+            self.emit("ZL-SND-023", "error", f"Another program keeps taking {self.server} off "
+                      f"{nic}", {"nic": nic, "times": len(self._lost_at), "fix": fix})  # fmt: skip
             return
         self.emit(
             "ZL-SND-023",
             "warn",
-            f"{SERVER} was taken off {nic} by another program: added again",
+            f"{self.server} was taken off {nic} by another program: added again",
             {"nic": nic},
         )
         if not self._add_address(nic):  # _add_address set error and why
@@ -405,7 +455,7 @@ class WanIsp:
     def _add_address(self, nic: str) -> bool:
         if self.nm:  # NetworkManager owns the NIC: our profile replaces its old lease
             argv = ["nmcli", "connection", "add", "type", "ethernet", "ifname", nic,
-                    "con-name", NM_PROFILE, "ipv4.method", "manual", "ipv4.addresses", SERVER,
+                    "con-name", NM_PROFILE, "ipv4.method", "manual", "ipv4.addresses", self.server,
                     "ipv4.never-default", "yes", "ipv6.method", "disabled",
                     "connection.autoconnect", "yes",
                     "connection.autoconnect-priority", "100"]  # fmt: skip
@@ -415,15 +465,15 @@ class WanIsp:
                 rc, out = self.run(["nmcli", "connection", "up", NM_PROFILE, "ifname", nic], 30.0)
             if rc != 0:
                 self.run(["nmcli", "connection", "delete", NM_PROFILE], 10.0)
-                self._set("error", f"cannot set {SERVER} on {nic}: {out[-200:]}")
+                self._set("error", f"cannot set {self.server} on {nic}: {out[-200:]}")
                 return False
-            self._write_lease_doc(nic=nic, added_ip=SERVER, nm_profile=NM_PROFILE)
+            self._write_lease_doc(nic=nic, added_ip=self.server, nm_profile=NM_PROFILE)
             return True
-        rc, out = self.run(["ip", "addr", "add", SERVER, "dev", nic], 10.0)
+        rc, out = self.run(["ip", "addr", "add", self.server, "dev", nic], 10.0)
         if rc != 0 and "File exists" not in out:
-            self._set("error", f"cannot set {SERVER} on {nic}: {out[-200:]}")
+            self._set("error", f"cannot set {self.server} on {nic}: {out[-200:]}")
             return False
-        self._write_lease_doc(nic=nic, added_ip=SERVER, nm_profile=None)
+        self._write_lease_doc(nic=nic, added_ip=self.server, nm_profile=None)
         return True
 
     def _undo_address(self) -> bool:

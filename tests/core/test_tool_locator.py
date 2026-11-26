@@ -25,7 +25,7 @@ def fake_tool(folder: Path, name: str, text: str) -> Path:
 
 def runs(folder: Path, name: str) -> int:
     f = folder / f"{name}.runs"
-    return len(f.read_text().splitlines()) if f.exists() else 0
+    return len(f.read_text(encoding="utf-8").splitlines()) if f.exists() else 0
 
 
 def test_found_version_cached_and_unknown_names(

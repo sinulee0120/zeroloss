@@ -111,11 +111,17 @@ class Recorder:
         return why
 
     def close(self, end_reason: str) -> None:
-        """Always call on stop, fault or disconnect (end_reason: stop, fault, disconnect)."""
+        """Always call on stop, fault or disconnect (end_reason: stop, fault, disconnect).
+        Never raises (2026-11-21 review: a full disk made the footer fail, the file stayed
+        open and the stop broke off half-way): the file is closed without its footer and
+        ``recover()`` adds one at the next start."""
         if self._closed:
             return
-        self._finish_file(end_reason)
         self._closed = True
+        try:
+            self._finish_file(end_reason)
+        except OSError:
+            self._drop_file()
 
     # ---------------------------------------------------------------- helpers
 
@@ -154,29 +160,48 @@ class Recorder:
         self._file = None
 
 
+def _parsed(line: str) -> dict[str, Any] | None:
+    try:
+        obj = json.loads(line)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
 def recover(folder: Path) -> list[Path]:
-    """Add a footer to every record file that has none. Returns the repaired files."""
+    """Add a footer to every record file that has none. Returns the repaired files.
+    2026-11-21 review: one line a power cut left damaged (not JSON) raised here, at the
+    module's start, and the node came up without the module. Damaged lines are left out,
+    the good ones kept; a file that cannot be read is left as it is for the next time."""
     repaired = []
     for path in sorted(folder.glob("*.jsonl")):
         if not RECORD_NAME.match(path.name):
             continue  # zaps file: written a line at a time, readers skip a cut line
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
         if not data:
             continue
         cut = data if data.endswith(b"\n") else data[: data.rfind(b"\n") + 1]
-        lines = cut.decode("utf-8").splitlines()
-        if lines and json.loads(lines[-1]).get("type") == "footer":
+        lines = cut.decode("utf-8", errors="replace").splitlines()
+        objs = [_parsed(line) for line in lines]
+        damaged = any(o is None for o in objs)
+        last = next((o for o in reversed(objs) if o is not None), None)
+        if not damaged and cut == data and last is not None and last.get("type") == "footer":
             continue
-        seconds = sum(1 for line in lines if json.loads(line).get("type") == "s")
-        footer = {
-            "type": "footer",
-            "end_reason": "recovered",
-            "lines": seconds,
-            "ts_utc": _utc_now(),
-        }
-        with path.open("wb") as f:
-            f.write(cut + (_dumps(footer) + "\n").encode("utf-8"))
-            f.flush()
-            os.fsync(f.fileno())
+        good = [line for line, o in zip(lines, objs, strict=True) if o is not None]
+        body = "".join(line + "\n" for line in good)
+        if last is None or last.get("type") != "footer":
+            seconds = sum(1 for o in objs if o is not None and o.get("type") == "s")
+            body += _dumps({"type": "footer", "end_reason": "recovered", "lines": seconds,
+                            "ts_utc": _utc_now()}) + "\n"  # fmt: skip
+        try:
+            with path.open("wb") as f:
+                f.write(body.encode("utf-8"))
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError:
+            continue
         repaired.append(path)
     return repaired

@@ -97,7 +97,7 @@ def test_receive_install_list_remove(dep: Any, zlm: Path) -> None:
     check(spec_json("15. 배포 API", 1), r["data"], "deployer_install")
     assert r["data"]["result"] == "installed" and node.restarts == 1
     assert list(d.layout.incoming.iterdir()) == []  # 06 11.5 step 8: nothing left
-    m = json.loads(d.layout.manifest("iptv").read_text())
+    m = json.loads(d.layout.manifest("iptv").read_text(encoding="utf-8"))
     check(spec_json("14. 설치 목록"), m, "install_manifest")
     mods = c.call("GET", "/v1/deployer/modules")["data"]["modules"]
     assert [x["id"] for x in mods] == ["iptv"]
@@ -153,9 +153,9 @@ def test_silent_node_is_restarted_with_a_note(dep: Any) -> None:
     while node.restarts == 0:
         assert time.monotonic() < end
         time.sleep(0.1)
-    note = json.loads((d.layout.data_dir / "restart-note.json").read_text())
+    note = json.loads((d.layout.data_dir / "restart-note.json").read_text(encoding="utf-8"))
     assert note["restarts"] == 1 and "not answering" in note["reason"]
-    assert "ZL-SYS-009" in (d.layout.deployer / "deployer.log").read_text()
+    assert "ZL-SYS-009" in (d.layout.deployer / "deployer.log").read_text(encoding="utf-8")
     time.sleep(0.5)
     h = c.call("GET", "/v1/deployer/health")["data"]
     assert h["agent"]["responding"] and h["agent"]["restarts"] == 1

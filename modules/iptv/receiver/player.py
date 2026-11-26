@@ -80,7 +80,11 @@ ORDER = ("none", "restart", "freeze", "glitch", "drop", "audio_gap", "ok")
 
 def mpv_binary() -> str:
     if sys.platform == "win32":
-        return shutil.which("mpv") or r"C:\Program Files\mpv\mpv.exe"
+        # mpv.exe itself (2026-11-21 review): "mpv" found mpv.com first, a console wrapper
+        # that starts mpv.exe as its child, so the PID the player has (RCV-016 lowering)
+        # was the wrapper's; mpv.exe writes its messages to the log just the same
+        return (shutil.which("mpv.exe") or shutil.which("mpv")
+                or r"C:\Program Files\mpv\mpv.exe")  # fmt: skip
     return shutil.which("mpv") or "mpv"
 
 
@@ -96,6 +100,7 @@ class PlayerConfig:
     url: str  # rtp://@group:port
     work_dir: Path  # scene pictures, run record, log
     nic: str | None = None  # join on this NIC (--miface, 15 3.4)
+    local_ip: str | None = None  # the test card's address (mpv joins there off Linux)
     buffer_ms: int = 1000  # S-25
     window: str = str(DEFAULTS["S-50"])  # S-50 value as in the table
     headless: bool = False  # automatic tests: no window, no sound
@@ -165,6 +170,12 @@ def mpv_argv(cfg: PlayerConfig, ipc_path: str) -> list[str]:
     ip = ipv4_of(cfg.nic) if cfg.nic else None
     if cfg.nic and not ip:  # 2026-10-17: it joined on the home Wi-Fi when the card was gone
         raise OSError(f"the test card {cfg.nic} has no address: the player waits for it")
+    off_linux = not sys.platform.startswith("linux")
+    if ip is None and off_linux and cfg.local_ip not in (None, "0.0.0.0"):
+        # 2026-11-21 review: card names are Linux's (nic_of is None on Windows), so a
+        # Windows player joined on the OS's default card -- the home network on a PC
+        # with two -- and showed nothing; it joins on the test card's address
+        ip = cfg.local_ip
     url = f"{cfg.url}?localaddr={ip}" if ip else cfg.url
     argv = [cfg.binary or mpv_binary(), "--no-config", "--quiet", "--msg-level=all=warn",
             "--msg-time"]  # fmt: skip  # seconds since mpv started, on every log line (GAP-180)
@@ -295,8 +306,13 @@ class VlcPlayer:
 
     @staticmethod
     def _nice(runner: ProcessRunner) -> bool:
+        if runner.pid is not None and sys.platform == "win32":
+            # 2026-11-21 review: on Windows it never gave way; the class below normal
+            from core.blocks.priority import below_normal
+
+            return below_normal(runner.pid)
         if runner.pid is None or not hasattr(os, "setpriority"):
-            return False  # Windows: BELOW_NORMAL priority class comes with V18
+            return False
         try:
             os.setpriority(os.PRIO_PROCESS, runner.pid, PLAYER_NICE)
         except OSError:
@@ -588,6 +604,7 @@ class MpvIpc:
         self._closers: tuple[Any, ...] = ()
         self._next = 0
         self._waiting: dict[int, tuple[threading.Event, list[Any]]] = {}
+        self._partial = b""  # Windows: the start of a line not read to its end yet
 
     def get(self, names: tuple[str, ...]) -> dict[str, Any] | None:
         """Property values (None for one mpv cannot give yet), or None: no answer."""
@@ -603,6 +620,8 @@ class MpvIpc:
                     cmd = {"command": ["get_property", name], "request_id": self._next}
                     stream.write(json.dumps(cmd).encode() + b"\n")
                 stream.flush()
+                if sys.platform == "win32":
+                    self._pump(stream, [slot for _, slot in asks])
             out = {}
             for name, (done, box) in asks:
                 if not done.wait(IPC_TIMEOUT_S):
@@ -615,22 +634,27 @@ class MpvIpc:
             return None
 
     def _open(self) -> Any:
-        """The raw stream for writing; the reader thread reads lines through a buffer."""
+        """The raw stream for writing; the reader thread reads lines through a buffer.
+        Windows: no reader thread. A pipe opened this way is a synchronous handle, and a
+        read waiting on it holds every write on it until mpv sends something (2026-11-21
+        review, tried on the Controller PC: the requests never reached the other end and
+        the player check hung for good). The answers are read in ``get`` only once
+        Windows says they are there (``_pump``)."""
         if sys.platform == "win32":
             raw = open(self.path, "r+b", buffering=0)  # noqa: SIM115 (kept open)
-            closers: tuple[Any, ...] = (raw,)
-        else:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(IPC_TIMEOUT_S)
-            try:
-                sock.connect(self.path)
-            except OSError:
-                sock.close()
-                raise
-            sock.settimeout(None)
-            raw = sock.makefile("rwb", buffering=0)
-            closers = (raw, sock)
-        self._stream, self._closers = raw, closers
+            self._stream, self._closers, self._partial = raw, (raw,), b""
+            return raw
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(IPC_TIMEOUT_S)
+        try:
+            sock.connect(self.path)
+        except OSError:
+            sock.close()
+            raise
+        sock.settimeout(None)
+        stream = sock.makefile("rwb", buffering=0)
+        self._stream, self._closers = stream, (stream, sock)
+        raw = stream
         lines = io.BufferedReader(raw)
         threading.Thread(target=self._reader, args=(lines,), name="mpv-ipc", daemon=True).start()
         return raw
@@ -638,14 +662,36 @@ class MpvIpc:
     def _reader(self, lines: Any) -> None:
         try:
             for line in lines:
-                msg = json.loads(line)
-                slot = self._waiting.pop(msg.get("request_id"), None) if "request_id" in msg \
-                    else None  # fmt: skip
-                if slot is not None:
-                    slot[1].append(msg)
-                    slot[0].set()
+                self._take(json.loads(line))
         except (OSError, ValueError):
             pass
+
+    def _take(self, msg: Any) -> None:
+        """One message from mpv: an answer goes to the request that waits for it."""
+        rid = msg.get("request_id") if isinstance(msg, dict) else None
+        if not isinstance(rid, int):
+            return  # an event
+        slot = self._waiting.pop(rid, None)
+        if slot is not None:
+            slot[1].append(msg)
+            slot[0].set()
+
+    def _pump(self, stream: Any, slots: list[tuple[threading.Event, list[Any]]]) -> None:
+        """Windows: read what mpv has sent, only when the pipe has bytes (so no read ever
+        waits on the handle), until every one of ``slots`` has its answer."""
+        deadline = time.monotonic() + IPC_TIMEOUT_S
+        while not all(done.is_set() for done, _ in slots):
+            n = pipe_bytes(stream)
+            if n:
+                data = self._partial + stream.read(n)
+                *lines, self._partial = data.split(b"\n")
+                for line in lines:
+                    if line.strip():
+                        self._take(json.loads(line))
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError("mpv did not answer")
+            time.sleep(PUMP_WAIT_S)
 
     def close(self) -> None:
         with self._lock:
@@ -655,6 +701,21 @@ class MpvIpc:
         for c in closers:
             with contextlib.suppress(OSError):
                 c.close()
+
+
+PUMP_WAIT_S = 0.01  # Windows: how often an answer is looked for while waiting
+
+
+def pipe_bytes(stream: Any) -> int:
+    """Windows: bytes waiting in the named pipe ``stream`` (PeekNamedPipe; never waits).
+    OSError when the pipe is gone (mpv ended)."""
+    if sys.platform != "win32":
+        raise OSError("named pipes are Windows")
+    import _winapi
+    import msvcrt
+
+    got = _winapi.PeekNamedPipe(msvcrt.get_osfhandle(stream.fileno()))  # size 0: (avail, left)
+    return int(got[0])
 
 
 def ipc_path(work_dir: Path) -> str:

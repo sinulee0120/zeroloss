@@ -56,7 +56,7 @@ def test_settings_survive_removal_and_come_back(store: Any, tmp_path: Path) -> N
     assert str(settings.parent) in out["kept"] and settings.exists()
     assert not layout.code("iptv").exists() and not (layout.module_root("iptv") / "cache").exists()
     ms.install(pkg_of(REPO / "modules" / "iptv", tmp_path))
-    assert settings.read_text() == '{"S-11": 12}'
+    assert settings.read_text(encoding="utf-8") == '{"S-11": 12}'
 
 
 def test_dry_run_lists_and_changes_nothing(store: Any, tmp_path: Path) -> None:
@@ -75,7 +75,7 @@ def test_repair_upgrade_and_downgrade(store: Any, tmp_path: Path) -> None:
     ms.install(pkg_of(demo, tmp_path, "20260925.1200"))
     (layout.code("demo") / "module.py").unlink()  # broken by hand
     assert ms.install(pkg_of(demo, tmp_path, "20260925.1200"))["result"] == "repaired"
-    assert (layout.code("demo") / "module.py").read_text() == "TEXT = 'one'\n"
+    assert (layout.code("demo") / "module.py").read_text(encoding="utf-8") == "TEXT = 'one'\n"
     (demo / "sub" / "data.txt").unlink()  # the new build no longer has this file
     (demo / "module.py").write_text("TEXT = 'two'\n")
     r = ms.install(pkg_of(demo, tmp_path, "20260926.0900"))
@@ -84,7 +84,7 @@ def test_repair_upgrade_and_downgrade(store: Any, tmp_path: Path) -> None:
     with pytest.raises(DeployError) as e:
         ms.install(pkg_of(demo, tmp_path, "20260920.0000"))
     assert e.value.code == "ZL-INS-026"
-    assert (layout.code("demo") / "module.py").read_text() == "TEXT = 'two'\n"
+    assert (layout.code("demo") / "module.py").read_text(encoding="utf-8") == "TEXT = 'two'\n"
 
 
 def test_refusals(store: Any, tmp_path: Path) -> None:
@@ -115,7 +115,7 @@ def test_foreign_file_is_never_deleted(store: Any, tmp_path: Path) -> None:
     with pytest.raises(DeployError) as e:
         ms.remove("demo")
     assert e.value.code == "ZL-INS-021" and "mine.txt" in e.value.why
-    assert stranger.read_text() == "user file"
+    assert stranger.read_text(encoding="utf-8") == "user file"
     stranger.unlink()
     assert ms.remove("demo")["left"] == []  # the kept list lets a second removal finish
     assert not layout.code("demo").exists()
@@ -231,4 +231,4 @@ def check_consistent(layout: Any, mid: str) -> None:
     for item in m.items:
         if item.type == "file":
             assert Path(item.path).exists(), item.path
-    assert json.loads((code / "module.json").read_text())["id"] == mid
+    assert json.loads((code / "module.json").read_text(encoding="utf-8"))["id"] == mid

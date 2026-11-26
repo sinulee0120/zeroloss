@@ -110,6 +110,9 @@
 | 방화벽 규칙 | `ZeroLoss-Agent-DHCP-UDP67` | WAN IP 방식 B(송신 PC 통신사 역할, 07 3.2)용. **설치 시 비활성**, 통신사 역할을 켤 때 그 WAN NIC에 한해 활성화(Windows 통신사 역할은 V18 때) |
 | 레지스트리 | `HKLM\Software\ZeroLoss\Agent` | 버전, 역할, 설치 경로만 |
 | 앱 등록 | "앱 및 기능"의 ZeroLoss Agent | |
+| 외부 도구 | `C:\Program Files\ZeroLoss\Tools\{TSDuck,ffmpeg,mpv}\` | **키트에 넣어 함께 설치**(2026-11-21 사용자 결정, 15장 고정 버전: TSDuck 3.45-4798, ffmpeg 9.0.2, mpv 0.42.0). ZeroLoss와 다른 폴더(ffmpeg·mpv는 GPL). 서비스는 바뀐 시스템 PATH를 재부팅 전까지 못 보므로 PATH는 건드리지 않고, 노드·Agent Desktop이 시작할 때 이 폴더를 자기 PATH 앞에 둔다(`core/blocks/tool_dirs.py`). 공개 GitHub 키트에는 없음 |
+
+- 구현(2026-11-21, 20장 GAP-183 뒤): 설치 파일 `ZeroLoss-Agent-Setup-<빌드>.exe` = `python -m tools.build win-agent`(노드 `agent\zeroloss.exe`, `deployer\zeroloss-deployer.exe`, `desktop\zeroloss-agent-desktop.exe`, `modules\`) + `tools.build installer-agent --app <그 폴더> --tools <TSDuck\ ffmpeg\ mpv\>`(`installer/windows/zeroloss-agent.iss`). 두 서비스는 `sc create … start= auto`, 실패하면 2초 뒤 다시 시작(`sc failure`); 프로그램 자체가 Windows 서비스 규약을 따름(`agent/deployer/win_service.py`, `--windows-service <이름>`, 콘솔에서 돌리면 앞에서 그대로). 방화벽 규칙은 프로그램별·**같은 서브넷만**(`ZeroLoss Agent`, `ZeroLoss Deployer`, `ZeroLoss player`=mpv). 업데이트·제거는 시험 중 거부, 먼저 두 서비스를 멈추고 지움. **Controller가 설치된 PC에는 설치하지 않음**(같은 10992; Controller PC는 그 자체로 송수신 PC가 될 수 있음). Windows 노드를 Controller에서 10991로 업데이트하는 것(RUN-013)은 아직 V18.
 
 ### 4.3 Linux Agent (.deb) — `zeroloss-agent_<빌드>_amd64.deb` (2026-09-25 구체화, 20장 GAP-54)
 | 종류 | 이름 | 누가 만들고 지우나 | 비고 |

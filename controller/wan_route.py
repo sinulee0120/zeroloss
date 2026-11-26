@@ -19,6 +19,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from typing import Any
 from core.blocks.discovery import default_route_nics
 from core.blocks.link_monitor import ipv4_of
 from core.blocks.process_runner import NO_WINDOW
+from core.blocks.wan_nets import NETS
 
 WAN_B = "10.0.0.0/24"  # 07 3 table, B
 NO_ROUTE_ENV = "ZEROLOSS_NO_ROUTE_CHANGES"  # automatic tests never touch the PC's network
@@ -41,6 +43,30 @@ def _run(argv: list[str]) -> tuple[int, str]:
     except (OSError, subprocess.SubprocessError) as e:
         return 1, str(e)
     return done.returncode, (done.stdout + done.stderr).strip()
+
+
+def range_taken(target: str, run: Any = None, besides: tuple[str, ...] = ()) -> str | None:
+    """2026-11-26 (a new router): the address of another device in ``target``'s range
+    that answered for it, e.g. "10.0.0.2 reports: Destination host unreachable" for
+    10.0.0.1 -- the router uses that range itself, on another side than the sender's
+    cable. None when ``target`` answers, nobody does, or the answer came from outside its
+    range. Read from ``ping`` in any language: every address it prints is looked at."""
+    try:
+        net = ipaddress.ip_network(f"{target}/24", strict=False)
+    except ValueError:
+        return None
+    windows = sys.platform == "win32"
+    argv = (["ping", "-n", "2", "-w", "1500", target] if windows
+            else ["ping", "-c", "2", "-W", "2", target])  # fmt: skip
+    _, out = (run or _run)(argv)
+    for word in re.findall(r"\d{1,3}(?:\.\d{1,3}){3}", out):
+        try:
+            ip = ipaddress.ip_address(word)
+        except ValueError:
+            continue
+        if ip in net and str(ip) not in (target, *besides) and not str(ip).endswith(".255"):
+            return str(ip)  # ``besides``: the router's own WAN address (a gone sender)
+    return None
 
 
 def lab_nics(sys_root: Path = Path("/sys/class/net")) -> list[str]:
@@ -115,6 +141,7 @@ $cards = @(Get-NetIPConfiguration | Where-Object {
   [pscustomobject]@{ nic = $_.InterfaceAlias; index = [int]$_.InterfaceIndex
                      router = [string]@($_.IPv4DefaultGateway.NextHop)[0] } })
 [pscustomobject]@{ via = if ($r) { [int]$r[0].InterfaceIndex } else { 0 }
+                   hop = if ($r) { [string]$r[0].NextHop } else { "" }
                    cards = $cards } | ConvertTo-Json -Compress -Depth 3
 """
 ASK_WAIT_S = 60.0  # the person reads the Windows question
@@ -142,8 +169,12 @@ def win_plan(seen: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """("ok" | "add" | "none", the wired card to route through) from what Windows shows."""
     cards = seen.get("cards") or []
     cards = [cards] if isinstance(cards, dict) else [c for c in cards if isinstance(c, dict)]
-    if any(c.get("index") == seen.get("via") for c in cards):
-        return "ok", next(c for c in cards if c.get("index") == seen.get("via"))
+    card = next((c for c in cards if c.get("index") == seen.get("via")), None)
+    hop = str(seen.get("hop") or "")
+    # 2026-11-26 review (Linux had it 2026-10-17): a route left for an earlier router on
+    # the same card ("10.0.0.0/24 via 192.168.1.1") is not "ok": its gateway is gone
+    if card is not None and (hop in ("", "0.0.0.0") or hop == card.get("router")):
+        return "ok", card
     if len(cards) != 1:
         return "none", None  # no wired card with a router, or several: nothing guessed
     return "add", cards[0]
@@ -178,23 +209,41 @@ def manual_fix(subnet: str = WAN_B) -> str | None:
     )
 
 
+def elevated_args(subnet: str, card: dict[str, Any]) -> tuple[str, str]:
+    """(program, arguments) for the one administrator call. 2026-11-26: a sender that
+    moves to its next range (core/blocks/wan_nets) needs a route there too, so every
+    range goes in the same call: Windows asks the person once, never again per move."""
+    nets = [subnet, *(str(ipaddress.ip_interface(s).network) for s, _ in NETS)]
+    adds = []
+    for n in (ipaddress.ip_network(x) for x in dict.fromkeys(nets)):
+        stale = card.get("stale")  # an earlier router's gateway for this range: away first
+        if stale and stale != card["router"]:
+            adds.append(f"route delete {n.network_address} mask {n.netmask} {stale}")
+        adds.append(f"route add {n.network_address} mask {n.netmask} {card['router']} "
+                    f"if {card['index']}")  # fmt: skip
+    return "cmd.exe", "/c " + " & ".join(adds)  # one that is there already just fails
+
+
 def _elevated_route(subnet: str, card: dict[str, Any]) -> bool:
     """``route add`` as administrator (Windows asks the person); False = not started."""
     import ctypes  # Windows only
 
-    net = ipaddress.ip_network(subnet)
-    args = f"add {net.network_address} mask {net.netmask} {card['router']} if {card['index']}"
+    program, args = elevated_args(subnet, card)
     shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
-    return int(shell32.ShellExecuteW(None, "runas", "route.exe", args, None, 0)) > 32
+    return int(shell32.ShellExecuteW(None, "runas", program, args, None, 0)) > 32
 
 
 def _windows(subnet: str) -> str:
     probe = str(next(ipaddress.ip_network(subnet).hosts()))
-    state, card = win_plan(_win_read(probe))
+    seen = _win_read(probe)
+    state, card = win_plan(seen)
     if state == "ok" and card:
         return f"{subnet} already through {card['nic']}"
     if subnet in _asked:
         return _asked[subnet]  # asked once in this start: never again
+    seen_hop = str(seen.get("hop") or "")
+    if card is not None and seen_hop not in ("", "0.0.0.0", card.get("router")):
+        card = {**card, "stale": seen_hop}
     if state == "none" or card is None:
         _asked[subnet] = f"{subnet}: no single wired card with a router to route through"
         return f"could not route {subnet}: no single wired card with a router (set it by hand)"

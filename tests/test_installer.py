@@ -112,9 +112,8 @@ def test_the_public_kit_has_no_videos_and_no_ubuntu_packages(tmp_path: Path) -> 
     (usb / "offline").mkdir(parents=True)
     (usb / "offline" / "bash_5.deb").write_bytes(b"x")
     (usb / "tsduck_3.deb").write_bytes(b"t")
-    setup = (
-        tmp_path / f"ZeroLoss-Controller-Setup-{(build.ROOT / 'VERSION').read_text().strip()}.exe"
-    )
+    build_no = (build.ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    setup = tmp_path / f"ZeroLoss-Controller-Setup-{build_no}.exe"
     setup.write_bytes(b"exe")
     make_kit.main(["--public", "--setup", str(setup), "--offline", str(usb),
                    "--out", str(tmp_path / "out")])  # fmt: skip

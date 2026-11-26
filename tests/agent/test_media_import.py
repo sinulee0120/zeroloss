@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from agent.deployer.media_import import RECORD, MediaImport, asks
+from agent.deployer.media_import import PEOPLE, RECORD, MediaImport, asks
 from modules.iptv.sender.sources import VIDEO_EXT
 
 ASK = {"from": "Videos", "into": "media", "ext": ["mp4", "mkv", "ts"]}
@@ -21,7 +21,7 @@ ASK = {"from": "Videos", "into": "media", "ext": ["mp4", "mkv", "ts"]}
 
 def setup_root(tmp: Path, ask: dict[str, Any] = ASK) -> tuple[Path, Path, Path]:
     root, data, mods = tmp / "root", tmp / "root" / "var/lib/zeroloss", tmp / "mods"
-    (root / "home" / "test" / "Videos").mkdir(parents=True)
+    (root / PEOPLE / "test" / "Videos").mkdir(parents=True)
     data.mkdir(parents=True)
     (mods / "iptv").mkdir(parents=True)
     (mods / "iptv" / "module.json").write_text(json.dumps({"id": "iptv", "media_import": ask}))
@@ -45,10 +45,10 @@ def test_iptv_declares_its_videos_with_its_own_extensions() -> None:
 
 def test_a_readable_movie_is_linked_and_the_persons_file_is_untouched(tmp_path: Path) -> None:
     root, data, mods = setup_root(tmp_path)
-    movie = root / "home/test/Videos/movie.mp4"
+    movie = root / PEOPLE / "test/Videos/movie.mp4"
     movie.write_bytes(b"x" * 1000)
-    (root / "home/test/Videos/notes.txt").write_text("not a video")
-    (root / "home/test/Videos/.hidden.mp4").write_bytes(b"h")
+    (root / PEOPLE / "test/Videos/notes.txt").write_text("not a video")
+    (root / PEOPLE / "test/Videos/.hidden.mp4").write_bytes(b"h")
     before = movie.stat()
     m, _ = importer(root, data, mods)
     assert m.run() == ["link media/movie.mp4"]
@@ -63,7 +63,7 @@ def test_a_readable_movie_is_linked_and_the_persons_file_is_untouched(tmp_path: 
 
 def test_changed_and_gone_originals_are_followed(tmp_path: Path) -> None:
     root, data, mods = setup_root(tmp_path)
-    movie = root / "home/test/Videos/movie.mp4"
+    movie = root / PEOPLE / "test/Videos/movie.mp4"
     movie.write_bytes(b"x" * 1000)
     m, _ = importer(root, data, mods)
     m.run()
@@ -82,7 +82,7 @@ def test_a_persons_own_file_in_media_is_never_touched(tmp_path: Path) -> None:
     (data / "media").mkdir()
     mine = data / "media" / "movie.mp4"
     mine.write_bytes(b"mine")
-    (root / "home/test/Videos/movie.mp4").write_bytes(b"theirs")
+    (root / PEOPLE / "test/Videos/movie.mp4").write_bytes(b"theirs")
     m, _ = importer(root, data, mods)
     assert m.run() == []
     assert mine.read_bytes() == b"mine"
@@ -91,7 +91,7 @@ def test_a_persons_own_file_in_media_is_never_touched(tmp_path: Path) -> None:
 
 def test_no_link_means_a_copy_only_with_room(tmp_path: Path, monkeypatch: Any) -> None:
     root, data, mods = setup_root(tmp_path)
-    (root / "home/test/Videos/movie.ts").write_bytes(b"z" * 500)
+    (root / PEOPLE / "test/Videos/movie.ts").write_bytes(b"z" * 500)
 
     def no_link(a: Any, b: Any) -> None:
         raise OSError(18, "Invalid cross-device link")
@@ -103,7 +103,7 @@ def test_no_link_means_a_copy_only_with_room(tmp_path: Path, monkeypatch: Any) -
     assert m.run() == ["copy media/movie.ts"]
     dst = data / "media" / "movie.ts"
     assert dst.read_bytes() == b"z" * 500 and not os.path.samefile(
-        dst, root / "home/test/Videos/movie.ts"
+        dst, root / PEOPLE / "test/Videos/movie.ts"
     )
     # a copy belongs to the node account before it gets its name (never seen half-owned)
     assert dst.with_name(".movie.ts.part") in m.owned  # type: ignore[attr-defined]
@@ -111,15 +111,15 @@ def test_no_link_means_a_copy_only_with_room(tmp_path: Path, monkeypatch: Any) -
 
 def test_removal_takes_exactly_what_was_brought(tmp_path: Path) -> None:
     root, data, mods = setup_root(tmp_path)
-    (root / "home/test/Videos/a.mp4").write_bytes(b"a")
-    (root / "home/test/Videos/b.mkv").write_bytes(b"b")
+    (root / PEOPLE / "test/Videos/a.mp4").write_bytes(b"a")
+    (root / PEOPLE / "test/Videos/b.mkv").write_bytes(b"b")
     m, _ = importer(root, data, mods)
     m.run()
     (data / "media" / "mine.mp4").write_bytes(b"mine")
     assert m.remove("other-module") == [] and (data / "media" / "a.mp4").exists()
     assert m.remove("iptv") == []
     assert sorted(p.name for p in (data / "media").iterdir()) == ["mine.mp4"]
-    assert (root / "home/test/Videos/a.mp4").read_bytes() == b"a"  # the originals stay
+    assert (root / PEOPLE / "test/Videos/a.mp4").read_bytes() == b"a"  # the originals stay
 
 
 @pytest.mark.parametrize(
@@ -144,7 +144,7 @@ def test_the_deployer_imports_only_while_the_node_is_idle(tmp_path: Path) -> Non
     from tests.agent.fake_node import FakeNode
 
     root, data, mods = setup_root(tmp_path)
-    (root / "home/test/Videos/movie.mp4").write_bytes(b"x")
+    (root / PEOPLE / "test/Videos/movie.mp4").write_bytes(b"x")
     node = FakeNode()
     node.state = "RUNNING"
     d = Deployer(Layout(data, mods), AgentLink(node, node.port, come_back_s=5), "127.0.0.1", 0,

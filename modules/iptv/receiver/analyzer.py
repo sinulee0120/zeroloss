@@ -256,7 +256,11 @@ class StreamAnalyzer:
         self._elapsed = self._elapsed + 1 if elapsed is None else elapsed
         self.lost_total += delta["lost"]
         hd = None
-        if host_drops_total is not None and self._host_drops_base is not None:
+        if host_drops_total is not None and self._host_drops_base is None:
+            # 2026-11-21 review: not readable in the second warm-up ended, the receiver's
+            # own drops were never counted again (its loss then judged the router's)
+            self._host_drops_base = host_drops_total
+        elif host_drops_total is not None and self._host_drops_base is not None:
             hd = host_drops_total - self._host_drops_base
             self._host_drops_base = host_drops_total
         record: dict[str, Any] = {

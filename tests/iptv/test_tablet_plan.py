@@ -10,6 +10,7 @@ import pytest
 from core.protocol.envelope import ZlError
 from modules.iptv.run import (
     measuring,
+    probe_fallback,
     probe_steps,
     receiver_rows,
     required_tools,
@@ -124,7 +125,9 @@ def test_every_tool_the_rules_ask_for_is_listed_in_module_json() -> None:
     import json
     from pathlib import Path
 
-    listed = json.loads((Path(__file__).parents[2] / "modules/iptv/module.json").read_text())
+    listed = json.loads(
+        (Path(__file__).parents[2] / "modules/iptv/module.json").read_text(encoding="utf-8")
+    )
     known = {t for tools in listed["tools"].values() for t in tools}
     pc = {"device": "rx-pc", "ch": 1}
     p = validate(plan(pc, tab("tablet-1", 2, "A1"), **{"S-26": "VLC"}))
@@ -150,3 +153,32 @@ def test_a_drop_with_every_packet_is_said_to_be_the_players() -> None:
     dec = " ".join(second_evidence({**clean, "pdd": 1}))
     assert "dropped by the decoder" in dec
     assert not any("player" in x for x in second_evidence({**clean, "lost": 30}))  # a network loss
+
+
+def test_primed_with_tablets_each_receiver_on_its_own_ports() -> None:
+    """2026-11-26 (a new router without IGMP proxy; user: "있든 없든 자동으로"): S-18 Auto
+    goes primed with tablets too (before: KeyError('tablet-1'), the run stuck in
+    PREPARING). Every receiver has its own ports, also on one channel; a tablet primes
+    one copy (its app plays what it measures) and is not in the step-5 probe (its warm-up
+    checks it)."""
+    raw = plan(tab("tablet-1", 1, "A1"), tab("tablet-2", 1, "B2"), {"device": "rx-pc", "ch": 1})
+    p = validate({**raw, "hosts": {"tx": "100.64.0.1"}})
+    assert p.prime_setting == "Auto" and not p.primed
+    primed = probe_fallback(p)
+    assert primed is not None and primed.primed
+    senders, receivers = start_steps(primed)
+    ports = [(s.params["prime"]["p"], s.params["prime"]["q"]) for s in senders]
+    assert len(ports) == len(set(ports))  # nobody shares a sender port
+    by = {s.params.get("device"): s for s in receivers}
+    t1, t2 = by["tablet-1"], by["tablet-2"]
+    assert t1.path.endswith("/tablet/start") and t1.device == "rx-pc"
+    assert t1.params["prime"]["sender_ip"] == "100.64.0.1"
+    assert t1.params["port"] != t2.params["port"]  # their own receive ports
+    assert {t1.params["prime"]["q"], t2.params["prime"]["q"]} <= {q for _, q in ports}
+    pc = by["rx-pc"]
+    assert pc.path.endswith("/receiver/start")
+    assert all(f["q"] in {q for _, q in ports} for f in pc.params["prime"]["flows"])
+    listen, send, _ = probe_steps(primed)
+    assert [s.device for s in listen] == ["rx-pc"] and len(send) == 1
+    assert send[0].params["prime"]["q"] == listen[0].params["prime"]["q"]
+    assert listen[0].params["port"] == pc.params["prime"]["flows"][0]["r"]

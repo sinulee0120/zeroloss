@@ -118,6 +118,27 @@ def receiver(tmp_path: Path, fake: FakeTablets) -> TabletReceiver:
     return TabletReceiver(cfg, tmp_path, EventBus(), fake, wait=lambda s: True)  # type: ignore[arg-type]
 
 
+def test_an_unexpected_error_in_the_pull_is_said_and_faults(tmp_path: Path) -> None:
+    """09 RCV-018 (2026-11-21 review): an error that was not the tablet's (a reading the
+    code did not expect, a record file that could not be written) ended the pull thread
+    silently; the tablet's cells only went grey."""
+    fake = FakeTablets()
+    seen: list[Any] = []
+    bus = EventBus()
+    bus.subscribe(seen.append)
+    waits = iter([False, True])
+    r = TabletReceiver(CFG, tmp_path, bus, fake, wait=lambda s: next(waits))  # type: ignore[arg-type]
+
+    def broken(*a: Any, **k: Any) -> Any:
+        raise ValueError("records: 'seq' is not a number")
+
+    fake.call = broken  # type: ignore[method-assign]
+    r.state = "RUNNING"
+    r._pull_loop()  # returns: the thread would end here
+    assert r.state == "FAULT"
+    assert [e.code for e in seen if e.code == "ZL-RCV-018"] == ["ZL-RCV-018"]
+
+
 def test_start_tells_the_app_the_channel_and_buffer(tmp_path: Path) -> None:
     fake = FakeTablets()
     r = receiver(tmp_path, fake)
@@ -392,3 +413,34 @@ def test_a_tablet_that_cannot_record_its_screen_keeps_one_frame(tmp_path: Path) 
     kept = sorted(p.suffix for p in (tmp_path / "raw" / "tablet-1").glob("*_ev_e*"))
     assert kept == [".json", ".png"]
     r.stop()
+
+
+def test_a_primed_start_gives_the_app_the_prime(tmp_path: Path) -> None:
+    """2026-11-26 (a router without IGMP proxy): the app primes the sender from its
+    receive port and gets the channel as unicast (iptv 4.5); the payloads name the run."""
+    fake = FakeTablets()
+    cfg = TabletConfig("R1", "tablet-1", "A1", 1, "239.1.1.1", 5146, "b", cell_s=10,
+                       prime={"sender_ip": "100.64.0.1", "p": 5144, "q": 5145})  # fmt: skip
+    r = TabletReceiver(cfg, tmp_path, EventBus(), fake, wait=lambda s: True)  # type: ignore[arg-type]
+    r.start()
+    _, _, params = next(c for c in fake.calls if c[0] == "POST" and c[1] == "/v1/receiver/start")
+    assert params is not None and params["port"] == 5146
+    want = {"sender_ip": "100.64.0.1", "p": 5144, "q": 5145, "payload": "ZLPRIME R1 1 0",
+            "stop": "ZLPRIME R1 1 0 STOP"}  # fmt: skip
+    assert params["prime"] == want
+    r.stop()
+
+
+def test_primed_flows_of_two_receivers_on_one_channel_are_apart() -> None:
+    from modules.iptv.module import _prime_flow, _tablet_prime
+
+    a, b = _prime_flow({"flow": 0, "p": 5104, "q": 5105}, "R1"), _prime_flow(
+        {"flow": 0, "p": 5124, "q": 5125, "slot": 1}, "R1")  # fmt: skip
+    assert a is not None and b is not None and (a.slot, b.slot) == (0, 1)
+    with pytest.raises(ZlError):
+        _prime_flow({"flow": 0, "p": 5104, "q": 5105, "slot": "x"}, "R1")
+    assert _tablet_prime(None) is None
+    assert _tablet_prime({"sender_ip": "100.64.0.1", "p": 5144, "q": 5145}) == {
+        "sender_ip": "100.64.0.1", "p": 5144, "q": 5145}  # fmt: skip
+    with pytest.raises(ZlError):
+        _tablet_prime({"p": 5144, "q": 5145})

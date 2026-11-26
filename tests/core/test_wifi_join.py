@@ -44,7 +44,9 @@ class FakeNm:
             return 0, self.scan
         if "up" in argv:
             if "passwd-file" in argv:
-                self.secrets.append(Path(argv[argv.index("passwd-file") + 1]).read_text())
+                self.secrets.append(
+                    Path(argv[argv.index("passwd-file") + 1]).read_text(encoding="utf-8")
+                )
             if self.up_rc:
                 return self.up_rc, self.up_out
             self.ssid = self.pending

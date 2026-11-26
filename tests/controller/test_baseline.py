@@ -52,14 +52,14 @@ def test_a_baseline_run_verifies_the_receiver_and_later_reports_show_it(
     assert got["verified"] and got["player"] == "mpv" and got["run_id"] == run_id
     assert got["loss"] == 0 and got["playback_issues"] == 0
     assert rc.baselines.get("local|mpv") == got
-    html = (rc.reports_dir / run_id / "report.html").read_text()
+    html = (rc.reports_dir / run_id / "report.html").read_text(encoding="utf-8")
     assert "Baseline test (no router" in html and "✔ verified" in html
-    dut = json.loads((rc.reports_dir / run_id / "summary.json").read_text())["dut"]
+    dut = json.loads((rc.reports_dir / run_id / "summary.json").read_text(encoding="utf-8"))["dut"]
     assert dut["multicast_path"] == "direct" and dut["mode_detected"] is None  # GAP-113
     # a normal test through the router shows that receiver's last baseline
     second = rc.start(plan(hd_file, duration=10))
     assert wait_state(rc, RunState.IDLE, 60)
-    summary = json.loads((rc.reports_dir / second / "summary.json").read_text())
+    summary = json.loads((rc.reports_dir / second / "summary.json").read_text(encoding="utf-8"))
     assert summary["test_network"] == "router"
     assert summary["receiver_baseline"]["local"]["run_id"] == run_id
     # with playback off it is another combination: none yet

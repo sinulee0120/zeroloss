@@ -20,7 +20,7 @@ def test_rotation_keeps_at_most_n_files_of_bounded_size(tmp_path: Path) -> None:
     files = sorted(tmp_path.glob("agent.log*"))
     assert len(files) == 4
     assert all(f.stat().st_size <= 2000 + 200 for f in files)
-    assert "line 01999" in (tmp_path / "agent.log").read_text()  # newest kept
+    assert "line 01999" in (tmp_path / "agent.log").read_text(encoding="utf-8")  # newest kept
 
 
 def test_defaults_match_the_document() -> None:

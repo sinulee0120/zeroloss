@@ -94,6 +94,7 @@ class ProcessRunner:
         self._proc: subprocess.Popen[bytes] | None = None
         self._log: IO[bytes] | None = None
         self._job: Any = None
+        self._polite_ok = True  # Windows: whether CTRL_BREAK can reach it (a shared console)
         self._token = ""
         self._lock = threading.Lock()
         record_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +146,13 @@ class ProcessRunner:
             self.state = ProcState.STOPPING
         assert self._proc is not None
         forced = False
-        if self._proc.poll() is None:
+        if self._proc.poll() is None and _WINDOWS and not self._polite_ok:
+            # 2026-11-21 review, measured on the Controller PC: a child in its own hidden
+            # console (we have none, as the windowed Controller) never gets CTRL_BREAK, so
+            # every stop waited the whole stop_timeout_s (15 s) and was killed anyway -- a
+            # tsp restart sent nothing for ~20 s. It is ended at once (its Job Object)
+            forced = True
+        elif self._proc.poll() is None:
             self._polite_stop()
             try:
                 self._proc.wait(self.stop_timeout_s)
@@ -183,8 +190,9 @@ class ProcessRunner:
         if sys.platform == "win32":
             # with a console of our own the child shares it (CTRL_BREAK reaches it); without
             # one it would open a visible console, so it gets a hidden one
+            self._polite_ok = _has_console()
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | (
-                0 if _has_console() else NO_WINDOW
+                0 if self._polite_ok else NO_WINDOW
             )
         else:
             kwargs["start_new_session"] = True

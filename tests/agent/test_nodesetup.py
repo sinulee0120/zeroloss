@@ -57,7 +57,7 @@ class FakeSystem(System):
                 return 1, "Could not delete non-existent rule"
             self.rules.discard(argv[3])
         elif argv[:2] == ["sysctl", "-p"]:
-            for line in Path(argv[2]).read_text().splitlines():
+            for line in Path(argv[2]).read_text(encoding="utf-8").splitlines():
                 if "=" in line and not line.startswith("#"):
                     k, v = (x.strip() for x in line.split("=", 1))
                     self.sysctl[k] = v
@@ -112,7 +112,9 @@ def test_setup_makes_what_the_table_says(tmp_path: Path) -> None:
     assert paths.data.is_dir() and paths.deployer.is_dir() and paths.modules.is_dir()
     assert fake.owned[str(paths.data)] == "zeroloss"
     assert fake.sysctl["net.core.rmem_max"] == str(RMEM_MAX)
-    assert json.loads(paths.sysctl_orig.read_text()) == {"net.core.rmem_max": "212992"}
+    assert json.loads(paths.sysctl_orig.read_text(encoding="utf-8")) == {
+        "net.core.rmem_max": "212992"
+    }
     assert fake.rules == {"10991/tcp", "10992/tcp", "10992/udp", "67/udp"}  # 06 10.2, 07 3.2
     assert systemctl(fake) == ["daemon-reload", "enable --now zeroloss-deployer.service",
                                "enable --now zeroloss-agent.service"]  # fmt: skip
@@ -134,7 +136,9 @@ def test_setup_again_is_an_upgrade(tmp_path: Path) -> None:
     after = Manifest.load(paths.manifest)
     assert before is not None and after is not None and len(after.items) == len(before.items)
     assert not [c for c in fake.calls if c[0] in ("adduser", "ufw")]
-    assert json.loads(paths.sysctl_orig.read_text()) == {"net.core.rmem_max": "212992"}
+    assert json.loads(paths.sysctl_orig.read_text(encoding="utf-8")) == {
+        "net.core.rmem_max": "212992"
+    }
 
 
 def test_the_node_may_use_the_gpu_and_removal_takes_only_that(tmp_path: Path) -> None:
@@ -241,7 +245,7 @@ def run_script(name: str, arg: str, root: Path, log: Path | None = None) -> str:
         dep.chmod(0o755)
     env = dict(os.environ, DPKG_ROOT=str(root), PATH=f"{bin_dir}:{os.environ['PATH']}")
     subprocess.run(["sh", str(SCRIPTS / name), arg], env=env, check=True, timeout=30)
-    return log.read_text() if log.exists() else ""
+    return log.read_text(encoding="utf-8") if log.exists() else ""
 
 
 @pytest.mark.parametrize(("script", "arg", "want"), [
@@ -304,7 +308,7 @@ def test_polkit_rule_only_for_the_node_account_and_only_with_polkit(tmp_path: Pa
     paths = NodePaths(tmp_path / "b")
     paths.polkit_rule.parent.mkdir(parents=True)
     node_setup(paths, fake)
-    rule = paths.polkit_rule.read_text()
+    rule = paths.polkit_rule.read_text(encoding="utf-8")
     import re
 
     allowed = set(re.findall(r'action\.id == "([^"]+)"', rule))
@@ -333,7 +337,9 @@ def test_remove_takes_off_the_wan_address_the_node_added(tmp_path: Path) -> None
     out = node_remove(paths, fake)
     assert ["ip", "addr", "del", "10.0.0.1/24", "dev", "enp1s0"] in fake.calls
     assert out["left"] == []
-    assert json.loads((paths.data / "wan-lease.json").read_text())["added_ip"] is None
+    assert (
+        json.loads((paths.data / "wan-lease.json").read_text(encoding="utf-8"))["added_ip"] is None
+    )
 
 
 def test_removal_takes_the_users_desktop_folders(tmp_path: Path) -> None:
@@ -362,7 +368,7 @@ def test_removal_deletes_the_isp_roles_nm_profile(tmp_path: Path) -> None:
         {"nic": "enp37s0", "added_ip": "10.0.0.1/24", "nm_profile": "zeroloss-wan"}))  # fmt: skip
     out = node_remove(paths, fake)
     assert out["left"] == [] and ["nmcli", "connection", "delete", "zeroloss-wan"] in fake.calls
-    doc = _json.loads((paths.data / "wan-lease.json").read_text())
+    doc = _json.loads((paths.data / "wan-lease.json").read_text(encoding="utf-8"))
     assert doc["nm_profile"] is None and doc["added_ip"] is None
 
 
@@ -375,7 +381,7 @@ def test_tablet_usb_rule_for_the_node_account_recorded_and_removed(tmp_path: Pat
     paths = NodePaths(tmp_path / "b")
     paths.at("/etc/udev").mkdir(parents=True)
     node_setup(paths, fake)
-    rule = paths.udev_rule.read_text()
+    rule = paths.udev_rule.read_text(encoding="utf-8")
     assert '"*:ff4201:*"' in rule and 'GROUP="zeroloss"' in rule and 'MODE="0660"' in rule
     m = Manifest.load(paths.manifest)
     assert m is not None and ("udev_rule", str(paths.udev_rule)) in {

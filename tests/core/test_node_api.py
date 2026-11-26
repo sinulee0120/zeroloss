@@ -133,7 +133,7 @@ def test_handler_bug_is_reported_not_hidden(node: Node) -> None:
     assert status == 500 and res["error"]["code"] == "ZL-SYS-008"
     _, hb = call(connect(node), "GET", "/v1/heartbeat?seq=1")
     assert any(e["code"] == "ZL-SYS-008" for e in hb["data"]["events"])
-    log = (node.data_dir / "logs" / "events.log").read_text()
+    log = (node.data_dir / "logs" / "events.log").read_text(encoding="utf-8")
     assert "ZL-SYS-008" in log
 
 
