@@ -91,10 +91,15 @@ class ReportsWindow(QDialog):
         self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(BUTTON_MIN_HEIGHT + GRID)  # buttons fit
-        self.table.setWordWrap(False)
+        # 2026-11-27 user ("글자 안보임"): "planned time r…" -- a long Result (no report)
+        # took the width and cut Why; both share the room and wrap, rows grow to fit
+        self.table.setWordWrap(True)
+        rows = self.table.verticalHeader()
+        rows.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        rows.setMinimumSectionSize(BUTTON_MIN_HEIGHT + GRID)
         head = self.table.horizontalHeader()
         for col in range(len(ReportsModel.COLS)):
-            head.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch if col == 5
+            head.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch if col in (4, 5)
                                       else QHeaderView.ResizeMode.ResizeToContents)  # fmt: skip
         self.b_refresh = QPushButton(TEXT["storage_refresh"])
         bottom = QHBoxLayout()

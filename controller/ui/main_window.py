@@ -58,10 +58,14 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QStyle,
+    QStyleOptionComboBox,
+    QStylePainter,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
@@ -92,7 +96,7 @@ from controller.ui.store import (
     Status,
     Store,
 )
-from controller.ui.texts import DURATIONS_S, QUALITY_LABELS, TEST_TYPES, TEXT
+from controller.ui.texts import DURATIONS_S, QUALITY_LABELS, TEST_LABELS, TEST_TYPES, TEXT
 from controller.ui.view import (
     GENERATED,
     TABLET,
@@ -102,6 +106,7 @@ from controller.ui.view import (
     ActionsView,
     CellView,
     FaultView,
+    Kpi,
     ProblemRow,
     ProblemsView,
     ResultView,
@@ -126,6 +131,7 @@ from controller.ui.view import (
     finished_line,
     fit_cells,
     hms,
+    kpis,
     making_lines,
     parse_address,
     parse_duration,
@@ -234,8 +240,34 @@ class SourcesBox(QWidget):
         self.note.setWordWrap(True)
         self.note.setVisible(False)
         outer.addWidget(self.note)
-        self.boxes: dict[int, QComboBox] = {}
+        self.boxes: dict[int, ElidedCombo] = {}
         self.key: tuple[Any, ...] = ()
+
+
+class ElidedCombo(QComboBox):
+    """A choice that shows a long value with '…' in the middle (a movie's name keeps its
+    start and its end) instead of cutting it off mid-letter (2026-11-27 user: "글자
+    안보임"); the list itself shows every value whole."""
+
+    def paintEvent(self, e: QPaintEvent) -> None:
+        if self.isEditable():
+            super().paintEvent(e)
+            return
+        p = QStylePainter(self)
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        p.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, opt)
+        room = (
+            self.style()
+            .subControlRect(
+                QStyle.ComplexControl.CC_ComboBox, opt, QStyle.SubControl.SC_ComboBoxEditField, self
+            )
+            .width()
+        )
+        opt.currentText = self.fontMetrics().elidedText(
+            opt.currentText, Qt.TextElideMode.ElideMiddle, max(0, room)
+        )
+        p.drawControl(QStyle.ControlElement.CE_ComboBoxLabel, opt)
 
 
 class Elided(QLabel):
@@ -315,6 +347,18 @@ def _fit_combo(box: QComboBox) -> None:
     box.currentTextChanged.connect(box.setToolTip)
 
 
+# 2026-11-27: the header's state badge (word, color) -- calm tints, the cell colors stay
+STATE_BADGE = {
+    "IDLE": ("Ready", "grey"), "PREPARING": ("Starting", "blue"), "RUNNING": ("Running", "green"),
+    "STOPPING": ("Stopping", "blue"), "REPORTING": ("Making the report", "blue"),
+    "SAFE_STOP": ("Stopping", "amber"), "FAULT": ("Fault", "red"), "OFFLINE": ("Offline", "grey"),
+}  # fmt: skip
+BADGE_BG = {"grey": "#eef0f3", "blue": "#e6effb", "green": "#e3f4ea", "amber": "#fbf1d9",
+            "red": "#fbe6e6"}  # fmt: skip
+BADGE_FG = {"grey": "#3f4652", "blue": "#174a94", "green": "#0b5c37", "amber": "#6b4c00",
+            "red": "#8a1414"}  # fmt: skip
+
+
 def _scroll(content: QWidget) -> QScrollArea:
     s = _Fit()
     s.setWidgetResizable(True)
@@ -361,31 +405,31 @@ class SetupRow(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(GRID)
         self.label = Elided()
-        self.role = QComboBox()
+        self.role = ElidedCombo()
         for key in ("sender", "receiver", "unused"):
             self.role.addItem(TEXT[f"role_{key}"], key)
         MainWindow._help(self.role, TEXT["tip_role"])
-        self.ch = QComboBox()
+        self.ch = ElidedCombo()
         for c in (1, 2, 3):
             self.ch.addItem(f"CH{c}", c)
         MainWindow._help(self.ch, TEXT["tip_channel"])
-        self.net = QComboBox()
+        self.net = ElidedCombo()
         for n in ("Wired", "Wireless"):
             self.net.addItem(n, n)
         MainWindow._help(self.net, TEXT["tip_network"])
         # 2026-10-16 user: "수신기마다 다를거아니냐" -- the player buffer per receiver PC
-        self.buffer = QComboBox()
+        self.buffer = ElidedCombo()
         self.buffer.addItem(TEXT["buffer_default"], 0)
         for ms in BUFFER_CHOICES_MS:
             self.buffer.addItem(TEXT["buffer_ms"].format(s=ms / 1000), ms)
         MainWindow._help(self.buffer, TEXT["tip_buffer"])
-        self.card = QComboBox()  # the test card (DSC-006, GAP-115): Auto or one of its own
+        self.card = ElidedCombo()  # the test card (DSC-006, GAP-115): Auto or one of its own
         self.card.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         MainWindow._help(self.card, TEXT["tip_card"])
         self._cards: tuple[tuple[str, str], ...] | None = None
         # GAP-155 (2026-10-15 user: "let the user pick among the IPs; when there is
         # nothing to pick, let them type it"): the PC's address, always here, editable
-        self.address = QComboBox()
+        self.address = ElidedCombo()
         self.address.setEditable(True)
         self.address.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.address.setMinimumContentsLength(15)
@@ -418,7 +462,7 @@ class SetupRow(QWidget):
         self._on_tick, self._on_band, self._on_scan = on_tick, on_band, on_scan
         self._on_password = on_password
         # a tablet's Wi-Fi (S-51): what it sees, joined by adb at Start; its password box
-        self.tabwifi = QComboBox()
+        self.tabwifi = ElidedCombo()
         self.tabwifi.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         MainWindow._help(self.tabwifi, TEXT["tip_tablet_wifi"])
         self.tabwifi.setVisible(False)
@@ -601,7 +645,7 @@ def _show_lines_impl(row: SetupRow, lines: tuple[Any, ...], ctl: Ctl) -> None:
                 grid.addWidget(note, r, 1, 1, 4)
                 r += 1
             for i, (band, opts, chosen, pw_box, ssid) in enumerate(line.bands):
-                box = QComboBox()
+                box = ElidedCombo()
                 box.addItem(TEXT["wifi_band_none"], "")
                 for label, bssid, usable, tip in opts:
                     box.addItem(label, bssid)
@@ -641,7 +685,7 @@ class DeviceRow(QWidget):
 
     def __init__(self, on_channel: Callable[[int], None] = lambda ch: None) -> None:
         super().__init__()
-        self.chan = QComboBox()
+        self.chan = ElidedCombo()
         MainWindow._help(self.chan, TEXT["tip_channel_live"])
         self.chan.activated.connect(lambda _: self._chosen(on_channel))
         self.chan.setVisible(False)
@@ -742,6 +786,58 @@ class DeviceRow(QWidget):
         )
 
 
+LEGEND = {"green": "OK", "yellow": "Warning", "red": "Router", "purple": "Sender or receiver",
+          "grey": "Not judged"}  # fmt: skip
+
+
+class KpiStrip(QWidget):
+    """The run at a glance (2026-11-27 redesign, the approved mockup): a few big figures in
+    quiet tiles above the devices; hidden between tests with nothing to show."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.row = QHBoxLayout(self)
+        self.row.setContentsMargins(0, 0, 0, 0)
+        self.row.setSpacing(GRID)
+        self.tiles: list[tuple[QLabel, QLabel, Elided]] = []
+        self.shown: list[Kpi] = []
+
+    def set_kpis(self, kpis_: list[Kpi]) -> None:
+        if kpis_ == self.shown:
+            return
+        self.shown = kpis_
+        while len(self.tiles) < len(kpis_):
+            tile = QWidget()
+            tile.setObjectName("tile")
+            v = QVBoxLayout(tile)
+            v.setContentsMargins(GRID + 4, GRID, GRID + 4, GRID)
+            v.setSpacing(2)
+            label, value, note = QLabel(), QLabel(), Elided()
+            label.setObjectName("muted")
+            note.setObjectName("muted")
+            f = QFont(self.font())
+            f.setPointSize(FONT_PT["title"] + 4)
+            f.setBold(True)
+            value.setFont(_tabular(f))
+            for part in (label, value, note):
+                v.addWidget(part)
+            self.row.addWidget(tile, 1)
+            self.tiles.append((label, value, note))
+        for i, (label, value, note) in enumerate(self.tiles):
+            box = label.parentWidget()
+            on = i < len(kpis_)
+            if box is not None and box.isHidden() == on:
+                box.setVisible(on)
+            if not on:
+                continue
+            k = kpis_[i]
+            _set_text(label, k.label)
+            _set_text(value, k.value)
+            note.set_full(k.note)
+            fg = {"red": COLORS["red"], "green": COLORS["green"], "yellow": COLORS["yellow"]}
+            value.setStyleSheet(f"color: {fg[k.color]};" if k.color in fg else "")
+
+
 class CellGrid(QWidget):
     """5-min cells, one line per device; icon + color in every cell (1.7). Following live
     shows the newest cells that fit; the tooltip gives the cell's values."""
@@ -758,7 +854,8 @@ class CellGrid(QWidget):
         if rows == self.rows:
             return
         self.rows = rows
-        self.setMinimumHeight(max(1, len(rows)) * (CELL_PX + GRID // 2) + GRID)
+        extra = 2 * (self.fontMetrics().height() + GRID // 2) if rows else 0  # axis, legend
+        self.setMinimumHeight(max(1, len(rows)) * (CELL_PX + GRID // 2) + GRID + extra)
         self.update()
 
     def _layout(self) -> list[tuple[str, list[tuple[QRect, CellView]]]]:
@@ -805,6 +902,35 @@ class CellGrid(QWidget):
                     p.drawRect(rect.adjusted(0, 0, -1, -1))
                 p.setPen(QColor(cell.fg))
                 p.drawText(rect, Qt.AlignmentFlag.AlignCenter, c.icon)
+        self._axis_and_legend(p)
+
+    def _axis_and_legend(self, p: QPainter) -> None:
+        """2026-11-27 redesign: when the boxes are (0 h at the left, the length so far at
+        the right end) and what each color means, under the rows."""
+        laid = self._layout()
+        fm = p.fontMetrics()
+        y = len(laid) * (CELL_PX + GRID // 2) + GRID // 2
+        line = fm.height()
+        muted = QColor(COLORS["text_muted"])
+        p.setPen(muted)
+        longest = max(laid, key=lambda r: len(r[1]))[1] if laid else []
+        if longest:
+            n = max(len(v) for v in self.rows.values())
+            end = longest[-1][0].right()
+            p.drawText(QRect(self.label_w, y, 6 * GRID, line), Qt.AlignmentFlag.AlignLeft, "0h")
+            span = f"{n * 5 // 60}h {n * 5 % 60:02d}m"
+            w = fm.horizontalAdvance(span)
+            p.drawText(QRect(max(self.label_w + 6 * GRID, end - w), y, w + 2, line),
+                       Qt.AlignmentFlag.AlignLeft, span)  # fmt: skip
+        x, y = self.label_w, y + line + GRID // 2
+        for color in ("green", "yellow", "red", "purple", "grey"):
+            sw = QRect(x, y + (line - GRID - 2) // 2, GRID + 2, GRID + 2)
+            p.fillRect(sw, QColor(live_cell(color).color))
+            word = LEGEND[color]
+            p.setPen(muted)
+            p.drawText(QRect(x + GRID + 6, y, fm.horizontalAdvance(word) + 2, line),
+                       Qt.AlignmentFlag.AlignLeft, word)  # fmt: skip
+            x += GRID + 6 + fm.horizontalAdvance(word) + 2 * GRID
 
     def event(self, e: QEvent) -> bool:
         if e.type() == QEvent.Type.ToolTip and isinstance(e, QHelpEvent):
@@ -944,6 +1070,10 @@ class ActionsWindow(QDialog):
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
+        # 2026-11-27 user ("글자 안보임"): How and Why ended in "…" -- what to do, cut;
+        # they wrap and the rows grow to fit, as in the Problems window
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         head = self.table.horizontalHeader()
         for col in range(len(ActionsModel.COLS)):
             fit = col in (0, 4)
@@ -1384,6 +1514,27 @@ class MainWindow(QMainWindow):
 
         top = QHBoxLayout()  # screen-wide actions: top right (1.11)
         self.top = top
+        # 2026-11-27 user ("상용버전처럼 … ux design"): the product and where the test is,
+        # top left -- name, a state badge and the run in one line
+        self.l_brand = QLabel(TEXT["app_title"])
+        brand = QFont(self.font())
+        brand.setPointSize(FONT_PT["title"] + 1)
+        brand.setBold(True)
+        self.l_brand.setFont(brand)
+        self.l_state = QLabel()
+        self.l_state.setObjectName("state")
+        self.l_run = Elided()
+        self.l_run.setObjectName("muted")
+        top.addWidget(self.l_brand)
+        top.addSpacing(GRID)
+        top.addWidget(self.l_state)
+        self.l_time = QLabel()  # elapsed / planned, beside the run (the bar shows the share)
+        self.l_time.setFont(_tabular(self.font()))
+        self.l_time.setObjectName("muted")
+        self.l_time.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+        top.addWidget(self.l_time)
+        top.addSpacing(GRID)
+        top.addWidget(self.l_run, 1)  # after the time: on a wide screen it stays near the badge
         self.l_broadcast = QLabel()  # F18 banner, with its button; only while on
         self.l_broadcast.setStyleSheet("font-weight:bold;")
         self.b_broadcast = QPushButton(TEXT["stop_broadcast"])
@@ -1405,10 +1556,29 @@ class MainWindow(QMainWindow):
         self.b_last = QPushButton(TEXT["last_report"])
         self.b_help = QPushButton(TEXT["help"])  # 08 2: the guide, at this test's part
         self._help(self.b_help, TEXT["tip_help"])
-        for b in (self.b_reset, self.b_storage, self.b_live, self.b_reports, self.b_last,
-                  self.b_help):  # fmt: skip
+        self.l_run.setMinimumWidth(0)  # the run line gives way first on a narrow screen
+        for b in (self.b_live, self.b_reports, self.b_last, self.b_storage, self.b_help):
+            b.setObjectName("nav")  # toolbar look: places to go, not actions
             top.addWidget(b)
-        outer.addLayout(top)
+        for b in (self.b_live, self.b_reports, self.b_last, self.b_storage, self.b_help,
+                  self.b_reset, self.b_problems, self.b_actions):  # fmt: skip
+            b.setSizePolicy(QSizePolicy.Policy.Fixed, b.sizePolicy().verticalPolicy())
+        top.addSpacing(GRID)
+        self.b_reset.setObjectName("danger")  # the one that stops everything: apart, last
+        top.addWidget(self.b_reset)
+        header = QVBoxLayout()  # the top row and the run's progress under it, close
+        header.setSpacing(GRID // 2)
+        header.addLayout(top)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(3)
+        self.bar.setRange(0, 1000)
+        sp = self.bar.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)  # the page does not jump when a test starts
+        self.bar.setSizePolicy(sp)
+        self.bar.setVisible(False)
+        header.addWidget(self.bar)
+        outer.addLayout(header)
         self.l_too_small = QLabel(TEXT["screen_too_small"])  # 1.8: below 1024x600 usable
         self.l_too_small.setVisible(False)
         outer.addWidget(self.l_too_small)
@@ -1416,18 +1586,27 @@ class MainWindow(QMainWindow):
         # S6 fault screen (11-ui 2, 03 F11): over the main screen while FAULT
         self.g_fault = QGroupBox(TEXT["fault_title"])
         self.g_fault.setStyleSheet(f"QGroupBox {{ border: 2px solid {COLORS['red']}; }}")
-        fv = QVBoxLayout(self.g_fault)
+        fv = QHBoxLayout(self.g_fault)
+        # 2026-11-27: the whole box scrolled under a third of the window, so at 1280x720
+        # its recovery buttons were cut off below; now only the text and the device rows
+        # scroll, and the buttons stand beside them (the box can shrink to one line)
+        fault_text = QWidget()
+        tv = QVBoxLayout(fault_text)
+        tv.setContentsMargins(0, 0, 0, 0)
         self.fault_what = QLabel()
         self.fault_what.setWordWrap(True)
         self.fault_data = QLabel()
         self.fault_data.setWordWrap(True)
-        fv.addWidget(self.fault_what)
-        fv.addWidget(self.fault_data)
+        tv.addWidget(self.fault_what)
+        tv.addWidget(self.fault_data)
         self.fault_devices = QVBoxLayout()
-        fv.addLayout(self.fault_devices)
+        tv.addLayout(self.fault_devices)
+        tv.addStretch(1)
+        self.fault_text = _scroll(fault_text)
+        fv.addWidget(self.fault_text, 1)
         self._fault_rows: dict[str, tuple[QWidget, QLabel, QPushButton]] = {}
         fb = QHBoxLayout()
-        fb.addStretch(1)
+        fb.setAlignment(Qt.AlignmentFlag.AlignBottom)
         self.b_fault_shutdown = QPushButton(TEXT["fault_shutdown"])
         self.b_fault_shutdown.setToolTip(TEXT["fault_shutdown_tip"])
         self.b_fault_reset = QPushButton(TEXT["reset_all"])
@@ -1435,9 +1614,8 @@ class MainWindow(QMainWindow):
         fb.addWidget(self.b_fault_reset)  # the right end: the action this screen is for
         fv.addLayout(fb)
         self.g_fault.setVisible(False)
-        self.fault_scroll = _scroll(self.g_fault)  # many devices: scroll, never push (1.8)
-        self.fault_scroll.setVisible(False)
-        outer.addWidget(self.fault_scroll)
+        self.fault_scroll = self.g_fault  # many devices: its text scrolls, never push (1.8)
+        outer.addWidget(self.g_fault)
 
         self.body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self.body.setSpacing(2 * GRID)
@@ -1448,16 +1626,16 @@ class MainWindow(QMainWindow):
         self.form = QGridLayout()
         self.form.setHorizontalSpacing(2 * GRID)
         self.form.setVerticalSpacing(GRID)
-        self.c_type = QComboBox()
+        self.c_type = ElidedCombo()
         for label in TEST_TYPES.values():  # S-01 screen values
             self.c_type.addItem(label, label)
-        self.c_quality = QComboBox()
+        self.c_quality = ElidedCombo()
         for k, v in QUALITY_LABELS.items():
             self.c_quality.addItem(v, k)
         self.sources = SourcesBox()  # S-48 under Video quality: picked every test (GAP-115)
         self.l_sources = self._ilabel("source_video")
         self._help(self.sources, TEXT["tip_source_video"])
-        self.c_duration = QComboBox()
+        self.c_duration = ElidedCombo()
         for s in DURATIONS_S:
             self.c_duration.addItem(hms(s).replace(" 00m", "").replace(" 00s", ""), s)
         # 2026-10-09 user: "you set any time, I cannot type one in the app": pick from the
@@ -1518,6 +1696,7 @@ class MainWindow(QMainWindow):
         self.progress = QLabel()
         self.progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.progress.setFont(_tabular(self.font()))
+        self.progress.setVisible(False)  # 2026-11-27: in the header now (l_time, the bar)
         self.run_box = QVBoxLayout()  # Start/Stop + progress: always on screen (1.8)
         self.run_box.addWidget(self.b_start)
         self.run_box.addWidget(self.progress)
@@ -1574,6 +1753,9 @@ class MainWindow(QMainWindow):
         fl.addStretch(1)
         fl.addWidget(self.b_follow)
         cv.addLayout(fl)
+        self.kpi = KpiStrip()  # 2026-11-27 redesign: the run at a glance, above the devices
+        self.kpi.setVisible(False)
+        right.addWidget(self.kpi)
         right.addWidget(self.g_devices, 1)
         right.addWidget(self.g_cells, 1)
         self.right = QWidget()
@@ -1584,6 +1766,9 @@ class MainWindow(QMainWindow):
         self.right_scroll.setWidget(self.right)
 
         self.left_scroll = _scroll(self.g_test)  # a short screen scrolls it (1.8)
+        # 2026-11-27: stacked (narrow), the Test box took 58 px more than it needs while
+        # the device rows below scrolled; it keeps its own height, the rest is theirs
+        self.left_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # Start/Stop under the scrolled Test area, not in it: a test with many settings of
         # its own (Throughput, 2026-10-17) scrolled it off the screen (1.8)
         self.left = QWidget()
@@ -1668,6 +1853,39 @@ class MainWindow(QMainWindow):
             lambda _: self.edit(duration_s=self.c_duration.currentData())
         )
         self.resize(1280, 760)
+
+    def _render_header(self, st: Status) -> None:
+        """Top left: the state as a badge and the run in one line (2026-11-27)."""
+        state = str(st.run.get("state", "IDLE")) if st.connected else "OFFLINE"
+        word, color = STATE_BADGE.get(state, (state.title(), "grey"))
+        _set_text(self.l_state, word)
+        style = (
+            f"QLabel#state {{ background:{BADGE_BG[color]}; color:{BADGE_FG[color]}; "
+            "border-radius:10px; padding:2px 10px; font-weight:600; }"
+        )
+        if self.l_state.styleSheet() != style:
+            self.l_state.setStyleSheet(style)
+        got = st.run.get("plan")
+        plan: dict[str, Any] = got if isinstance(got, dict) else {}
+        bits = [str(st.run.get("run_id") or "")] if state != "IDLE" else []
+        # the words the screen uses ("IPTV test", not the plan's "tablet"; 2026-11-27)
+        if plan.get("test_type"):
+            bits.append(TEST_LABELS.get(str(plan["test_type"]), str(plan["test_type"])))
+        if plan.get("quality"):
+            bits.append(str(plan["quality"]))
+        self.l_run.set_full("  ·  ".join(b for b in bits if b))
+        planned = st.run.get("planned_s")
+        live = state in ("RUNNING", "STOPPING") and bool(planned)
+        # the bar shows the share: "2h 12m / 3h 00m" fits the narrow header (1093 px)
+        when = f"{hms(float(st.run.get('elapsed_s') or 0))} / {hms(float(planned or 0))}"
+        _set_text(self.l_time, when if live else "")
+        planned = st.run.get("planned_s")
+        on = state in ("RUNNING", "STOPPING") and bool(planned)
+        if self.bar.isHidden() == on:
+            self.bar.setVisible(on)
+        if on:
+            done = float(st.run.get("elapsed_s") or 0.0) / float(planned or 1)
+            self.bar.setValue(min(1000, int(done * 1000)))
 
     def _ilabel(self, key: str, tip: str = "") -> QLabel:
         """Every setting has an ⓘ help tooltip: what, example, where (docs/11-ui.md)."""
@@ -1836,6 +2054,7 @@ class MainWindow(QMainWindow):
         self._render_adv(ctl["advanced_values"])
         self._render_main_sources(ctl["quality"])
         _set_text(self.progress, progress(st))
+        self._render_header(st)
         idle = self.store.run_state == "IDLE"
         self._render_devices(device_rows(st) if not idle else [], ctl["channel"])
         busy = {k for k in self._wifi_asked if self.commands.busy(f"wifi_scan:{k}")}
@@ -1862,6 +2081,10 @@ class MainWindow(QMainWindow):
                 if not w.isHidden():
                     w.setVisible(False)
         self.grid.set_rows(cell_rows(st))
+        figures = kpis(st) if not self.narrow else []  # stacked: the device rows first (1.8)
+        self.kpi.set_kpis(figures)
+        if self.kpi.isHidden() == bool(figures):
+            self.kpi.setVisible(bool(figures))
         color, text = status_line(st, self.store.plan_ok, self.failed_text, why)
         if "stop" in self.store.pending and self.store.run_state == "RUNNING":
             # 2026-10-09 user: "Stop does not stop — show a wait message or a popup": the
@@ -2148,7 +2371,7 @@ class MainWindow(QMainWindow):
     def _adv_widget(self, sid: str, item: dict[str, Any]) -> QWidget:
         kind = item.get("kind")
         if kind == "choice":
-            box = QComboBox()
+            box = ElidedCombo()
             for c in item.get("choices") or []:
                 box.addItem(str(c), c)
             self._disable_items(box, item)
@@ -2330,7 +2553,7 @@ class MainWindow(QMainWindow):
             w.boxes = {}
             for ch in chans:
                 opts = each[ch]
-                box = QComboBox()
+                box = ElidedCombo()
                 for label, data, _, note in opts:
                     box.addItem(label, data)
                     if note:
@@ -2449,12 +2672,14 @@ class MainWindow(QMainWindow):
         if not sender or self.store.run_state != "IDLE":
             return
         now = time.monotonic()
-        if sender == self._sources_for and now - self._sources_at < SOURCES_EVERY_S:
-            return
         module = str(self.store.choice.get("module") or "iptv")
+        videos = str((self.store.choice.get("settings") or {}).get("S-70") or "")
+        key = f"{sender}|{videos}"  # S-70 changed: that folder's list at once (GAP-195)
+        if key == self._sources_for and now - self._sources_at < SOURCES_EVERY_S:
+            return
         if self.commands.read("sources", f"{P}/sources", timeout_s=SOURCES_TIMEOUT_S,
-                              node=sender, module=module):  # fmt: skip
-            self._sources_for, self._sources_at = sender, now
+                              node=sender, module=module, videos=videos):  # fmt: skip
+            self._sources_for, self._sources_at = key, now
             self.q.put(("sent", "sources"))
 
     def _spin_done(self, sid: str, item: dict[str, Any], spin: QSpinBox, scale: int) -> None:
@@ -2657,6 +2882,11 @@ class MainWindow(QMainWindow):
             _set_text(label, f"{ICONS.get(d.color, '')} {d.name}: {d.state}")
             self._apply(button, restart if not restart.enabled else Ctl(
                 True, tooltip=TEXT["fault_restart_tip"]))  # fmt: skip
+        # its content grew: a scroll area does not tell the layout by itself
+        inner = self.fault_text.widget()
+        if inner is not None:
+            inner.adjustSize()
+        self.fault_text.updateGeometry()
 
     def on_reset(self) -> None:
         """F11 Reset All: asks first (13: a confirmed action), then one command."""
@@ -2938,6 +3168,11 @@ class MainWindow(QMainWindow):
         fault_cap = e.size().height() // 3  # the device rows stay in view below it
         if self.fault_scroll.maximumHeight() != fault_cap:
             self.fault_scroll.setMaximumHeight(fault_cap)
+        # the narrow header keeps Start/Stop, the time and the bar (the state is on the
+        # button and in Status); the name, the badge and the run line need the width
+        for w in (self.l_brand, self.l_run, self.l_state):
+            if w.isHidden() != narrow:
+                w.setVisible(not narrow)
         if narrow == self.narrow:
             return
         if narrow:
@@ -2952,6 +3187,12 @@ class MainWindow(QMainWindow):
             self.top.removeItem(self.run_box)
             self.run_box.setDirection(QBoxLayout.Direction.TopToBottom)
             self.left_box.addLayout(self.run_box)
+        # 2026-11-27: the moved Start/Stop stayed in the Test column's cached height
+        # (58 px of nothing under the Test box when stacked)
+        self.g_test.adjustSize()
+        self.left_scroll.updateGeometry()  # its size follows the Test box's new flow
+        self.left_box.invalidate()
+        self.left.updateGeometry()
 
 
 def _serials_of(side: Any) -> set[str]:

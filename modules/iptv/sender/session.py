@@ -49,6 +49,8 @@ class SenderConfig:
     start_limit_s: float = START_LIMIT_S
     local_port: int | None = None  # primed mode: send from the port P (iptv 4.5)
     tag: str = ""  # primed mode: "_f0" / "_f1", one run record and log per flow
+    slot: int | None = None  # primed mode: the receiver this flow is for (its place, 2026-11-26)
+    label: str = ""  # primed mode: "flow 0 slot 1", said after "CHn" in this flow's events
     paced: bool = True  # GAP-160: one datagram every len*8/rate, not tsp's ~9 ms bursts
 
 
@@ -129,6 +131,8 @@ class SenderSession:
         self._halt = threading.Event()
         self._watch: threading.Thread | None = None
         self._silent = 0  # seconds in a row without a rate report
+        self._rate_bad = False  # SND-016/017 said since the rate was last right
+        self._late_said = False  # SND-025 said since the pacing was last on time
 
     # ---------------------------------------------------------------- commands
 
@@ -269,6 +273,9 @@ class SenderSession:
                     self._event("ZL-SND-027", "warn", f"CH{self.cfg.ch} sender watch: "
                                 f"unexpected error, it goes on: {e!r}")  # fmt: skip
 
+    def _of_target(self, bps: float) -> str:
+        return f"{bps / 1e6:.2f} of {self.cfg.muxrate_bps / 1e6:.2f} Mbps"
+
     def _watch_once(self) -> bool:
         """One look (every second); False when there is nothing more to watch."""
         runner, log = self._runner, self._log
@@ -280,12 +287,25 @@ class SenderSession:
             self._silent = 0
             self.last_rate = rates[-1]
             if rates[-1] < self.cfg.muxrate_bps * (1 - UNSTABLE_TOLERANCE):
-                self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} unstable: {rates[-1]} b/s")
+                self._rate_bad = True
+                self._event(
+                    "ZL-SND-016", "warn", f"CH{self.cfg.ch} unstable: {self._of_target(rates[-1])}"
+                )
             elif rates[-1] < self.cfg.muxrate_bps * (1 - SLOW_TOLERANCE):
-                self._event("ZL-SND-017", "warn", f"CH{self.cfg.ch} slow: {rates[-1]} b/s")
+                self._rate_bad = True
+                self._event(
+                    "ZL-SND-017", "warn", f"CH{self.cfg.ch} slow: {self._of_target(rates[-1])}"
+                )
+            elif self._rate_bad:
+                # 2026-11-27 R20261127-011120: one slow second stayed on the Problems board
+                # and the report said "open at the end"; nothing said it was over (02 8)
+                self._rate_bad = False
+                self._event("ZL-INFO", "info", f"CH{self.cfg.ch} rate right again: "
+                            f"{_mbps(rates[-1])}", clears=["ZL-SND-016", "ZL-SND-017"])  # fmt: skip
         else:
             self._silent += 1
             if self._silent >= 2:  # the rate report comes once a second
+                self._rate_bad = True
                 self._event("ZL-SND-016", "warn", f"CH{self.cfg.ch} no rate report")
         self._watch_pace()
         self._watch_shaper()
@@ -320,9 +340,16 @@ class SenderSession:
             late_ms = float(d.get("late_us") or 0) / 1000
             dropped = int(d.get("dropped") or 0)
             if late_ms >= PACE_LATE_MS or dropped:
+                self._late_said = True
                 self._event("ZL-SND-025", "warn",
                             f"CH{self.cfg.ch} sending fell behind real time: {late_ms:.0f} ms "
                             f"late, {dropped} datagrams too late for live, not sent")  # fmt: skip
+            elif self._late_said:
+                # 2026-11-27 R20261127-112905: one late second at 6394 s stayed on the
+                # Problems board and the report said "open at the end" (as GAP-190)
+                self._late_said = False
+                self._event("ZL-INFO", "info", f"CH{self.cfg.ch} sending on time again",
+                            clears=["ZL-SND-025"])  # fmt: skip
 
     def _process_died(self, exit_code: int | None) -> None:
         self._event("ZL-SND-005", "error", f"CH{self.cfg.ch} tsp exited ({exit_code})")
@@ -359,6 +386,10 @@ class SenderSession:
 
     def _event(self, code: str, level: Level, text: str, clears: list[str] | None = None) -> None:
         data: dict[str, Any] = {"module": "iptv", "ch": self.cfg.ch}
+        if self.cfg.slot is not None:  # 2026-11-27: whose flow (its trouble is that receiver's)
+            data["slot"] = self.cfg.slot
+            ch = f"CH{self.cfg.ch}"
+            text = text.replace(ch, f"{ch} {self.cfg.label}", 1) if self.cfg.label else text
         if clears:
             data["clears"] = clears  # 02 8
         self.bus.publish(Event(code, level, text, data=data))
@@ -377,3 +408,9 @@ class SenderSession:
             "interval_dev_ms": None,  # P3
             "source": self.cfg.source,
         }
+
+
+def _mbps(bps: float) -> str:
+    """2026-11-27: "slow: 34641474 b/s" in the Problems list and the report; the screens
+    say rates in Mbps (with the target the % says how far off it is)."""
+    return f"{bps / 1e6:.2f} Mbps"

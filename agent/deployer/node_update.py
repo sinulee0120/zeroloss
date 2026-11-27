@@ -1,4 +1,4 @@
-"""Node package update on Linux (docs/06-install.md 11.2, 11.5 "Linux 구현 규칙").
+"""Node package update (docs/06-install.md 11.2, 11.5 "Linux 구현 규칙"; Windows: win_update.py).
 
 The .deb holds both the node and the Deployer, and its ``prerm`` stops both services,
 so the Deployer cannot run ``dpkg -i`` as its own child: it would die with the
@@ -17,7 +17,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -37,6 +36,12 @@ LOCK_TRIES, LOCK_WAIT_S = 20, 30  # INS-011: 30 s apart, up to 10 minutes
 SERVICES = "zeroloss-deployer.service zeroloss-agent.service"
 LOCKED = "frontend lock|database is locked|lock-frontend"  # dpkg busy (INS-011), not a fault
 FINAL = ("done", "rolled_back", "failed")
+SETUP = "the setup"  # the Windows installer (Inno Setup) and its exit codes
+SETUP_EXIT = {
+    1: "it could not start", 2: "cancelled before installing", 3: "it failed preparing",
+    4: "it failed installing", 5: "cancelled", 6: "it was stopped",
+    7: "it refused before installing (see its log)", 8: "it needs a restart first",
+}  # fmt: skip
 
 
 def job_script(tries: int = LOCK_TRIES, wait_s: float = LOCK_WAIT_S) -> str:
@@ -53,10 +58,17 @@ def job_script(tries: int = LOCK_TRIES, wait_s: float = LOCK_WAIT_S) -> str:
 class Launcher:
     """The OS side: read a .deb's fields, start the install job, see if it still runs."""
 
+    os_name, ext, tool = "linux", ".deb", "dpkg -i"
+
     def __init__(self, script: str | None = None) -> None:
         self.script = script or job_script()
 
-    def fields(self, deb: Path) -> dict[str, str]:
+    def after(self) -> str | None:
+        """After an update or a rollback, on the Deployer of the build now installed.
+        Linux: nothing (the package's own scripts start Agent Desktop again)."""
+        return None
+
+    def fields(self, deb: Path, name: str = "") -> dict[str, str]:
         done = subprocess.run(["dpkg-deb", "-f", str(deb), "Package", "Version"],
                               capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
         if done.returncode != 0:
@@ -109,6 +121,17 @@ class NodeUpdate:
     def record_path(self) -> Path:
         return self.layout.deployer / "update.json"
 
+    def _file(self, which: str) -> Path:
+        return self.folder / f"{which}{self.launcher.ext}"
+
+    def _after(self) -> None:
+        try:
+            note = self.launcher.after()
+        except Exception as e:  # the update itself is done; never kill the Deployer
+            note = f"after the update: {e!r}"
+        if note:
+            self.log("warn", f"node update: {note}")
+
     def _job(self, job_id: str, suffix: str) -> Path:
         return self.folder / f"update-{job_id}.{suffix}"
 
@@ -134,23 +157,23 @@ class NodeUpdate:
 
     def start(self, pkg: Package) -> dict[str, Any]:
         """Check the .zlp, keep the previous .deb, start the install job, answer at once."""
-        if not sys.platform.startswith("linux"):
+        la = self.launcher
+        if pkg.info.get("os") != la.os_name:  # 2026-11-28 (was RUN-013): Windows nodes too
             raise DeployError(
-                "RUN-013", "Node updates over 10991 are Linux only in this build",
-                "Windows nodes update with the Windows installer (06 11.5, V18).",
-                "Install the new build on that PC by hand.",
+                "INS-005", "Package is for another OS", f"It is for {pkg.info.get('os')}.",
+                f"Send the {la.os_name} package (Update PCs sends each PC its own).",
             )  # fmt: skip
-        debs = [n for n in pkg.files if n.endswith(".deb") and "/" not in n]
-        if pkg.info.get("id") != "agent" or pkg.info.get("os") != "linux" or len(debs) != 1 \
-                or len(pkg.files) != 1:  # fmt: skip
-            raise damaged("a node package holds one .deb for id agent, os linux (02 13)")
+        payload = [n for n in pkg.files if n.endswith(la.ext) and "/" not in n]
+        if pkg.info.get("id") != "agent" or len(payload) != 1 or len(pkg.files) != 1:
+            raise damaged(f"a node package holds one {la.ext} for id agent, os {la.os_name} "
+                          "(02 13)")  # fmt: skip
         self.folder.mkdir(parents=True, exist_ok=True)
-        new = self.folder / "new.deb"
-        pkg.extract(debs[0], new)
+        new = self._file("new")
+        pkg.extract(payload[0], new)
         try:
-            f = self.launcher.fields(new)
+            f = la.fields(new, payload[0])
             if f.get("Package") != DEB_NAME or f.get("Version") != pkg.build:
-                raise damaged(f"the .deb says {f.get('Package')} {f.get('Version')}, "
+                raise damaged(f"the {la.ext} says {f.get('Package')} {f.get('Version')}, "
                               f"the package {DEB_NAME} {pkg.build}")  # fmt: skip
             if _BUILD.match(self.build) and pkg.build < self.build:
                 raise DeployError(
@@ -161,7 +184,7 @@ class NodeUpdate:
         except DeployError:
             new.unlink(missing_ok=True)
             raise
-        current, previous = self.folder / "current.deb", self.folder / "previous.deb"
+        current, previous = self._file("current"), self._file("previous")
         if current.is_file():
             shutil.copyfile(current, previous)
         else:
@@ -205,22 +228,24 @@ class NodeUpdate:
         code, tail = self._wait_exit(str(doc.get("job") or job))
         want = doc["to_build"] if doc["state"] == "running" else doc["from_build"]
         node_ok = code == 0 and self._node_answers(want)
-        why = _why(code, tail, want)
+        why = _why(code, tail, want, self.launcher.tool)
         if doc["state"] == "rolling_back":  # this Deployer is the previous build again (or not)
             first = doc.get("why") or "the install did not finish"
             if node_ok:
                 self._clean()
                 self._finish(doc, "rolled_back", first)
+                self._after()
                 return f"node update rolled back to {doc['from_build']}: {first}"
             self._clean()
             self._finish(doc, "failed", f"{first}; going back: {why}")
             return f"node update failed: {first}"
         if node_ok:
-            shutil.move(str(self.folder / "new.deb"), str(self.folder / "current.deb"))
+            shutil.move(str(self._file("new")), str(self._file("current")))
             self._clean()
             self._finish(doc, "done", None)
+            self._after()
             return f"node update {job} done: {doc['to_build']}"
-        previous = self.folder / "previous.deb"
+        previous = self._file("previous")
         if not previous.is_file():
             self._clean()
             self._finish(doc, "failed", f"{why}; no previous package to go back to")
@@ -285,7 +310,7 @@ class NodeUpdate:
         """11.5 8: no package left behind (``current.deb`` is the installed one). Runs
         before the final state is written: a final state means nothing is left."""
         for p in self.folder.glob("*"):
-            if p.name != "current.deb":
+            if p.name != self._file("current").name:
                 p.unlink(missing_ok=True)
         for p in self.layout.incoming.glob("*.zlp"):
             p.unlink(missing_ok=True)
@@ -295,9 +320,11 @@ class _Halted(Exception):
     pass
 
 
-def _why(code: int | None, tail: str, build: str) -> str:
+def _why(code: int | None, tail: str, build: str, tool: str = "dpkg -i") -> str:
     if code is None:
         return "the install stopped part way (power cut or the job was killed)"
     if code != 0:
-        return f"dpkg -i ended with {code}" + (f": {tail}" if tail else "")
+        said = SETUP_EXIT.get(code) if tool == SETUP else None
+        return f"{tool} ended with {code}" + (f" ({said})" if said else "") + (
+            f": {tail}" if tail else "")  # fmt: skip
     return f"the node did not answer with build {build} in time"

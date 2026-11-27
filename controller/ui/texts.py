@@ -6,6 +6,10 @@ later changes only this file.
 
 from __future__ import annotations
 
+from controller.words import DEVICE_LOST
+from controller.words import TEST_LABELS as TEST_LABELS  # the screens' names
+from controller.words import TEST_TYPES as TEST_TYPES
+
 TEXT: dict[str, str] = {
     "app_title": "ZeroLoss",
     "group_test": "Test",
@@ -143,7 +147,7 @@ TEXT: dict[str, str] = {
     "address_failed_body": "{what}\n\n{why}",
     "tip_role": "Sender: the PC on the router WAN side (it plays the ISP). Receiver: a PC on "
     "the router LAN or Wi-Fi. A LAN sender makes a comparison test.",
-    "buffer_default": "Buffer: test's",
+    "buffer_default": "Buffer: default",
     "buffer_ms": "Buffer {s:g} s",
     "tip_buffer": "How much video this receiver's player keeps ahead. Each PC and player "
     'differs: a slow PC may need more. "Test\'s" uses Player buffer (S-25).',
@@ -331,7 +335,7 @@ TEXT: dict[str, str] = {
     "problems_cols": "Time|Device|Code|What|Why|What to do",
     "problems_detail": "{time}  {device}  {code}\nWhat: {what}\nWhy: {why}\nWhat to do: {fix}",
     "finished_title": "Test finished — {verdict} ({why})",
-    "reason_device_lost": "a device stopped answering: {detail}",
+    "reason_device_lost": DEVICE_LOST,
     "no_red": "No red boxes so far.",
     "no_red_end": "No red boxes.",  # the test ran to its end (GAP-115)
     "red_boxes": "{n} red boxes.",
@@ -382,12 +386,7 @@ QUALITY_LABELS: dict[str, str] = {  # name · Video resolution · bitrate (1.7-1
 }
 # 2026-10-24 user ("메뉴가 두개 있을 필요없는거잖아 … 4대중에 골라서 테스트하는거니까"):
 # one IPTV test; its rows pick the receivers among the PC and the tablets
-TEST_TYPES: dict[str, str] = {
-    "iptv": "IPTV test", "all": "Throughput · All",
-    "wired": "Throughput · Wired", "wifi": "Throughput · Wi-Fi",
-}  # fmt: skip
-# a report's test_type (02 10): runs before and after the merge read the same way
-TEST_LABELS: dict[str, str] = {**TEST_TYPES, "pc": "IPTV test", "tablet": "IPTV test"}
+# TEST_TYPES, TEST_LABELS: controller/words.py (the reports use them too, no Qt there)
 DURATIONS_S: tuple[int, ...] = (600, 3600, 10 * 3600, 24 * 3600, 100 * 3600)
 
 # Words never used alone on screens (11-ui 1.7-1): checked by a test.

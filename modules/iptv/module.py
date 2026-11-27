@@ -47,6 +47,7 @@ from modules.iptv.sender.prepare import Preparer
 from modules.iptv.sender.prime import PrimedSender, PrimeFlow, prime_payload
 from modules.iptv.sender.session import SenderConfig, SenderSession
 from modules.iptv.sender.sources import digest, legacy_digest, list_sources, safe_name
+from modules.iptv.sender.videos import VideoFolder
 from modules.iptv.warmup import JOIN_WAIT_S, START_MAX_S
 
 PREFIX = "/v1/modules/iptv"
@@ -87,7 +88,10 @@ class IptvModule:
     def attach(self, node: Any) -> None:
         self.node = node
         self._recover_records()
-        self.preparer = Preparer(node.module_dir("iptv", "cache"), node.bus, node.procs_dir)
+        self.videos = VideoFolder(Path(node.data_dir), node.module_dir("iptv", "settings"),
+                                  node.module_dir("iptv", "cache") / "generated")  # fmt: skip
+        self.preparer = Preparer(node.module_dir("iptv", "cache"), node.bus, node.procs_dir,
+                                 folder=self.videos.generated)  # fmt: skip
         self.perf = PerfCheck(node.module_dir("iptv", "cache"), node.procs_dir,
                               idle_cpu=lambda: node.resources.read().cpu_pct)  # fmt: skip
         node.api.command(f"{PREFIX}/sender/start", self.sender_start)
@@ -102,6 +106,7 @@ class IptvModule:
         node.api.command(f"{PREFIX}/sender/probe", self.sender_probe)
         node.api.command(f"{PREFIX}/receiver/perfcheck", self.perfcheck)
         node.api.get(f"{PREFIX}/sender/sources", self.sources)
+        node.api.command(f"{PREFIX}/sender/videos", self.videos_set)  # S-70 (GAP-195)
         node.api.file(f"{PREFIX}/sender/made_file", self.made_file)  # the offline kit
         node.api.command(f"{PREFIX}/receiver/perfcheck/cancel", self.perfcheck_cancel)
         node.api.command(f"{PREFIX}/receiver/desktop", self.desktop_check)
@@ -171,6 +176,8 @@ class IptvModule:
 
     def sender_start(self, req: Request) -> dict[str, Any]:
         p = req.params
+        if "videos" in p:  # S-70 (GAP-195)
+            self._use_videos(p.get("videos"))
         ch, muxrate = _need(p, "ch", int), _need(p, "muxrate_bps", int)
         prime = _prime_flow(p.get("prime"), req.run_id)
         file, source = self._source(p, ch, muxrate)
@@ -207,6 +214,8 @@ class IptvModule:
     def prepare(self, req: Request) -> dict[str, Any]:
         """Make the generated videos that are missing (iptv 1-1-2); returns at once."""
         p = req.params
+        if "videos" in p:  # S-70: in that folder (GAP-195)
+            self._use_videos(p.get("videos"))
         quality = _need(p, "quality", str)
         if quality not in QUALITIES:
             raise ZlError("DSC-012", "Request rejected", detail="params.quality must be UHD or HD")
@@ -232,10 +241,12 @@ class IptvModule:
             out.append(r | {"source": "media" if r["ch"] in sources else "generated"})
         return {"channels": sorted(out, key=lambda r: r["ch"])}
 
-    def sources(self, _: Query) -> dict[str, Any]:
+    def sources(self, q: Query | None) -> dict[str, Any]:
         """02 4 ``GET sender/sources``: the S-48 media folder (iptv 1-1), each file with the
         made videos it has (``made``: start at once) and ``generated_made`` for the
         generated one (2026-10-17)."""
+        if q is not None and "videos" in q.params:  # S-70: that folder's list (GAP-195)
+            self._use_videos(q.params.get("videos"))
         out = list_sources(self.media_dir)
         made = self.preparer.made() if self.preparer is not None else []
         for f in out["files"]:
@@ -287,10 +298,29 @@ class IptvModule:
 
     @property
     def media_dir(self) -> Path:
-        """Where users put their videos (iptv 1-1): kept on removal (user data)."""
-        path = Path(self.node.data_dir) / "media"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        """Where users put their videos (iptv 1-1): kept on removal (user data); the
+        sender PC's video folder (S-70, GAP-195)."""
+        self.videos.folder.mkdir(parents=True, exist_ok=True)
+        return self.videos.folder
+
+    def videos_set(self, req: Request) -> dict[str, Any]:
+        """02 4 ``sender/videos`` {folder}: S-70 on this PC (remembered here)."""
+        got = self._use_videos(req.params.get("folder", ""))
+        return {**got, "free_mb": self.videos.free_mb()}
+
+    def _use_videos(self, raw: Any) -> dict[str, Any]:
+        """Change the video folder if S-70 names another; never while videos are made."""
+        new = self.videos.target(raw)
+        if new == self.videos.folder:
+            return {"folder": str(new), "moved": 0, "left": 0}
+        if self.preparer is not None and self.preparer.status()["busy"]:
+            raise ZlError("RUN-012", "The video folder changes only while no video is being "
+                          "made", "Videos are being made now.",
+                          "Wait until they are made, or cancel it, then try again.")  # fmt: skip
+        got = self.videos.set(raw)
+        if self.preparer is not None:
+            self.preparer.set_folder(self.videos.generated)
+        return got
 
     def _media_file(self, ch: int, name: Any, tell: bool = True) -> Path | None:
         """The S-48 file of a channel, or None (Generated). A missing one falls back to
@@ -621,6 +651,7 @@ class IptvModule:
                     "measuring": r.measuring,
                     "lost_total": r.lost_total,
                     "last_1s": r.last_1s,
+                    "recent_1s": list(r.recent_1s),
                 }
                 for slot, r in self.receivers.items()
             ],

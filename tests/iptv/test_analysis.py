@@ -226,7 +226,7 @@ def test_single_packets_lost_over_the_air_are_named_from_the_boxes_alone() -> No
                 "wifi": {"rssi_dbm_min": -38, "channel": 149, "channel_changes": 0,
                          "bssid_changes": 0}}  # fmt: skip
 
-    boxes = [box(0, 0, 1.0), box(4, 1, 20.1), box(5, 1, 17.7), box(19, 1, -29.1)]
+    boxes = [box(0, 0, 1.0), box(4, 1, 20.1), box(5, 1, 17.7), box(19, 1, 29.1)]
     r = analyze({"summaries": {"rx": boxes}, "events": [], "seconds": None, "offsets": {}})
     f = next(x for x in r["findings"] if x["rule"] == "R-22")
     assert f["category"] == "Router Wi-Fi" and f["at_s"] == 1200.0
@@ -235,6 +235,20 @@ def test_single_packets_lost_over_the_air_are_named_from_the_boxes_alone() -> No
         r2 = analyze({"summaries": {"rx": [spoil]}, "events": [], "seconds": None,
                       "offsets": {}})  # fmt: skip
         assert "R-22" not in rules(r2)  # no jump / the PC dropped it / a burst
+    # 2026-11-27 R20261127-011120: far from the first packet's delay but not moving
+    # (a PC's ~17 ms, a tablet's ~-90 ms) is no jump; the 10 s window is the variation
+    still = {**box(4, 1, 30.9), "jitter": {"delay_high_ms": 30.9, "delay_low_ms": 17.0,
+                                           "pdv_window_ms": 4.0}}  # fmt: skip
+    tablet = {**box(4, 1, -40.0), "jitter": {"delay_high_ms": -85.0, "delay_low_ms": -90.0}}
+    for spoil in (still, tablet):
+        r2 = analyze({"summaries": {"rx": [spoil]}, "events": [], "seconds": None,
+                      "offsets": {}})  # fmt: skip
+        assert "R-22" not in rules(r2)
+    moved = {**still, "jitter": {**still["jitter"], "pdv_window_ms": 16.7}}
+    r2 = analyze({"summaries": {"rx": [moved]}, "events": [], "seconds": None, "offsets": {}})
+    assert (
+        "delay jump of 17~17 ms" in next(x for x in r2["findings"] if x["rule"] == "R-22")["text"]
+    )
     wired = [{**box(4, 1, 20.0), "wifi": None}]
     assert "R-22" not in rules(analyze({"summaries": {"rx": wired}, "events": [],
                                         "seconds": None, "offsets": {}}))  # fmt: skip
@@ -331,3 +345,49 @@ def test_a_link_drop_explains_only_its_own_receivers_loss() -> None:
     assert not r19([event("ZL-NET-013", "b", 90.0)])  # the other receiver's cable
     assert r19([event("ZL-NET-013", "a", 90.0)])  # its own
     assert r19([event("ZL-NET-013", "sender", 90.0)])  # the sender's: everyone's
+
+
+def test_a_primed_run_has_no_multicast_causes() -> None:
+    """R20261127-011120 (primed unicast through a router without IGMP proxy): R-02 said
+    "check that the router sends IGMP queries". A primed run has no IGMP, snooping or
+    M2U; those rules are listed as not applicable."""
+    offsets = {"rx|1": 20.0}
+    data = {"summaries": {}, "events": [join("rx", 0.0)],
+            "seconds": {"rx|1": secs({250: 30})}, "offsets": offsets}  # fmt: skip
+    assert "R-02" in rules(analyze(data))
+    primed = analyze({**data, "multicast_path": "primed"})
+    assert "R-02" not in rules(primed)
+    why = {m["rule"]: m["why"] for m in primed["missing"]}
+    assert why["R-02"].startswith("primed unicast") and why["R-03"].startswith("primed")
+
+
+def test_loss_right_after_a_beacon_long_hold_is_power_save() -> None:
+    """R-26 (2026-11-27, R20261122-223747): tablet-1's 11 loss seconds each came within
+    2 s of a second whose delay rose ~100 ms over its floor (one beacon interval); the
+    analysis named no cause, and R-13 (no loss, RFC 3550 jitter > 50 ms) cannot see it."""
+
+    def tab(holds: dict[int, float], lost_at: dict[int, int], **extra: Any) -> list[Any]:
+        rows = secs(lost_at, n=120, dlo=-2.0, **extra)
+        for r in rows:
+            r["dhi"] = -2.0 + holds.get(r["e"], 15.0)
+        return rows
+
+    wifi = {"rssi_dbm_min": -30, "channel": 36}
+    data = {"summaries": {"tab": [cell(2, wifi=wifi)]}, "events": [],
+            "offsets": {"tab|1": 10.0}, "multicast_path": "igmp"}  # fmt: skip
+    seconds = {"tab|1": tab({40: 104.0, 80: 99.0}, {41: 3, 81: 2})}
+    f = next(x for x in analyze({**data, "seconds": seconds})["findings"] if x["rule"] == "R-26")
+    assert f["devices"] == ["tab"] and f["at_s"] == 51.0 and f["confidence"] == "medium"
+    assert "99~104 ms" in f["text"] and "tab 2 of 2" in f["text"] and "DTIM" in f["text"]
+    primed = analyze({**data, "seconds": seconds, "multicast_path": "primed"})
+    text = next(x["text"] for x in primed["findings"] if x["rule"] == "R-26")
+    assert "DTIM" not in text and "own Wi-Fi power save" in text  # unicast: no DTIM
+    for spoil in (
+        tab({40: 1500.0, 80: 1400.0}, {41: 3, 81: 2}),  # a stall, not a beacon
+        tab({40: 104.0}, {41: 3, 81: 2, 100: 1, 110: 1}),  # one of four
+        tab({40: 104.0, 80: 99.0}, {41: 3, 81: 2}, wsc=1),  # scanning: R-25's
+    ):
+        assert "R-26" not in rules(analyze({**data, "seconds": {"tab|1": spoil}}))
+    wired = {**data, "summaries": {"tab": [cell(2)]}, "seconds": seconds}
+    assert "R-26" not in rules(analyze(wired))
+    assert missing(analyze({**data, "seconds": None}))["R-26"] == "1-second records not fetched yet"

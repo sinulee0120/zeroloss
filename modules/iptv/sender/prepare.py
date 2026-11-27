@@ -24,6 +24,7 @@ from typing import Any
 from core.blocks.process_runner import ProcessRunner, ProcState, StartError, StopError
 from core.blocks.ts_analyzer import TsAnalyzer
 from core.events.bus import Event, EventBus, Level
+from core.protocol.envelope import ZlError
 from modules.iptv.marker import FRAME_BITS, STRIP_H, STRIP_W, Marker, read_strip, strip_filter
 from modules.iptv.sender.commands import FIRST_ES_PID, PMT_PID, QUALITIES, prepare_command
 from modules.iptv.sender.sources import av_end_gap, digest, fits, legacy_digest, probe
@@ -193,8 +194,11 @@ class Preparer:
         stall_s: float = STALL_S,
         preset: str | None = None,  # None: by codec (commands.PRESET)
         free_mb: Callable[[Path], int] = _free_mb,
+        folder: Path | None = None,
     ) -> None:
-        self.folder = cache_dir / "generated"  # the module's cache (06 12)
+        # 2026-11-27 (GAP-195): the sender PC's video folder's generated/ (videos.py);
+        # without one, the module's cache as before
+        self.folder = folder if folder is not None else cache_dir / "generated"
         self.folder.mkdir(parents=True, exist_ok=True)
         self.bus = bus
         self.procs_dir = procs_dir
@@ -294,6 +298,19 @@ class Preparer:
                         "digest": tag.removesuffix("_whole") or None,
                         "file": desc_path.with_suffix(".ts").name})  # fmt: skip
         return out
+
+    def set_folder(self, folder: Path) -> None:
+        """S-70 changed: made videos are kept there from now on; never while making."""
+        with self._lock:
+            if any(j.state in WAITING for j in self._jobs):
+                raise ZlError(
+                    "RUN-012",
+                    "The video folder changes only while no video is being made",
+                    "Videos are being made now.",
+                    "Wait until they are made, or cancel it, then try again.",
+                )
+            folder.mkdir(parents=True, exist_ok=True)
+            self.folder = folder
 
     def status(self) -> dict[str, Any]:
         """Heartbeat ``module_data.iptv.prepare`` (02 5)."""

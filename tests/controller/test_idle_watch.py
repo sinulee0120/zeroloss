@@ -239,3 +239,38 @@ def test_a_band_password_goes_only_to_the_join_and_an_empty_one_means_none(
     assert "secret" not in str(svc.setup_get(None))  # type: ignore[arg-type]
     svc.band_passwords.save("R-5G", "")
     assert svc.band_passwords.secret("R-5G") is None
+
+
+def test_a_tablets_event_goes_under_the_tablet_not_its_pc(svc: ControllerService) -> None:
+    """2026-11-27: tablet events came under the PC they hang on, so tablet-1's and
+    tablet-2's TAB-019 were one row on the Problems board (one row per code + device)."""
+    import types
+
+    from controller.run import DeviceWatch
+
+    got: list[str] = []
+    svc.run.bus.subscribe(lambda e: got.append(f"{e.device}|{e.code}"))
+    dev = svc.devices.get("rx")
+    w = DeviceWatch(dev, NodeClient("127.0.0.1", 1, "b", dev.name))
+    run = svc.run
+    plan, run._plan = (
+        run._plan,
+        types.SimpleNamespace(
+            sender="snd", tablets={"tablet-1": ("rx", "A1"), "tablet-2": ("other", "A2")}
+        ),
+    )
+    try:
+        run._forward_events(w, [
+            {"code": "ZL-TAB-019", "level": "warn", "text": "tablet-1: left Wi-Fi",
+             "data": {"module": "iptv", "device": "tablet-1"}},
+            {"code": "ZL-TAB-019", "level": "warn", "text": "tablet-2: left Wi-Fi",
+             "data": {"module": "iptv", "device": "tablet-2"}},  # not on this PC: stays
+            {"code": "ZL-RCV-008", "level": "warn", "text": "disk low", "data": {}},
+        ])  # fmt: skip
+    finally:
+        run._plan = plan
+    assert [g for g in got if not g.endswith("ZL-INFO")] == [
+        "tablet-1|ZL-TAB-019",
+        "rx|ZL-TAB-019",
+        "rx|ZL-RCV-008",
+    ]

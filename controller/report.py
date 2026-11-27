@@ -16,6 +16,7 @@ from typing import Any
 from controller.pdf import MARGIN, Pdf, width
 from controller.report_page import MAIL_SECTION, page_data, section
 from controller.report_page import STYLE as PAGE_STYLE
+from controller.words import TEST_LABELS, hms, reason_text  # no Qt: the node's reports
 from core.ui_schema.design import COLORS as DESIGN
 from core.ui_schema.design import ICONS  # one place for the shapes (11-ui 1.7)
 
@@ -62,6 +63,42 @@ def _hm(s: float) -> str:
     return f"{int(s // 3600)}h {int(s % 3600 // 60):02d}m"
 
 
+def router_line(r: dict[str, Any]) -> str | None:
+    """What the run saw of the router (02 10 ``dut``): its mode, its WAN address and how the
+    stream got through. 2026-11-27: R20261127-011120 went primed (no multicast through the
+    router) and the report never said so."""
+    d = r.get("dut") or {}
+    parts = []
+    if d.get("mode_detected"):
+        parts.append(f"{d['mode_detected']} mode")
+    if d.get("wan_ip"):
+        way = f" ({d['wan_ip_way']})" if d.get("wan_ip_way") else ""
+        parts.append(f"WAN {d['wan_ip']}{way}")
+    path = d.get("path_note") or PATHS.get(str(d.get("multicast_path")))
+    if path:
+        parts.append(str(path))
+    return "Router: " + " · ".join(parts) if parts else None
+
+
+PATHS = {  # reports made before ``path_note`` (02 10 ``dut.multicast_path``)
+    "igmp": "multicast came through the router (WAN → LAN)",
+    "primed": "primed unicast: no multicast came through the router",
+    "lan": "sender on the LAN side (comparison test)",
+    "direct": "direct (baseline, no router)",
+}
+
+
+def _span(seconds: object) -> str:
+    """2026-11-27: "measured 10804.1 s of 10800 s" -- the screens say 3h 00m."""
+    return hms(float(seconds)) if isinstance(seconds, int | float) else "—"
+
+
+def test_label(r: dict[str, Any]) -> str:
+    """The test as the screens say it (2026-11-27: "tablet test", the plan's word)."""
+    raw = str(r.get("test_type") or "")
+    return TEST_LABELS.get(raw, f"{raw} test" if raw else "")
+
+
 def render_pdf(r: dict[str, Any]) -> bytes:
     """``report.pdf``: verdict, summary, 5-minute cells per device, causes, problems and
     what was not tested, with the standard library only (``controller.pdf``)."""
@@ -74,9 +111,13 @@ def render_pdf(r: dict[str, Any]) -> bytes:
     doc.rect(MARGIN, doc.y, width(label, 16) + 20, 26, VERDICT_COLORS.get(verdict, "#616161"))
     doc.text(MARGIN + 10, doc.y + 19, label, 16, bold=True, color="#ffffff")
     doc.gap(34)
-    doc.para(f"Run {r.get('run_id')} - build {r.get('build')} - {r.get('test_type')} test - "
-             f"Video quality {r.get('quality')} - measured {r.get('actual_s')} s of "
-             f"{r.get('planned_s')} s - reason: {r.get('verdict_reason')}", 9)  # fmt: skip
+    doc.para(f"Run {r.get('run_id')} - build {r.get('build')} - {test_label(r)} - "
+             f"Video quality {r.get('quality')} - measured {_span(r.get('actual_s'))} of "
+             f"{_span(r.get('planned_s'))} - reason: {reason_text(r.get('verdict_reason'))}",
+             9)  # fmt: skip
+    router = router_line(r)
+    if router:
+        doc.para(router, 9)
     for d in r.get("verdict_details") or []:
         doc.para(f"- {d}", 9)
     for w in cell_whys(r):
@@ -189,11 +230,11 @@ td, th {{ border-bottom: 1px solid #ddd; padding: 8px; text-align: left; vertica
         else ""
     }
 <p>Run {e(str(r.get("run_id")))} · build {e(str(r.get("build")))} ·
-{e(str(r.get("test_type")))} test · Video quality {e(str(r.get("quality")))} ·
-measured {r.get("actual_s")} s of {r.get("planned_s")} s ·
-reason: {e(str(r.get("verdict_reason")))}{
+{e(test_label(r))} · Video quality {e(str(r.get("quality")))} ·
+measured {e(_span(r.get("actual_s")))} of {e(_span(r.get("planned_s")))} ·
+reason: {e(reason_text(r.get("verdict_reason")))}{
         " · Baseline test (no router, 05 4.6.3)" if r.get("test_network") == "baseline" else ""
-    }</p>
+    }</p>{f"<p>{e(router_line(r) or '')}</p>" if router_line(r) else ""}
 <ul>{details}</ul>{
         "<h2>How it was measured</h2><ul>"
         + "".join(f"<li>{e(str(x))}</li>" for x in r.get("method") or [])
@@ -209,7 +250,7 @@ reason: {e(str(r.get("verdict_reason")))}{
 <h2>Problems during the test</h2>{_problems(r)}
 <h2>Not tested</h2><ul>{not_run or "<li>none</li>"}</ul>
 <details><summary><small>Plan (as the test was started)</small></summary>
-<p><small>{e(plan_text)}</small></p></details>
+<p style="overflow-wrap:anywhere"><small>{e(plan_text)}</small></p></details>
 {MAIL_SECTION}
 </body></html>
 """

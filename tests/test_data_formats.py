@@ -52,6 +52,7 @@ MAPS = {
 # Paths whose inside another section defines (checked by their own tests).
 ELSEWHERE = {
     "heartbeat.module_data.iptv.receivers[].last_1s",  # 02 7 (test_spec_consistency)
+    "heartbeat.module_data.iptv.receivers[].recent_1s",  # the same 1-second records (02 7)
     "heartbeat.events",  # 02 8
     "desktop_status.problems",  # 02 8 (events)
 }

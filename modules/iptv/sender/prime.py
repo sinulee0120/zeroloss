@@ -78,7 +78,8 @@ class PrimedSender:
         lost_s: float = PRIME_LOST_S,
     ) -> None:
         tag = f"_f{prime.flow}" + (f"_s{prime.slot}" if prime.slot else "")  # its own files
-        self.cfg = replace(cfg, local_port=prime.p, tag=tag)
+        label = f"flow {prime.flow}" + (f" slot {prime.slot}" if prime.slot else "")
+        self.cfg = replace(cfg, local_port=prime.p, tag=tag, slot=prime.slot, label=label)
         self.prime = prime
         self.bus = bus
         self.lost_s = lost_s
@@ -227,7 +228,12 @@ class PrimedSender:
         return after is State.IDLE
 
     def _event(self, code: str, level: Level, text: str) -> None:
-        data = {"module": "iptv", "ch": self.cfg.ch, "flow": self.prime.flow}
+        data = {
+            "module": "iptv",
+            "ch": self.cfg.ch,
+            "flow": self.prime.flow,
+            "slot": self.prime.slot,
+        }
         self.bus.publish(Event(code, level, text, data=data))
 
     def _changed(self, name: str, old: State, new: State, reason: str) -> None:

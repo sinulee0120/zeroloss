@@ -177,13 +177,19 @@ class StreamAnalyzer:
             return
         if self.startup.first_packet_ns is None:
             self.startup.first_packet_ns = arrival_ns
+        s = self.seq.stats
+        thrown = s.duplicates + s.late_discarded
         self.seq.on_packet(h.seq, h.timestamp, h.ssrc, arrival_ns)
         self.jitter.on_packet(h.timestamp, h.ssrc, arrival_ns, discontinuity=h.marker)
         self._transit(h.ssrc, h.timestamp, arrival_ns, h.marker)
         last = self._last_arrival_ns
         if last is not None and arrival_ns - last > STOPPED_NS:
             self.ts.resync(arrival_ns)  # the stream was gone: that is not a P1 table error
-        self.ts.feed(data[h.payload_offset : h.payload_end], arrival_ns)
+        # 2026-11-27 (R20261122-223747 tablet-2 cell 2: one duplicate, no loss, one CC
+        # error): a datagram the RTP layer throws away (a copy, or one after its gap was
+        # given up) is not fed to TS again -- its 7 TS packets went back in CC
+        if s.duplicates + s.late_discarded == thrown:
+            self.ts.feed(data[h.payload_offset : h.payload_end], arrival_ns)
         self._last_arrival_ns = arrival_ns
 
     def second(

@@ -72,6 +72,7 @@ FULL_SCREEN = "Full screen"
 WINDOW_SIZE = re.compile(r"\((\d+)\D(\d+)\)")  # "Medium (1280x720)" of S-50
 SCENE_FILE = re.compile(r"^f(\d+)\.png$")
 IPC_TIMEOUT_S = 0.5
+STATS_GRACE_S = 1.0  # a counters read this recent still measures the second (take_second)
 MPV_RCVBUF_BYTES = 16 * 1024 * 1024  # its input socket; = rmem_max of the node (06 4.3)
 SOFT_FALLBACK_FRAMES = 300  # mpv: failed hardware frames in a row before software (10 s)
 # Worst first when several happen in one second (iptv 3.1)
@@ -233,6 +234,7 @@ class _Report:
     decoder_drops: int | None = None  # mpv decoder-frame-drop-count (part of lost_pictures)
     lost_abuffers: int | None = None
     stats_alive: bool = False
+    stats_at: float | None = None  # monotonic time of the last read that had the counters
     restarts: int = 0
     gave_up: bool = False  # restart limit reached
     decode_errors: int | None = None  # damaged frames in the log so far (None: not read)
@@ -340,12 +342,16 @@ class VlcPlayer:
             self._taken = _Report(**r.__dict__)
         restarted = r.restarts > before.restarts
         dropped = audio = None
-        if r.stats_alive and before.lost_pictures is not None and r.lost_pictures is not None:
+        # 2026-11-27 (R20261127-112905, T460): one read in ten failing just before this
+        # second (every ~11 s) left 9 % of seconds "not measured"; the counters add up, so
+        # a read from within STATS_GRACE_S still counts them all
+        fresh = r.stats_alive or (r.stats_at is not None and now - r.stats_at < STATS_GRACE_S)
+        if fresh and before.lost_pictures is not None and r.lost_pictures is not None:
             dropped = max(0, r.lost_pictures - before.lost_pictures)
         ddrop = None
-        if r.stats_alive and before.decoder_drops is not None and r.decoder_drops is not None:
+        if fresh and before.decoder_drops is not None and r.decoder_drops is not None:
             ddrop = max(0, r.decoder_drops - before.decoder_drops)
-        if r.stats_alive and before.lost_abuffers is not None and r.lost_abuffers is not None:
+        if fresh and before.lost_abuffers is not None and r.lost_abuffers is not None:
             audio = max(0, r.lost_abuffers - before.lost_abuffers)
         damaged = None
         if r.decode_errors is not None:
@@ -765,6 +771,8 @@ class MpvPlayer(VlcPlayer):
             r = self._r
             r.running = alive
             r.stats_alive = isinstance(frame, int)
+            if r.stats_alive:
+                r.stats_at = now
             if isinstance(frame, int) and frame != r.frame:
                 r.frame, r.advanced_at = frame, now
                 r.shown, r.shown_at = frame, now

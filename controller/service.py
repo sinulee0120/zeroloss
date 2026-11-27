@@ -268,6 +268,10 @@ class ControllerService:
                               str(got.get("why") or ""),
                               "On that PC: sudo timedatectl set-ntp true")  # fmt: skip
             self.actions.done(key)
+            # 2026-11-27: pressed at 11:28, yet "time sync is off" stayed on the Problems
+            # board through the 3-hour run; the clock itself (DSC-009) is set within a minute
+            self.run._event("ZL-INFO", "info", f"{choice}: time sync turned on", choice,
+                            clears=["ZL-DSC-017"])  # fmt: skip
             return {"key": key, "choice": choice, "time_sync": got}
         if kind == "wan_route":  # NET-023: this PC's way to the router WAN side
             wan_route.forget_asked()
@@ -629,8 +633,8 @@ class ControllerService:
         changes = req.params.get("changes")
         if not isinstance(changes, dict):
             raise ZlError("DSC-012", "Request rejected", detail="params.changes must be an object")
-        with self.run.between_tests("Changing the test settings"):
-            return {"setup": self.setup.update(changes)}
+        self.run.not_in_test("Changing the test settings")
+        return {"setup": self.setup.update(changes)}
 
     # ---------------------------------------------------------------- deploy (02 2-5)
 
@@ -657,8 +661,9 @@ class ControllerService:
                 f"Looked in {folders[1]}.",
                 f"Use the kit of build {build}: its packages folder has them.",
             )
-        parts = [pk / f"zeroloss-node-agent-{build}.zlp",
-                 *sorted(pk.glob(f"zeroloss-module-*-{build}.zlm"))]  # fmt: skip
+        modules = sorted(pk.glob(f"zeroloss-module-*-{build}.zlm"))
+        # RUN-013 (2026-11-28): a Windows PC gets the Windows setup as its node package
+        windows = pk / f"zeroloss-node-agent-windows-{build}.zlp"
         # the tablets' app and adb (01-overview D3) for the PCs tablets hang on: Linux ones
         tablet = pk / f"zeroloss-tablet-{build}.zlt"
         out = []
@@ -673,8 +678,16 @@ class ControllerService:
                 finally:
                     client.close()
                 row: dict[str, Any] = {"device": dev.name, "updated": False}
+                node_pkg = pk / f"zeroloss-node-agent-{build}.zlp"
+                if theirs != build and self._node_os(dev, d) == "windows":
+                    node_pkg = windows
+                parts = [node_pkg, *modules]
                 if theirs == build:
                     row["why"] = "already this build"
+                elif not node_pkg.is_file():
+                    out.append({**row, "why": f"no Windows PC package of build {build} with "
+                                "this program (the kit's packages folder has it)"})  # fmt: skip
+                    continue
                 else:
                     try:
                         for part in parts:
@@ -739,6 +752,15 @@ class ControllerService:
             return rows
         finally:
             client.close()
+
+    @staticmethod
+    def _node_os(dev: Any, d: Any) -> str:
+        """The system the PC's Deployer says (it installs the package, and answers while
+        the node is off): "windows", "linux", or "" when it does not answer either."""
+        try:
+            return str(d.health(dev.name).get("os") or "").lower()
+        except ZlError:
+            return ""
 
     def _wants_tablet_app(self, dev: Any, build: str) -> bool:
         """A Linux PC whose tablets' app is not this build (or none, or it does not say:
@@ -871,8 +893,15 @@ class ControllerService:
             raise ZlError("RUN-013", "This module has no source video list")
         dev = self.devices.get(q.params.get("node", ""))
         client = NodeClient(dev.host, dev.port, self.run.boot_id, dev.name)
+        videos = q.params.get("videos")  # S-70: that folder's list (GAP-195)
         try:
-            return dict(client.get(str(path), timeout_s=60))
+            return dict(
+                client.get(
+                    str(path),
+                    timeout_s=60,
+                    **({"videos": videos} if isinstance(videos, str) else {}),
+                )
+            )
         finally:
             client.close()
 
@@ -1506,7 +1535,7 @@ class ControllerService:
                 s = json.loads(summary.read_text(encoding="utf-8"))
                 row |= {k: s.get(k) for k in REPORT_KEYS} | {"why": None}
             except (OSError, ValueError) as e:
-                row |= dict.fromkeys(REPORT_KEYS) | {
+                row |= dict.fromkeys(REPORT_KEYS) | _planned(plan) | {
                     "why": "Running" if d.name == running
                     else f"ZL-RPT-008 No report for {d.name}"
                     + (f" ({e.__class__.__name__})" if summary.is_file() else "")}  # fmt: skip
@@ -1527,6 +1556,21 @@ class ControllerService:
 
 REPORT_KEYS = ("test_type", "quality", "planned_s", "actual_s", "verdict", "verdict_reason",
                "with_warnings")  # fmt: skip
+
+
+def _planned(plan: Path) -> dict[str, Any]:
+    """What a run without a report was going to be, from its plan (2026-11-27: the
+    running 3-hour test was a row with an empty Test column)."""
+    try:
+        p = json.loads(plan.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(p, dict):
+        return {}
+    out = {k: p[k] for k in ("test_type", "quality") if isinstance(p.get(k), str)}
+    if isinstance(p.get("duration_s"), int | float):
+        out["planned_s"] = p["duration_s"]
+    return out
 
 
 def _started(folder: Path) -> str:

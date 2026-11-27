@@ -61,6 +61,7 @@ class IptvPlan:
     prime_setting: str = str(DEFAULTS["S-18"])  # S-18 Auto / Off / On (iptv 4.5)
     sources: dict[int, str] = field(default_factory=dict)  # S-48 user files (iptv 1-1)
     whole_movie: bool = False  # S-55: the whole S-48 file, not its first 10 minutes
+    videos: str = ""  # S-70: the sender PC's video folder ("" = its default, GAP-195)
     primed: bool = False  # this plan sends primed unicast (On, or Auto after step 5)
     sender_ip: str | None = None  # where receivers send the prime (nics, else hosts)
     on_air: tuple[int, ...] = ()  # channels the sender sends (20 GAP-91)
@@ -143,6 +144,9 @@ def validate(plan: dict[str, Any]) -> IptvPlan:
         )
     playback = _playback(s)
     sources = _sources(s)
+    videos = s.get("S-70", "")
+    if not isinstance(videos, str):
+        raise _bad("S-70", "a folder path on the sender PC, or empty")
     length = s.get("S-55", DEFAULTS["S-55"])
     if length not in ("10 min", "Whole movie"):
         raise _bad("S-55", "10 min or Whole movie")
@@ -229,6 +233,7 @@ def validate(plan: dict[str, Any]) -> IptvPlan:
         prime_setting=str(prime),
         sources=sources,
         whole_movie=length == "Whole movie",
+        videos=videos.strip(),
         primed=prime == "On",  # tablets too since 2026-11-26 (iptv 4.5: the app primes)
         sender_ip=_sender_ip(plan, sender),
         on_air=on_air,
@@ -379,6 +384,7 @@ def start_steps(p: IptvPlan, skip_send: bool = False) -> list[list[Step]]:
                 **({"file": p.files[ch]} if ch in p.files else {}),
                 **({"source": p.sources[ch]} if ch in p.sources else {}),
                 **({"length": "whole"} if ch in p.sources and p.whole_movie else {}),
+                "videos": p.videos,  # S-70 on the sender PC (GAP-195)
                 "dest_ip": p.groups[ch],
                 "port": p.port,
                 "muxrate_bps": p.muxrate_bps,
@@ -438,6 +444,7 @@ def _primed_start_steps(p: IptvPlan) -> list[list[Step]]:
                 **({"file": p.files[ch]} if ch in p.files else {}),
                 **({"source": p.sources[ch]} if ch in p.sources else {}),
                 **({"length": "whole"} if ch in p.sources and p.whole_movie else {}),
+                "videos": p.videos,  # S-70 on the sender PC (GAP-195)
                 "muxrate_bps": p.muxrate_bps,
                 "ttl": p.ttl,
                 "prime": dict(zip(("p", "q"), prime_ports(p.port, ch, f, slot)[:2], strict=True))
@@ -548,7 +555,8 @@ def prepare_steps(p: IptvPlan) -> list[Step]:
     once; progress comes in the heartbeat, ``prepare_progress``)."""
     wanted = [{"ch": ch, "file": p.files.get(ch), "source": p.sources.get(ch)} for ch in p.on_air]
     params = {"quality": p.quality, "muxrate_bps": p.muxrate_bps, "channels": wanted,
-              "only": True, **({"length": "whole"} if p.whole_movie else {})}  # fmt: skip
+              "only": True, **({"length": "whole"} if p.whole_movie else {}),
+              "videos": p.videos}  # fmt: skip
     return [Step(p.sender, f"{PREFIX}/sender/prepare", params, timeout_s=10.0)]
 
 
@@ -577,7 +585,9 @@ def prepare_ahead(params: dict[str, Any]) -> Step:
         raise _bad("length", "10 min or whole (S-55)")
     body = {"quality": quality, "muxrate_bps": int(mbps * 1_000_000), "channels": wanted,
             "only": bool(params.get("only", False)),
-            **({"length": "whole"} if params.get("length") == "whole" else {})}  # fmt: skip
+            **({"length": "whole"} if params.get("length") == "whole" else {}),
+            **({"videos": params["videos"]} if isinstance(params.get("videos"), str)
+               else {})}  # fmt: skip
     return Step(sender, f"{PREFIX}/sender/prepare", body, timeout_s=10.0)
 
 
@@ -802,17 +812,38 @@ def trouble_of(
     return None
 
 
+def trouble_targets(p: IptvPlan, device: str, data: dict[str, Any]) -> list[str] | None:
+    """The receivers a sender event's trouble window is for (12 2 ``trouble_targets``):
+    that channel's, and of a primed flow (``slot``) only its own receiver. None: the
+    whole sender PC (no channel said), every receiver as before. 2026-11-27
+    (R20261127-112905): t460-rx's flow fell 86 ms behind (SND-025, 27 not sent); the
+    window was every receiver's, so a tablet's own loss then would have been purple too."""
+    if device != p.sender:
+        return None
+    ch = data.get("ch")
+    if not isinstance(ch, int) or isinstance(ch, bool):
+        return None
+    slot = data.get("slot")
+    mine = [d for d, c in p.receivers if c == ch]
+    if isinstance(slot, int) and not isinstance(slot, bool) and p.primed:
+        mine = [d for d in mine if p.slot_of(d) == slot]
+    return mine
+
+
 def second_records(p: IptvPlan, device: str, module_data: dict[str, Any]
                    ) -> list[tuple[tuple[str, int], dict[str, Any]]]:  # fmt: skip
-    """This device's receivers' last 1-second record (02 5 ``last_1s``), keyed like the
-    5-minute summaries (device, ch), for splitting a cell by trouble windows."""
+    """This device's receivers' recent 1-second records, oldest first, keyed like the
+    5-minute summaries (device, ch), for splitting a cell by trouble windows: ``recent_1s``
+    (02 5, the last few), else ``last_1s`` (an older node). 2026-11-27: with the last one
+    only, one second in ~9 never reached the Controller (its round is a little over 1 s)."""
     out = []
     for r in [*(module_data.get("receivers") or []), *(module_data.get("tablets") or [])]:
-        last = r.get("last_1s")
-        if isinstance(last, dict) and isinstance(last.get("e"), int):
-            out.append(
-                ((str(r.get("id") or device), int(last.get("ch") or r.get("ch") or 0)), last)
-            )
+        recent = r.get("recent_1s")
+        rows = recent if isinstance(recent, list) and recent else [r.get("last_1s")]
+        for rec in rows:
+            if isinstance(rec, dict) and isinstance(rec.get("e"), int):
+                key = (str(r.get("id") or device), int(rec.get("ch") or r.get("ch") or 0))
+                out.append((key, rec))
     return out
 
 
@@ -1040,6 +1071,7 @@ def cell_color(summary: dict[str, Any], jitter_warn_ms: float) -> tuple[Color, t
         jitter_max_ms=float(jit.get("max_ms") or 0.0),
         pdv_pp_ms=_pdv(jit), wireless=bool(summary.get("wifi")),
         p1_errors=int((summary.get("ts") or {}).get("p1_errors") or 0),
+        reordered=int(loss.get("reordered_recovered") or 0),
         sender_s=int(tr.get("sender_s") or 0), sender_lost=int(tr.get("sender_lost") or 0),
         sender_p1=int(tr.get("sender_p1") or 0), link_s=int(tr.get("link_s") or 0),
         link_lost=int(tr.get("link_lost") or 0), link_p1=int(tr.get("link_p1") or 0),
@@ -1520,6 +1552,7 @@ class IptvRun:
     logger_reasons = staticmethod(logger_reasons)
     cell_color = staticmethod(cell_color)
     trouble_of = staticmethod(trouble_of)
+    trouble_targets = staticmethod(trouble_targets)
     on_test_nic = staticmethod(on_test_nic)
     second_records = staticmethod(second_records)
     cell_trouble = staticmethod(cell_trouble)
@@ -1559,7 +1592,11 @@ class IptvRun:
         """Cause candidates (iptv 2.4, 12 2): never changes a verdict or a color."""
         from modules.iptv.analysis import analyze
 
-        return analyze(data)
+        # the path the run took (S-18 Auto may have gone primed): the plan here, or the
+        # report's dut.multicast_path in the second pass (the saved plan still says Auto)
+        primed = plan is not None and plan.primed
+        path = "primed" if primed else data.get("multicast_path")
+        return analyze({**data, "multicast_path": path})
 
     @staticmethod
     def self_checks() -> list[Check]:  # zeroloss verify (12 2, 20 GAP-81)

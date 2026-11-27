@@ -6,6 +6,8 @@ Layout (the guide 설치_및_사용_안내.html walks through it)::
       설치_및_사용_안내.html
       1_Windows_PC/ZeroLoss-Controller-Setup-<build>.exe   the installer (the Controller,
                                         its packages/ for the Linux PCs and tablets, TSDuck)
+                   ZeroLoss-Agent-Setup-<build>.exe        a Windows sender/receiver PC,
+                                        once by hand; then Update PCs (--agent-setup)
       2_Linux_PC_USB/                   copied to a USB stick for the Linux PCs
         zeroloss-linux-setup.sh, offline/ (Ubuntu 24.04 .debs), tsduck_*.deb
         zeroloss-sample-video.sh, sample_N/sample_N_CH<n>_UHD.ts + .json (a finished
@@ -99,6 +101,11 @@ def build(args: argparse.Namespace) -> Path:
     win = kit / "1_Windows_PC"
     win.mkdir(parents=True)
     shutil.copy2(setup, win / setup.name)
+    if args.agent_setup:  # a Windows sender/receiver PC: run once there (06 11.4)
+        agent = Path(args.agent_setup)
+        if build_no not in agent.name:
+            raise SystemExit(f"{agent.name} is not the Agent setup of build {build_no}")
+        shutil.copy2(agent, win / agent.name)
     usb = kit / "2_Linux_PC_USB"
     usb.mkdir()
     if not args.public:
@@ -131,6 +138,8 @@ def build(args: argparse.Namespace) -> Path:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--setup", required=True, help="the installer (tools.build installer)")
+    ap.add_argument("--agent-setup", help="ZeroLoss-Agent-Setup-<build>.exe for Windows "
+                    "sender/receiver PCs (tools.build installer-agent)")  # fmt: skip
     ap.add_argument("--offline", required=True, help="a 2_Linux_PC_USB folder: offline/, tsduck")
     ap.add_argument("--made", action="append", metavar="TS",
                     help="a finished 10-minute made file, its .json beside it")  # fmt: skip

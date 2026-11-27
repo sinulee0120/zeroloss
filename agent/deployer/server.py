@@ -39,6 +39,8 @@ from agent.deployer.modules import Layout, ModuleStore, this_os
 from agent.deployer.node_update import Launcher, NodeUpdate
 from agent.deployer.package import PAYLOAD, open_package
 from agent.deployer.update_hold import UpdateHold
+from agent.deployer.win_update import default_launcher
+from agent.deployer.win_update_pause import for_this_pc
 
 API = 1
 PORT = 10991
@@ -90,16 +92,20 @@ class Deployer:
         self.agent = agent
         self.store = ModuleStore(layout, agent, os_name, owner)
         self.build = build or read_build()
-        self.update_hold = UpdateHold(  # SYS-005 (Linux): apt and snaps
-            apt_dir if watch else None, layout.deployer if watch and apt_dir else None
-        )
+        self.update_hold = UpdateHold(  # SYS-005: apt and snaps (Linux), Windows Update
+            apt_dir if watch else None, layout.deployer if watch and apt_dir else None,
+            win_pause=for_this_pc(layout.deployer if watch and apt_dir else None),
+        )  # fmt: skip
         self.media = (  # 12 1 media_import: files the modules ask for from users' folders
             MediaImport(media_root, layout.data_dir, layout.modules_dir, _node_owns, self.log)
             if media_root is not None and watch
             else None
         )
         self._media_at = float("-inf")
-        self.updates = NodeUpdate(layout, agent, self.build, launcher or Launcher(), self.log)
+        self.updates = NodeUpdate(  # RUN-013: the Windows setup or the Linux .deb
+            layout, agent, self.build,
+            launcher or default_launcher(layout.deployer / "packages"), self.log,
+        )  # fmt: skip
         self.boot_id = str(uuid.uuid4())
         self.watch_s, self.poll_s, self.watching = watch_s, poll_s, watch
         self.restarts = 0
@@ -421,7 +427,8 @@ class Deployer:
         return {"id": pkg.id, "build": pkg.build, "result": "installed", "debs": len(debs)}
 
     def _update_node(self, pkg: Any) -> dict[str, Any]:
-        """06 11.5 Linux: the install runs as its own systemd job; answer at once."""
+        """06 11.5: the install runs as its own job (systemd on Linux, a detached setup on
+        Windows); answer at once."""
         try:
             if self.agent.busy():
                 raise DeployError(

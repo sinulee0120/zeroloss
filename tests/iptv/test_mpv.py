@@ -97,10 +97,17 @@ def test_mpv_report_per_second(tmp_path: Path) -> None:
     p._apply_mpv(True, got(42, dec=2, vo=1), c.t)
     s = p.take_second()
     assert s.pb == "ok" and s.record_keys() == {"pb": "ok", "pdr": 0, "pdd": 0}  # measured 0
-    p._apply_mpv(True, None, c.t)  # no IPC answer: the counts are not measured
+    # 2026-11-27 (T460, every ~11 s): one read without an answer just before the second;
+    # the read 0.1 s before had the counters, and they add up: still measured
+    c.t += 0.1
+    p._apply_mpv(True, None, c.t)
+    s = p.take_second()
+    assert s.dropped == 0 and s.decoder_dropped == 0
+    c.t += pl.STATS_GRACE_S  # no answer for longer: the counts are not measured
+    p._apply_mpv(True, None, c.t)
     s = p.take_second()
     assert s.dropped is None and s.decoder_dropped is None
-    assert s.record_keys() == {"pb": s.pb}  # not measured: no pdr, no pdd
+    assert not {"pdr", "pdd"} & set(s.record_keys())  # not measured: no pdr, no pdd
     p._apply_mpv(False, None, c.t)
     assert p.take_second().pb == "none"
 

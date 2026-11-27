@@ -26,13 +26,15 @@ def test_late_seconds_of_the_pacer_are_told(tmp_path: Path) -> None:
     sess: Any = object.__new__(s.SenderSession)
     sess.cfg = type("C", (), {"ch": 1})()
     sess._pace_log = s._PaceLog(log)
+    sess._late_said = False
     sess._event = lambda code, level, text, clears=None: told.append((code, text))
     sess._watch_pace()
     assert told == [
         ("ZL-SND-025", "CH1 sending fell behind real time: 790 ms late, 0 datagrams too late "
                        "for live, not sent"),
+        ("ZL-INFO", "CH1 sending on time again"),  # 9c13d67: the late second is over
         ("ZL-SND-025", "CH1 sending fell behind real time: 3 ms late, 325 datagrams too late "
                        "for live, not sent"),  # dropped as too late: the sender's loss
     ]  # fmt: skip
     sess._watch_pace()  # nothing new: nothing told
-    assert len(told) == 2
+    assert len(told) == 3

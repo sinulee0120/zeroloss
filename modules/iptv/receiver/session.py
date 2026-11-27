@@ -65,6 +65,7 @@ from modules.iptv.warmup import START_MAX_S
 # monotonic clock moves in 15.6 ms steps, so a Windows zap's times were 15 ms off and out
 # of order; elsewhere the high-resolution counter (Linux as before)
 _mono = time.monotonic if sys.platform.startswith("linux") else time.perf_counter
+RECENT_1S = 5  # seconds each heartbeat carries (02 5 ``recent_1s``)
 CPU_BUSY_PCT = 90.0  # RCV-016 (05 4.2-1)
 REJOIN_AFTER_S = 3  # seconds with nothing before the group is joined again
 CPU_BUSY_S = 10
@@ -148,6 +149,9 @@ class ReceiverSession:
         self.records_dir = data_dir / "raw" / cfg.device
         self.summaries: list[dict[str, Any]] = []
         self.last_1s: dict[str, Any] | None = None
+        # 02 5 ``recent_1s``: the Controller's round is a little over 1 s, so with only the
+        # last record one second in ~9 never reached it (2026-11-27 live page)
+        self.recent_1s: deque[dict[str, Any]] = deque(maxlen=RECENT_1S)
         self.analyzer: StreamAnalyzer | None = None
         self._factory = receiver_factory or _open_receiver
         self._sock: UdpReceiver | None = None
@@ -448,8 +452,16 @@ class ReceiverSession:
         S-30 On also the picture rendered from it."""
         ffmpeg = shutil.which("ffmpeg") if self.cfg.evidence else None
         render = ffmpeg_render(self._procs, ffmpeg) if ffmpeg and self._procs else None
-        return Evidence(self.records_dir, self.cfg.run_id, self.cfg.ch, self.cfg.group,
-                        self.cfg.port, render=render, clock_ns=clock_ns)  # fmt: skip
+        c = self.cfg
+        flow0 = next((x for x in (c.prime or {}).get("flows") or [] if x.get("f") == 0), None)
+        if c.prime and flow0 and c.interface_ip != "0.0.0.0":
+            # 2026-11-27: a primed run's clips said 239.1.1.1:5004 from 0.0.0.0, a multicast
+            # that never was; what came: unicast from the sender's port P to this PC's R
+            return Evidence(self.records_dir, c.run_id, c.ch, c.interface_ip, int(flow0["r"]),
+                            render=render, clock_ns=clock_ns,
+                            sender=(str(c.prime.get("sender_ip")), int(flow0["p"])))  # fmt: skip
+        return Evidence(self.records_dir, c.run_id, c.ch, c.group, c.port, render=render,
+                        clock_ns=clock_ns)  # fmt: skip
 
     def _keep_evidence(self, written: Path | None) -> None:
         if written is not None:
@@ -468,6 +480,7 @@ class ReceiverSession:
         closed = self._summarizer.add(rec)
         with self._lock:
             self.last_1s = rec
+            self.recent_1s.append(rec)
             self.summaries += [self._shape(p) for p in closed]
 
     def _wifi_keys(self) -> dict[str, Any]:

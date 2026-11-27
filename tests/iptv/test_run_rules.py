@@ -245,7 +245,8 @@ def test_prepare_steps_ask_only_for_this_plan() -> None:
     (step,) = prepare_steps(validate(plan(files={})))
     assert step.device == "tx" and step.path.endswith("/sender/prepare")
     assert step.params == {"quality": "HD", "muxrate_bps": 10_000_000, "only": True,
-                           "channels": [{"ch": 2, "file": None, "source": None}]}  # fmt: skip
+                           "channels": [{"ch": 2, "file": None, "source": None}],
+                           "videos": ""}  # S-70 empty: the sender's default folder  # fmt: skip
     (step,) = prepare_steps(validate(plan()))
     assert step.params["channels"] == [{"ch": 2, "file": "/data/ch2.ts", "source": None}]
 

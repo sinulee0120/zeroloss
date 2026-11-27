@@ -157,6 +157,29 @@ def test_the_clip_says_which_packet_went_missing_and_how_the_arrivals_paused() -
     assert ev.reading([(b"not rtp", 1), (b"x", 2)], 0) is None
 
 
+def test_a_late_packet_is_out_of_order_not_missing() -> None:
+    """2026-11-27 R20261127-011120 e1338 (the real order): 51570-51571 came after 51575.
+    The receiver counted 2 reordered and 0 lost; the clip said 51570-51575 never came."""
+    order = [*range(51560, 51570), 51572, 51573, 51574, 51575, 51570, 51571, 51576, 51577]
+    r = ev.reading([(rtp(s), i * 300_000) for i, s in enumerate(order)], mark_ns=0)
+    assert r is not None and r["missing"] == [] and r["out_of_order"] == 2
+    assert "never came" not in r["text"] and "2 packet(s) came out of order" in r["text"]
+    # one of three skipped comes late, across the 16-bit wrap: the other two stay missing
+    order = [65533, 65534, 1, 0, 2]
+    r = ev.reading([(rtp(s), i * 300_000) for i, s in enumerate(order)], mark_ns=0)
+    assert r is not None and [(m["seq"], m["count"]) for m in r["missing"]] == [(65535, 1)]
+    order = [10, 14, 12, 15]
+    r = ev.reading([(rtp(s), i * 300_000) for i, s in enumerate(order)], mark_ns=0)
+    assert r is not None and [(m["seq"], m["count"]) for m in r["missing"]] == [(11, 1), (13, 1)]
+    assert r["out_of_order"] == 1
+    # the runs in order whatever the set's own order (13 before 11 would read backwards)
+    for skipped in ({11, 13}, {65535, 1}, {200, 100, 150}):
+        start = min(skipped) if skipped != {65535, 1} else 65535
+        got = ev._runs(skipped, start)
+        assert got == sorted(got, key=lambda x: (x[0] - start) & 0xFFFF)
+    assert ev._runs({65535, 1, 0}, 65535) == [(65535, 3)]
+
+
 def test_files_at_most_once_a_minute(tmp_path: Path) -> None:
     """2026-10-16 night: 25 clips in 2.5 min (pcap + UHD render each) filled the T460's
     CPU and it dropped 64,038 packets itself. Trouble within a minute: the json only."""
@@ -170,3 +193,14 @@ def test_files_at_most_once_a_minute(tmp_path: Path) -> None:
     kept = [i for i in infos if i["pcap"]]
     assert len(infos) == 4 and len(kept) == 1
     assert "less than 60 s ago" in infos[-1]["kept_less"]
+
+
+def test_a_primed_clip_says_the_unicast_it_was() -> None:
+    """2026-11-27: a primed run's clips said UDP 5004 -> 239.1.1.1:5004 from 0.0.0.0, a
+    multicast that never was; the stream came from the sender's port P to this PC's R."""
+    pkts = [(rtp(n), 5 * NS + n * 1000) for n in range(2)]
+    _, recs = read_pcap(ev.pcap_bytes(pkts, "172.30.1.11", 5104, 0, "100.64.0.1", 5144))
+    ip = recs[0][2]
+    assert ip[12:16] == bytes([100, 64, 0, 1]) and ip[16:20] == bytes([172, 30, 1, 11])
+    assert struct.unpack("!HH", ip[20:24]) == (5144, 5104)
+    assert ev._checksum(ip[:10] + b"\0\0" + ip[12:20]) == struct.unpack("!H", ip[10:12])[0]

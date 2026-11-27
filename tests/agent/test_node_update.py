@@ -62,7 +62,7 @@ class FakeLauncher(Launcher):
         self.launched: list[tuple[str, bytes]] = []
         self.fail_launch = False
 
-    def fields(self, deb: Path) -> dict[str, str]:
+    def fields(self, deb: Path, name: str = "") -> dict[str, str]:
         text = deb.read_text(encoding="utf-8")
         return dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
 
@@ -177,7 +177,7 @@ def test_launch_fails(tmp_path: Path) -> None:
     ({"deb": deb_bytes(NEW, "other-package")}, "ZL-INS-006"),
     ({"deb": deb_bytes("20260930.0000")}, "ZL-INS-006"),  # .deb and package.json differ
     ({"id": "controller"}, "ZL-INS-006"),
-    ({"os": "windows"}, "ZL-INS-006"),
+    ({"os": "windows"}, "ZL-INS-005"),  # the Windows setup's package sent to Ubuntu
 ])  # fmt: skip
 def test_refused(tmp_path: Path, kw: dict[str, Any], code: str) -> None:
     up, _node, launcher, _layout = make(tmp_path, [])

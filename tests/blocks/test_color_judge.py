@@ -39,3 +39,7 @@ def test_p1_without_loss_passes_with_a_reason() -> None:
     r = judge_cell(ok(p1_errors=7))
     assert r.color == Color.YELLOW
     assert r.reasons == ("TR 101 290 P1 errors 7 without packet loss",)
+    # 2026-11-27 R20261127-011120 cell 4: the CC broke because 2 packets came late
+    r = judge_cell(ok(p1_errors=3, reordered=2))
+    assert r.color == Color.YELLOW
+    assert r.reasons == ("TR 101 290 P1 errors 3 without packet loss, 2 packet(s) out of order",)

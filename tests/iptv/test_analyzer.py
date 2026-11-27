@@ -317,3 +317,15 @@ def test_a_late_tick_is_not_a_missing_pat() -> None:
     # GAP-175: a stream that really stopped is rx 0, not P1 every second
     a.second(40 * NS_PER_S, first_frame=True)
     assert a.ts.counters.pat_err == 0 and a.ts.counters.pmt_err == 0
+
+
+def test_a_duplicated_datagram_is_no_cc_error() -> None:
+    """2026-11-27 R20261122-223747 tablet-2 cell 2: one duplicate, no loss, one CC error
+    (yellow). The copy's 7 TS packets went back in CC; the RTP layer throws it away, so
+    TS never sees it again."""
+    items = datagrams(20)
+    i = 3000  # well after the warm-up
+    dup = [*items[: i + 1], (items[i][0], items[i][1], items[i][2] + 1000), *items[i + 1 :]]
+    _, recs = run(dup, 20)
+    assert total(recs, "dup") == 1
+    assert total(recs, "cc") == total(recs, "p1") == total(recs, "lost") == 0

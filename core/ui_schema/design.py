@@ -16,12 +16,16 @@ BUTTON_MIN_HEIGHT = 32
 BUTTON_PAD = 16
 
 COLORS = {
-    "bg": "#f5f5f5",  # neutral light grey background (ISA-101)
+    # 2026-11-27 user ("상용버전처럼 … ux design", "촌스러워"): a calmer neutral set as
+    # product dashboards use (cool greys, hairline borders); still light (ISA-101)
+    "bg": "#f3f4f6",
     "panel": "#ffffff",
-    "text": "#1b1b1b",
-    "text_muted": "#555555",
-    "text_disabled": "#8a8a8a",
-    "border": "#c8c8c8",
+    "text": "#111827",
+    "text_muted": "#4b5563",
+    "text_disabled": "#8b919c",
+    "border": "#e2e5ea",
+    "border_strong": "#cdd2d9",  # fields and buttons: a step stronger than cards
+    "hover": "#f6f7f9",
     "primary": "#1f5fbf",
     "on_primary": "#ffffff",
     # cell colors, report (clear) and live screen (muted normal, decided 2026-09-24).

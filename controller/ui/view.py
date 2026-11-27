@@ -16,7 +16,10 @@ from typing import Any
 
 from controller.precheck import IDLE_STEPS, is_wireless
 from controller.ui.store import Status
-from controller.ui.texts import TEST_LABELS, TEXT
+from controller.ui.texts import TEXT
+from controller.words import TEST_LABELS
+from controller.words import hms as hms  # the screens' names
+from controller.words import reason_text as reason_text
 from core.ui_schema.design import ICONS
 
 STALE_S = 3.0  # 11-ui 1.5
@@ -429,24 +432,6 @@ class ResultView:
     folder: str
 
 
-# "pc" / "tablet" -> "IPTV test" (02 10 test_type)
-REASONS = {
-    "planned_time_reached": "planned time reached",
-    "all_cases_done": "all cases done",
-    "took_too_long": "stopped: it took 4 times longer than planned",
-    "stopped_by_user": "stopped by user",
-    "controller_shutdown": "the Controller service stopped",
-}
-
-
-def reason_text(reason: Any) -> str:
-    """Why a test ended, in words (02 10 ``verdict_reason``)."""
-    r = str(reason or "")
-    if r.startswith("device_lost: "):
-        return TEXT["reason_device_lost"].format(detail=r.removeprefix("device_lost: "))
-    return REASONS.get(r, r.replace("_", " "))
-
-
 def verdict_color(verdict: str) -> str:
     return {"PASS": "green", "FAIL": "red"}.get(verdict, "purple")
 
@@ -493,12 +478,6 @@ def parse_duration(text: str) -> int | None:
         total = sum(float(n) * {"h": 3600, "m": 60, "s": 1}[u] for n, u in parts)
     secs = round(total)
     return secs if DURATION_MIN_S <= secs <= DURATION_MAX_S else None
-
-
-def hms(seconds: float) -> str:
-    s = int(seconds)
-    h, m = divmod(s // 60, 60)
-    return f"{h}h {m:02d}m" if h else f"{m}m {s % 60:02d}s"
 
 
 def progress(status: Status) -> str:
@@ -1660,3 +1639,91 @@ def start_summary(plan: dict[str, Any] | None, test: str) -> str:
             bits.append(str(movie))
         lines.append(" · ".join(bits))
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Kpi:
+    """One figure of the run's summary row (2026-11-27 redesign): label, value, note, and
+    the color of the value (``None`` = plain text)."""
+
+    label: str
+    value: str
+    note: str
+    color: str | None = None
+
+
+def kpis(status: Status) -> list[Kpi]:
+    """The run at a glance, from what the screen already has: the 5-min boxes so far and
+    each device's row values. Empty between tests with no run shown."""
+    run = status.run
+    cells: dict[str, Any] = run.get("cells") or {}
+    if not status.connected or (run.get("state") == "IDLE" and not run.get("result")) or not cells:
+        return []
+    result = run.get("result")
+    if (
+        isinstance(result, dict)
+        and result.get("verdict")
+        and run.get("state") not in ("RUNNING", "STOPPING")
+    ):
+        return _result_kpis(result)  # the test is over: its result, not the last second
+    colors = [str(c.get("color")) for rows in cells.values() for c in rows or []]
+    red, purple, yellow = (colors.count(x) for x in ("red", "purple", "yellow"))
+    if red:
+        verdict = Kpi("Verdict so far", "Fail", f"{red} router box{'es' if red > 1 else ''}", "red")
+    elif purple or yellow:
+        n = purple + yellow
+        verdict = Kpi("Verdict so far", "Pass", f"{n} box{'es' if n > 1 else ''} to look at",
+                      "yellow")  # fmt: skip
+    else:
+        verdict = Kpi("Verdict so far", "Pass", f"{len(colors)} boxes clean", "green")
+    lost, jit, rate = 0, None, None
+    who: list[str] = []
+    for name, dev in (run.get("devices") or {}).items():
+        for it in ((dev or {}).get("row") or {}).get("items") or []:
+            label, value = str(it.get("label") or ""), it.get("value")
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                continue
+            if label == "Loss":
+                lost += int(value)
+                if value:
+                    who.append(str(name))
+            elif label == "Jitter":
+                jit = max(jit or 0.0, float(value))
+            elif label.startswith("Sending"):
+                rate = (rate or 0.0) + float(value)
+    out = [
+        verdict,
+        Kpi("Packets lost", f"{lost:,}", ", ".join(who) or "none", "red" if lost else None),
+        Kpi("Max jitter now", "—" if jit is None else f"{jit:.1f} ms", "warning at 50 ms"),
+    ]
+    if rate is not None:
+        out.append(Kpi("Sending", f"{rate:.0f} Mbps", "all channels"))
+    return out
+
+
+def _result_kpis(result: dict[str, Any]) -> list[Kpi]:
+    """After a test (2026-11-27: the tiles still said "so far", the last second's jitter
+    and "Sending 140 Mbps" once it had ended): the verdict, the whole test's loss and
+    worst jitter, and how long it ran."""
+    verdict = str(result.get("verdict"))
+    devices = [d for d in result.get("devices") or [] if isinstance(d, dict)]
+    red = sum(int((d.get("colors") or {}).get("red") or 0) for d in devices)
+    lost = sum(int(d.get("loss_total") or 0) for d in devices)
+    who = [str(d.get("device")) for d in devices if int(d.get("loss_total") or 0)]
+    jits = [float(d["jitter_max_ms"]) for d in devices
+            if isinstance(d.get("jitter_max_ms"), int | float)]  # fmt: skip
+    color = {"PASS": "green", "FAIL": "red"}.get(verdict, "yellow")
+    note = f"{red} router box{'es' if red != 1 else ''}" if red else verdict_reason_note(result)
+    actual, planned = result.get("actual_s"), result.get("planned_s")
+    ran = f"{hms(float(actual))}" if isinstance(actual, int | float) else "—"
+    of = f"of {hms(float(planned))}" if isinstance(planned, int | float) else ""
+    return [
+        Kpi("Verdict", verdict.title() if verdict in ("PASS", "FAIL") else verdict, note, color),
+        Kpi("Packets lost", f"{lost:,}", ", ".join(who) or "none", "red" if lost else None),
+        Kpi("Max jitter", f"{max(jits):.1f} ms" if jits else "—", "whole test"),
+        Kpi("Ran", ran, of),
+    ]
+
+
+def verdict_reason_note(result: dict[str, Any]) -> str:
+    return reason_text(result.get("verdict_reason")) or ""

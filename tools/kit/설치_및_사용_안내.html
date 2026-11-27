@@ -77,6 +77,7 @@ table { border-collapse:collapse; width:100%; margin:8px 0; } td, th { border:1p
 <tr><th>폴더/파일</th><th>무엇</th></tr>
 <tr><td><code>설치_및_사용_안내.html</code></td><td>지금 보는 안내서</td></tr>
 <tr><td><code>1_Windows_PC\ZeroLoss-Controller-Setup-{BUILD}.exe</code></td><td>Windows PC 설치 파일 (리눅스 PC·태블릿에 넣을 프로그램도 들어 있음)</td></tr>
+<tr><td><code>1_Windows_PC\ZeroLoss-Agent-Setup-{BUILD}.exe</code></td><td>Windows PC를 송신·수신 PC로 쓸 때만: 그 PC에 넣는 설치 파일 (5단계 끝)</td></tr>
 <tr><td><code>2_Linux_PC_USB\</code></td><td>Ubuntu PC 두 대에 옮길 폴더 (<!--offline-->필요한 프로그램과 샘플 영상<!--/offline--><!--public-->설치 스크립트와 TSDuck<!--/public-->)</td></tr>
 </table>
 <h3>USB 메모리로 옮기기</h3>
@@ -135,6 +136,12 @@ sudo bash zeroloss-linux-setup.sh</pre></li>
 </ol>
 <p>같은 일을 시작 메뉴의 <b>ZeroLoss 리눅스 PC 등록</b>(검은 창에서 묻는 대로 입력)으로도 할 수 있습니다.</p>
 <p><span class="warn">✖ 안 되면:</span> 영어 메시지를 사진으로 찍어 보내 주세요. 자주 있는 경우: IP를 잘못 입력함, 3단계를 안 함, 비밀번호 틀림.</p>
+<h3>Windows PC를 송신·수신 PC로 쓸 때 (리눅스 PC 대신)</h3>
+<ol>
+<li>그 PC(ZeroLoss 창이 있는 PC가 <b>아닌</b> 다른 PC)에서 <code>ZeroLoss-Agent-Setup-{BUILD}.exe</code>를 한 번 실행합니다. 설치가 끝나면 그 PC는 켤 때마다 저절로 준비됩니다.</li>
+<li>같은 공유기에 연결해 두면 ZeroLoss 창의 Devices에 그 PC가 나타납니다. 골라서 추가합니다.</li>
+<li>그 뒤 새 버전은 10단계의 <b>[Update PCs]</b>가 이 PC에도 넣습니다(다시 실행할 필요 없음). Windows PC에는 태블릿을 연결하지 않습니다.</li>
+</ol>
 
 <!--offline--><h2 id="sample">5-1. 샘플 영상 넣기 (송신 PC에서 한 번)</h2>
 <p>키트에는 시험용 영상 3개가 들어 있습니다: <b>미리 만들어 둔 UHD 10분 영상</b>(35 Mbps), 채널마다 하나(<code>sample_1_CH1_UHD.ts</code>, <code>sample_2_CH2_UHD.ts</code>, <code>sample_3_CH3_UHD.ts</code>, 각각 설명 파일 <code>.json</code>과 함께). 이미 만든 영상이라 <b>시험이 바로 시작</b>됩니다. 새로 만들면 한 편에 몇 시간 걸립니다.</p>
@@ -178,7 +185,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <h2 id="run">7. IPTV 시험</h2>
 <ol>
 <li>왼쪽 <b>Test</b>에서 고릅니다: Test type = <b>IPTV test</b>, Video quality = <b>UHD</b>(또는 HD), Duration = 시험 시간(예: 10m, 1h, 100h).</li>
-<li><b>Source video</b>의 채널마다 영상을 고릅니다<!--offline-->(5-1단계를 했으면 CHn에 <b>sample_n_CHn_UHD.ts · ✔ ready, starts at once</b>)<!--/offline--><!--public-->: <b>Generated (default)</b>(ZeroLoss가 만드는 시험 화면)를 고르면 됩니다. 내 영화로 하려면 송신 PC 터미널에서 <code>sudo install -o zeroloss -g zeroloss -m 0644 내영화.mp4 /var/lib/zeroloss/media/</code> 한 뒤 목록에서 고릅니다. <span class="warn">처음 한 번은 영상을 만듭니다(UHD는 채널마다 몇 시간).</span> 만드는 동안 그대로 두면 되고, 한 번 만든 것은 다음부터 바로 시작합니다<!--/public-->.
+<li><b>Source video</b>의 채널마다 영상을 고릅니다<!--offline-->(5-1단계를 했으면 CHn에 <b>sample_n_CHn_UHD.ts · ✔ ready, starts at once</b>)<!--/offline--><!--public-->: <b>Generated (default)</b>(ZeroLoss가 만드는 시험 화면)를 고르면 됩니다. 내 영화로 하려면 송신 PC 터미널에서 <code>sudo install -o zeroloss -g zeroloss -m 0644 내영화.mp4 /var/lib/zeroloss/media/</code> 한 뒤 목록에서 고릅니다(영상 폴더를 바꿨으면 그 폴더에). <span class="warn">처음 한 번은 영상을 만듭니다(UHD는 채널마다 몇 시간).</span> 만드는 동안 그대로 두면 되고, 한 번 만든 것은 다음부터 바로 시작합니다<!--/public-->.
 <ul>
 <li><b>✔ ready, starts at once</b>: 미리 만든 영상이 있어 바로 시작합니다.</li>
 <li><b>made first (takes a while)</b>: 먼저 만들어야 합니다(UHD는 몇 시간). 고르는 순간 만들기 시작하고, 아래에 진행률이 보입니다. 한 번 만든 것은 다시 만들지 않습니다.</li>
@@ -267,7 +274,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <h2 id="update">10. 새 버전으로 바꾸기</h2>
 <ol>
 <li>시험이 끝난 뒤, 새 키트의 <code>ZeroLoss-Controller-Setup-새버전.exe</code>를 실행합니다. 설정·보고서는 그대로 이어집니다.</li>
-<li>ZeroLoss 창에 <b>[Update PCs to build …]</b>가 보이면 누릅니다. 리눅스 PC와 태블릿 앱이 같은 버전으로 바뀝니다(몇 분).</li>
+<li>ZeroLoss 창에 <b>[Update PCs to build …]</b>가 보이면 누릅니다. 리눅스 PC, Windows 송신·수신 PC, 태블릿 앱이 같은 버전으로 바뀝니다(몇 분).</li>
 </ol>
 
 <h2 id="where">11. 파일이 저장되는 곳</h2>
@@ -278,6 +285,7 @@ sudo bash zeroloss-sample-video.sh</pre></li>
 <tr><td>Windows</td><td><code>C:\ProgramData\ZeroLoss\Controller\</code></td><td>장비 목록, 설정, 기록 (<code>logs\</code>)</td></tr>
 <tr><td>Ubuntu</td><td><code>/opt/zeroloss/</code></td><td>프로그램</td></tr>
 <tr><td>Ubuntu</td><td><code>/var/lib/zeroloss/</code></td><td>시험 자료, 영상(<code>media/</code>), 기록</td></tr>
+<tr><td>송신 PC</td><td>영상 폴더 (Ubuntu <code>/var/lib/zeroloss/media/</code>)</td><td>내 영화(맨 위)와 ZeroLoss가 만든 영상(<code>generated/</code>). 다른 디스크로 바꾸려면 앱의 <b>Advanced settings → Video folder (sender PC)</b>에 그 PC의 폴더 전체 경로를 적습니다. 같은 디스크면 만든 영상이 따라 옮겨지고, 다른 디스크면 그곳에서 다시 만듭니다.</td></tr>
 <tr><td>태블릿</td><td>앱 <b>ZeroLoss</b></td><td>수신 앱</td></tr>
 </table>
 

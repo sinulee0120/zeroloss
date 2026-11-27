@@ -145,8 +145,10 @@ function chart(c,recs,lines,bads,cells,tick){var box=el("div","chart"),head=el("
 /* 2026-10-24 user ("태블릿 두대는 여전히 앱화면에 RSSI가 안나오네", "11ax로 붙었는지 bandwidth는
    80Mhz인지, 5Ghz등 정보가 하나도 없네"): a tablet has no card in the plan; its own newest
    second says the Wi-Fi, in the parts and order the module gives (view.wifi) */
-function wifiLine(last,parts){var bits=[];parts.forEach(function(p){var v=last[p.key];
+function wifiBits(last,parts){var bits=[];parts.forEach(function(p){var v=last[p.key];
  if(v===undefined||v===null||v==="")return;bits.push([p.label,v,p.unit].filter(function(x){return x!==undefined&&x!==null&&x!=="";}).join(" "));});
+ return bits;}
+function wifiLine(last,parts){var bits=wifiBits(last,parts);
  return bits.length?"Receives on: Wi-Fi (its own) · "+bits.join(" · "):"";}
 function present(cols,recs){return cols.filter(function(c){return recs.some(function(r){return r[c.key]!==undefined&&r[c.key]!==null;});});}
 function trouble(cols,r){return cols.some(function(c){var v=num(c,r[c.key]);return isBad(c,v)||isWarn(c,v);});}
@@ -289,7 +291,11 @@ function render(d){window.LAST=d;PENDING=[];if(d.elapsed_s!==undefined&&d.state=
   h.appendChild(ic);h.appendChild(document.createTextNode(" "+r.device+" · CH"+r.ch));dev.appendChild(h);
   var cd=r.card;dev.appendChild(el("p","meta",cd?("Receives on: "+(cd.wireless?"Wi-Fi ":"Wired ")+(cd.nic||"")+" "+cd.ip
    +(cd.link_mbps?" · "+(cd.link_mbps>=1000?(cd.link_mbps/1000)+" Gbps":cd.link_mbps+" Mbps"):"")
-   +(cd.wifi&&cd.wifi.ssid?" · "+cd.wifi.ssid:"")+(cd.wifi&&cd.wifi.rssi_dbm!==undefined&&cd.wifi.rssi_dbm!==null?" · "+cd.wifi.rssi_dbm+" dBm":"")
+   +(cd.wifi&&cd.wifi.ssid?" · "+cd.wifi.ssid:"")
+   /* 2026-11-27: a Wi-Fi PC said only its RSSI; its newest second has the band, channel,
+      width and rate as a tablet's does (the second's RSSI too, so not the card's again) */
+   +(cd.wireless&&wifiBits(last,(d.view&&d.view.wifi)||[]).length?" · "+wifiBits(last,(d.view&&d.view.wifi)||[]).join(" · ")
+     :(cd.wifi&&cd.wifi.rssi_dbm!==undefined&&cd.wifi.rssi_dbm!==null?" · "+cd.wifi.rssi_dbm+" dBm":""))
    /* GAP-149: how the frames arrive (the reference's M2U finding); absent = not measured */
    +(r.arrives?" · arrives as "+(r.arrives.form==="unicast"?"unicast to this PC (the router converts multicast: M2U)"
      :r.arrives.form==="multicast"?"real multicast":"mixed multicast and unicast"):""))

@@ -85,7 +85,14 @@ class DesktopLink:
         answer of another shape) ended this thread for good; the node then saw no
         reports (RCV-020) and the players were never stopped. Said once, tried again."""
         told = False
-        while not self._halt.wait(POLL_S):
+        # on a fixed grid, never "work, then wait" (iptv 3.6, GAP-114): 2026-11-27 the
+        # T460's rounds were 1 s + ~0.1 s of requests, so one node second in ~11 had no
+        # player report (612 of 6892 seconds without pdr in R20261127-112905)
+        due = self._clock() + POLL_S
+        while not self._halt.wait(max(0.0, due - self._clock())):
+            due += POLL_S
+            if due < self._clock():  # far behind (the PC slept): start the grid again
+                due = self._clock() + POLL_S
             try:
                 self.step()
             except Exception as e:

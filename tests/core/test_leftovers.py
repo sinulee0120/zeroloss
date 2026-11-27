@@ -169,6 +169,7 @@ def test_programs_start_only_through_process_runner() -> None:
         # 120 s timeout, nice 19 (F23 for tablets, 2026-10-31)
         "agent/deployer/agent_link.py",  # systemctl / sc / taskkill (L0, 12 4-3 rule 1)
         "agent/deployer/nodesetup.py",  # adduser / sysctl / ufw / systemctl (06 4.3-1)
+        "agent/deployer/win_update.py",  # `tasklist`, 15 s timeout (Agent Desktop running?)
         "agent/deployer/node_update.py",  # dpkg-deb / systemd-run / is-active; the install
         # itself is a separate systemd job, not a child (06 11.5)
     }
@@ -178,7 +179,11 @@ def test_programs_start_only_through_process_runner() -> None:
             text = py.read_text(encoding="utf-8")
             if rel == "core/blocks/process_runner.py":
                 continue
-            assert not re.search(r"subprocess\.Popen\(|os\.spawn|os\.system\(", text), rel
+            # the Windows node update (06 11.5, RUN-013): the setup must outlive the Deployer
+            # it stops, so it is started detached, the Linux systemd-run job's part; once
+            popen_ok = rel == "agent/deployer/win_update.py" and text.count("Popen(") == 1
+            assert popen_ok or not re.search(
+                r"subprocess\.Popen\(|os\.spawn|os\.system\(", text), rel  # fmt: skip
             if re.search(r"subprocess\.run\(", text):
                 assert rel in allowed_short and "timeout=" in text, rel
 

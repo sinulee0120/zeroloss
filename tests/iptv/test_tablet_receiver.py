@@ -238,6 +238,24 @@ def test_measuring_starts_after_playback_settles(tmp_path: Path) -> None:
     r.stop()
 
 
+def test_the_delay_window_starts_at_measuring(tmp_path: Path) -> None:
+    """2026-11-27 R20261127-011120: the app's 10 s window still held the warm-up seconds
+    (dpw 111 ms in e0-e6 on seconds of ~16 ms), and cell 0 went yellow on both tablets."""
+    fake = FakeTablets()
+    r = receiver(tmp_path, fake)
+    r.start()
+    warm = [{**rec(i + 1), "pb": "freeze", "dlo": 0.0, "dhi": 111.0, "dpw": 111.0}
+            for i in range(3)]  # fmt: skip
+    ok = [{**rec(i + 4), "dlo": -92.0, "dhi": -76.0 + i, "dpw": 111.0} for i in range(12)]
+    ok[11]["dpw"] = 5.0  # the app started over at a new source: its window is the shorter
+    fake.records = warm + ok
+    r._pull()
+    got = [x["dpw"] for x in r._recent]
+    assert got[0] == 17.0 and max(got[:-1]) == 26.0 and got[-1] == 5.0  # from ok[1] (settled)
+    assert all(x["jitter"]["pdv_window_ms"] < 100 for x in r.take_summaries())
+    r.stop()
+
+
 def test_a_player_that_never_settles_is_measured_after_5_s(tmp_path: Path) -> None:
     fake = FakeTablets()
     r = receiver(tmp_path, fake)

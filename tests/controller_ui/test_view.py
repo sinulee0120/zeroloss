@@ -852,3 +852,34 @@ def test_the_start_question_says_what_will_run() -> None:
         "rx · wlan0 (5GHz ZL_5G)",
     ]
     assert start_summary(None, "IPTV test") == "IPTV test"
+
+
+def _item(label: str, value: float) -> dict[str, Any]:
+    return {"label": label, "value": value, "unit": "", "key": True}
+
+
+def test_the_figures_while_running_and_after_the_test() -> None:
+    """2026-11-27 redesign: the run at a glance. After the test the result's figures,
+    not the last second's (the tiles said "so far", 0.9 ms "now", "Sending 140 Mbps")."""
+    from controller.ui.view import kpis
+
+    devices = {"tx": {"row": {"items": [_item("Sending 4 ch ·", 140.2)]}},
+               "rx": {"row": {"items": [_item("Jitter", 0.6), _item("Loss", 17)]}}}  # fmt: skip
+    cells = {"rx": [{"color": "red"}, {"color": "green"}]}
+    run = {"state": "RUNNING", "cells": cells, "devices": devices}
+    got = {k.label: (k.value, k.note) for k in kpis(Status(True, "b", run))}
+    assert got["Verdict so far"] == ("Fail", "1 router box")
+    assert got["Packets lost"] == ("17", "rx")
+    assert got["Max jitter now"][0] == "0.6 ms" and got["Sending"][0] == "140 Mbps"
+    rx = {"device": "rx", "colors": {"red": 15}, "loss_total": 44, "jitter_max_ms": 5.596}
+    tab = {"device": "tab", "colors": {"red": 0}, "loss_total": 0, "jitter_max_ms": 3.2}
+    result = {"verdict": "FAIL", "actual_s": 10804.1, "planned_s": 10800, "devices": [rx, tab]}
+    done = {"state": "IDLE", "cells": cells, "devices": devices, "result": result}
+    got = {k.label: (k.value, k.note) for k in kpis(Status(True, "b", done))}
+    assert got == {
+        "Verdict": ("Fail", "15 router boxes"),
+        "Packets lost": ("44", "rx"),
+        "Max jitter": ("5.6 ms", "whole test"),
+        "Ran": ("3h 00m", "of 3h 00m"),
+    }
+    assert kpis(Status(True, "b", {"state": "IDLE"})) == []

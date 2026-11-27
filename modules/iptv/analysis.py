@@ -26,6 +26,14 @@ HELD_QUIET = 0.1  # R-23: a second the card got under this share of the usual pa
 HELD_BURST = 2.0  # R-23: ... then over this many times the usual, with the PC's own drops
 HELD_WITHIN_S = 10
 NOT_FETCHED = "1-second records not fetched yet"
+HOLD_MS = 60.0  # R-26: a second's delay this far over its 10 s floor: the Wi-Fi held it
+HOLD_WITHIN_S = 2  # ... and a loss counted this soon after (the 1 s reorder window)
+BEACON_MS = 102.4  # 100 TU, the usual Wi-Fi beacon interval
+HOLD_MAX_MS = 2.5 * BEACON_MS  # longer is a stall (a scan, a lost link), not power save
+# multicast-only causes (IGMP joins and queries, snooping, M2U, DTIM): a primed unicast run
+# (iptv 4.5) has none of them, so they are not candidates there
+MULTICAST_ONLY = ("R-02", "R-03", "R-06", "R-13", "R-14", "R-15", "R-21")
+PRIMED = "primed unicast run: no IGMP, snooping or M2U on this path"
 LATER = "later phase (needs two runs or the tablet app)"
 RECEIVER_START = "/receiver/start"
 
@@ -270,6 +278,21 @@ def _from_summaries(out: Out, summaries: dict[str, list[dict[str, Any]]]) -> Non
         )
 
 
+def _delay_variation(jit: dict[str, Any]) -> float | None:
+    """The cell's delay variation (iptv 2.1 R-22), as its color uses it: the largest
+    10-second window, else (older summaries) high - low. 2026-11-27 R20261127-011120: it
+    was the larger of |high| and |low|, the delay from the first packet: ~17 ms on a PC
+    and ~90 ms on a tablet with nothing moving, so the rule's condition always held and
+    its "delay jump of 30~71 ms" was no jump (the windows were 16~17 ms)."""
+    w = jit.get("pdv_window_ms")
+    if isinstance(w, int | float):
+        return float(w)
+    hi, lo = jit.get("delay_high_ms"), jit.get("delay_low_ms")
+    if isinstance(hi, int | float) and isinstance(lo, int | float):
+        return float(hi) - float(lo)
+    return None
+
+
 def _single_air_losses(
     out: Out, cells: list[tuple[str, dict[str, Any]]], wifi: dict[str, bool]
 ) -> None:
@@ -287,15 +310,13 @@ def _single_air_losses(
         single = int(loss.get("max_burst") or 0) <= 1 and int(loss.get("loss_events") or 0) == lost
         clean = int(loss.get("host_drop_loss") or 0) == 0
         steady = not (w.get("channel_changes") or w.get("bssid_changes"))
-        hi, lo = jit.get("delay_high_ms"), jit.get("delay_low_ms")
-        jump = max(abs(float(hi or 0)), abs(float(lo or 0)))
-        if single and clean and steady and jump >= DELAY_JUMP_MS:
+        jump = _delay_variation(jit)
+        if single and clean and steady and jump is not None and jump >= DELAY_JUMP_MS:
             hits.append((d, s))
     if not hits:
         return
     n = sum(_lost(s) for _, s in hits)
-    jumps = [max(abs(float((s.get("jitter") or {}).get(k) or 0))
-                 for k in ("delay_high_ms", "delay_low_ms")) for _, s in hits]  # fmt: skip
+    jumps = [_delay_variation(s.get("jitter") or {}) or 0.0 for _, s in hits]
     rssi = _rssi_min([s for _, s in hits])
     sig = f", signal {rssi} dBm" if rssi is not None else ""
     out.add(
@@ -303,7 +324,7 @@ def _single_air_losses(
         "Router Wi-Fi",
         "medium",
         f"{n} packet(s) lost one at a time in {len(hits)} box(es), each with a delay jump "
-        f"of {min(jumps):.0f}~{max(jumps):.0f} ms; this PC dropped none and its Wi-Fi did "
+        f"of {min(jumps):.0f}~{max(jumps):.0f} ms; the receiver dropped none and its Wi-Fi did "
         f"not change{sig}. The frames were lost over the air or in the router's Wi-Fi queue "
         "after its retries. Next: compare a wired receiver at the same time, try another "
         "channel or band, and check the router's Wi-Fi retry and queue counters.",
@@ -353,7 +374,8 @@ def _from_events(out: Out, events: list[dict[str, Any]]) -> None:
 
 def _from_seconds(out: Out, data: dict[str, Any]) -> None:
     seconds, offsets = data.get("seconds"), data.get("offsets") or {}
-    rules = ("R-02", "R-05", "R-05a", "R-06", "R-08", "R-10", "R-19", "R-20", "R-21", "R-24")
+    rules = ("R-02", "R-05", "R-05a", "R-06", "R-08", "R-10", "R-19", "R-20", "R-21", "R-24",
+             "R-26")  # fmt: skip
     if seconds is None:
         for rule in rules:
             out.lack(rule, NOT_FETCHED)
@@ -428,6 +450,7 @@ def _from_seconds(out: Out, data: dict[str, Any]) -> None:
     _alone(out, lost, seconds, offsets)
     _igmp_wait(out, lost, events)
     _held_and_released(out, seconds, offsets, events)
+    _power_save_hold(out, data, seconds, offsets)
     clean = _playback(out, seconds, offsets)
     _periodic(out, lost, clean)
     for rule, codes, window, text in (
@@ -536,6 +559,66 @@ def _overlapping(at: list[tuple[float, dict[str, Any]]], start_s: float,
                  end_s: float) -> list[dict[str, Any]]:  # fmt: skip
     """The 1-second lines (run time of their start, line) that overlap [start_s, end_s + 1)."""
     return [r for t, r in at if start_s - 1 < t < end_s + 1]
+
+
+def _power_save_hold(
+    out: Out,
+    data: dict[str, Any],
+    seconds: dict[str, list[dict[str, Any]]],
+    offsets: dict[str, float],
+) -> None:
+    """R-26 (2026-11-27, R20261122-223747: tablet-1 lost 37 packets in 11 seconds, no
+    cause named). Every loss second came within 2 s of a second whose delay rose ~100 ms
+    over its floor, about one beacon interval: the Wi-Fi held the stream for power save
+    (the router buffering multicast to its DTIM beacon, or the receiver's own Wi-Fi power
+    save). R-13 cannot see it: it wants no loss and the RFC 3550 jitter (1.2 ms there)."""
+    wifi = _wireless(dict(data.get("summaries") or {}))
+    hits: list[tuple[str, float, int, int, list[float]]] = []
+    for key, lines in seconds.items():
+        device = key.rpartition("|")[0]
+        if not wifi.get(device):
+            continue
+        rows = sorted(
+            (x for x in lines if x.get("type") == "s" and isinstance(x.get("e"), int)
+             and isinstance(x.get("dlo"), int | float) and isinstance(x.get("dhi"), int | float)),
+            key=lambda x: x["e"],
+        )  # fmt: skip
+        if len(rows) < 30:
+            continue
+        holds: dict[int, float] = {}
+        for i, x in enumerate(rows):
+            floor = min(float(y["dlo"]) for y in rows[max(0, i - 10) : i + 1])
+            if HOLD_MS <= float(x["dhi"]) - floor <= HOLD_MAX_MS:
+                holds[int(x["e"])] = float(x["dhi"]) - floor
+        # a second the tablet scanned for Wi-Fi is R-25's (its own choice), not this
+        lost = [x for x in rows if int(x.get("lost") or 0) > 0 and not int(x.get("wsc") or 0)]
+        held = [(x, h) for x in lost
+                for h in [max((v for e, v in holds.items() if 0 <= x["e"] - e <= HOLD_WITHIN_S),
+                              default=None)] if h is not None]  # fmt: skip
+        if len(held) >= 2 and 2 * len(held) >= len(lost):
+            at = float(held[0][0]["e"]) + offsets.get(key, 0.0)
+            hits.append((device, at, len(held), len(lost), [h for _, h in held]))
+    if not hits:
+        return
+    heights = [h for *_, hs in hits for h in hs]
+    who = ", ".join(f"{d} {n} of {m}" for d, _, n, m, _ in hits)
+    unicast = data.get("multicast_path") == "primed"
+    why = ("the receiver's own Wi-Fi power save (the router keeps its frames until it wakes)"
+           if unicast else "the router holding multicast for its DTIM beacon, or the "
+           "receiver's own Wi-Fi power save")  # fmt: skip
+    check = ("the receiver's Wi-Fi power saving" if unicast else "M2U (multicast to "
+             "unicast) and the DTIM period on the router, and the receiver's Wi-Fi power "
+             "saving")  # fmt: skip
+    out.add(
+        "R-26",
+        "Wi-Fi power save",
+        "medium",
+        f"Loss seconds right after the Wi-Fi held the stream for {min(heights):.0f}~"
+        f"{max(heights):.0f} ms, about one beacon interval ({BEACON_MS:g} ms) ({who}): power "
+        f"save, {why}. Next: check {check}.",
+        sorted({d for d, *_ in hits}),
+        min(t for _, t, *_ in hits),
+    )
 
 
 def _held_and_released(
@@ -729,6 +812,12 @@ def analyze(data: dict[str, Any]) -> dict[str, Any]:
                         if not (f["rule"] == "R-07" and set(f["devices"]) <= held)]  # fmt: skip
     for rule in ("R-11", "R-17"):
         out.lack(rule, LATER)
+    if data.get("multicast_path") == "primed":  # 2026-11-26 (R20261127-011120: R-02 said
+        # "check that the router sends IGMP queries" on a primed unicast run)
+        out.findings = [f for f in out.findings if f["rule"] not in MULTICAST_ONLY]
+        out.missing = [m for m in out.missing if m["rule"] not in MULTICAST_ONLY]
+        for rule in MULTICAST_ONLY:
+            out.lack(rule, PRIMED)
     out.findings.sort(
         key=lambda f: (
             RANK[f["confidence"]],

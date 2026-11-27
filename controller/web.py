@@ -23,6 +23,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from controller import live_page
+from controller.words import TEST_LABELS  # the words the screens use (2026-11-27)
 from core.protocol.http_server import OwnPortServer
 from core.ui_schema.design import COLORS as DESIGN
 from core.ui_schema.design import ICONS  # one place for the shapes (11-ui 1.7)
@@ -181,7 +182,8 @@ class ResultsWeb:
         d = self._listing()
         rows = "".join(
             f"<tr><td>{e(str(r['started']))}</td><td>{e(str(r['run']))}</td>"
-            f"<td>{e(str(r.get('test_type') or ''))} {e(str(r.get('quality') or ''))}</td>"
+            f"<td>{e(_test_label(r.get('test_type')))}"
+            f" {e(str(r.get('quality') or ''))}</td>"
             f"<td>{e(str(r.get('verdict') or r.get('why') or ''))}</td><td>"
             + (f"<a href='/reports/{e(str(r['run']))}/report.html'>Report</a> "
                f"<a href='/reports/{e(str(r['run']))}/report.pdf'>PDF</a>"
@@ -191,8 +193,11 @@ class ResultsWeb:
         )  # fmt: skip
         rows = rows or "<tr><td colspan=5>No reports yet</td></tr>"
         return (self._head("ZeroLoss reports") + "<p><a href='/live'>The test now</a></p>"
-                "<table><tr><th>Started</th><th>Run</th><th>Test</th><th>Result</th><th></th></tr>"
-                f"{rows}</table></body></html>")  # fmt: skip
+                # 2026-11-27 ("글자 안보임"): on a phone the table was 436 px in 375 and
+                # Report / PDF fell off the right edge; it scrolls by itself, not the page
+                "<div style='overflow-x:auto'><table><tr><th>Started</th><th>Run</th>"
+                "<th>Test</th><th>Result</th><th></th></tr>"
+                f"{rows}</table></div></body></html>")  # fmt: skip
 
     def _live_page(self) -> str:
         e = html.escape
@@ -252,3 +257,9 @@ class ResultsWeb:
                 self.end_headers()
 
         return Handler
+
+
+def _test_label(test_type: object) -> str:
+    """A report's test as the screens say it ("IPTV test", not the plan's "tablet")."""
+    raw = str(test_type or "")
+    return TEST_LABELS.get(raw, raw)

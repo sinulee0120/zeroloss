@@ -59,7 +59,8 @@ def reanalyze(run_dir: Path, modules_dir: Path) -> bool:
     except (OSError, ValueError):
         offsets = {}
     data = {"summaries": summaries, "events": read_jsonl(run_dir / "events.log"),
-            "seconds": seconds, "offsets": offsets}  # fmt: skip
+            "seconds": seconds, "offsets": offsets,
+            "multicast_path": (summary.get("dut") or {}).get("multicast_path")}  # fmt: skip
     fields = analysis_fields(rules, plan, data, "records")
     before = {k: summary.get(k) for k in KEYS}
     summary.update(fields)

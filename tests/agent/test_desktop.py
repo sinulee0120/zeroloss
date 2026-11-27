@@ -403,3 +403,34 @@ def hd_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
     subprocess.run(prepare_command("ffmpeg", QUALITIES["HD"], 1, out, seconds=4,
                                    preset="ultrafast"), check=True, timeout=300)  # fmt: skip
     return out
+
+
+def test_the_link_reports_on_a_fixed_one_second_grid(tmp_path: Path) -> None:
+    """2026-11-27 (R20261127-112905, T460): the rounds were 1 s + ~0.1 s of requests, so
+    one node second in ~11 had no player report (612 of 6892 without pdr)."""
+    t = [0.0]
+    link = DesktopLink(1, {}, tmp_path / "desktop", clock=lambda: t[0])
+    at: list[float] = []
+
+    class Halt:
+        def wait(self, s: float) -> bool:
+            t[0] += s
+            return len(at) >= 30
+
+    def step() -> None:
+        at.append(t[0])
+        t[0] += 0.1  # the round's own requests
+
+    link._halt, link.step = Halt(), step  # type: ignore[assignment, method-assign]
+    link._loop()
+    assert [round(x, 6) for x in at] == [float(i) for i in range(1, 31)]  # never drifts
+    t[0], at[:] = 0.0, []
+
+    def slept() -> None:  # a 5 s round (the PC slept): one round at once, then the grid again
+        at.append(t[0])
+        t[0] += 5.0 if len(at) == 3 else 0.1
+
+    link.step = slept  # type: ignore[method-assign]
+    link._loop()
+    assert [round(x, 6) for x in at[:6]] == [1.0, 2.0, 3.0, 8.0, 9.0, 10.0]  # one round at once
+    link._client.close()

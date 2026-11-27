@@ -51,6 +51,32 @@ class StreamAnalyzerTest {
         assertEquals(3, r.getLong("mb"))
     }
 
+    /** 2026-11-27 (R20261122-223747 tablet-2): one duplicate made one CC error. */
+    @Test fun aDuplicatedDatagramIsNoCcError() {
+        val a = StreamAnalyzer(ch = 1)
+        // two TS packets of PID 0x100 per datagram (a real one has 7): a copy goes back in
+        // CC, which one repeated TS packet alone would not
+        fun pkt(i: Int): ByteArray {
+            val one = rtp(i, i * 900L)
+            val b = one.copyOf(12 + 2 * 188)
+            for (k in 0..1) {
+                val o = 12 + k * 188
+                b[o] = 0x47; b[o + 1] = 0x01; b[o + 2] = 0x00
+                b[o + 3] = (0x10 or ((2 * i + k) and 0x0F)).toByte()
+            }
+            return b
+        }
+        for (i in 0 until 100) {
+            val d = pkt(i)
+            a.onDatagram(d, d.size, i * 10 * ms)
+            if (i == 50) a.onDatagram(d, d.size, i * 10 * ms + 1000) // the copy
+        }
+        val r = a.second(1000 * ms)
+        assertEquals(1, r.getLong("dup"))
+        assertEquals(0, r.getLong("cc"))
+        assertEquals(0, r.getLong("lost"))
+    }
+
     @Test fun notRtpIsCountedAndSkipped() {
         val a = StreamAnalyzer(ch = 1)
         val ts = ByteArray(188).also { it[0] = 0x47 }

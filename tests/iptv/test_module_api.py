@@ -199,3 +199,19 @@ def test_channel_change_over_http(node: Node, hd_file: Path) -> None:
     names = {f["name"]: f["hour"] for f in c.get("/v1/records/index", run="R4")["files"]}
     assert names.get("R4_zaps.jsonl", "missing") is None and names.get("R4_h000.jsonl") == 0
     c.close()
+
+
+def test_the_video_folder_over_http(node: Node, tmp_path: Path) -> None:
+    """S-70 (GAP-195): the list is of the folder the Controller names, the choice is kept,
+    and it never changes while videos are being made."""
+    c = NodeClient("127.0.0.1", node.api.port, "controller-boot-1")
+    big = tmp_path / "big"
+    (big).mkdir()
+    (big / "movie.mp4").write_bytes(b"not really a movie")
+    listed = c.get(f"{S}/sender/sources", videos=str(big))
+    assert listed["folder"] == str(big) and [f["name"] for f in listed["files"]] == ["movie.mp4"]
+    got = c.command(f"{S}/sender/videos", 0, None, folder="")
+    assert got["folder"] != str(big) and isinstance(got["free_mb"], int)
+    with pytest.raises(ZlError) as e:
+        c.command(f"{S}/sender/videos", 0, None, folder="not/absolute")
+    assert e.value.code == "ZL-RUN-014"

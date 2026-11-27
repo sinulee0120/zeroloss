@@ -78,3 +78,9 @@ def test_the_test_on_now_says_running(
     svc.run.run_id, svc.run.state = "R20260926-120000", RunState.RUNNING
     row = next(r for r in reports(svc, capsys) if r["run"] == "R20260926-120000")
     assert row["why"] == "Running"
+    # 2026-11-27: the running 3-hour test had an empty Test column; its plan says it
+    plan = {"test_type": "tablet", "quality": "UHD", "duration_s": 10800}
+    (svc.reports_dir / "R20260926-120000" / "plan.json").write_text(json.dumps(plan))
+    row = next(r for r in reports(svc, capsys) if r["run"] == "R20260926-120000")
+    assert (row["test_type"], row["quality"], row["planned_s"]) == ("tablet", "UHD", 10800)
+    assert row["verdict"] is None and row["why"] == "Running"

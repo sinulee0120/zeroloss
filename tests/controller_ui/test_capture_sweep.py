@@ -117,7 +117,39 @@ def problems_of(window: QWidget, logical: tuple[int, int]) -> list[str]:
                 bad.append(f"text wider than the button: {name}")
             if isinstance(widget, QPushButton) and widget.height() < BUTTON_MIN_HEIGHT:
                 bad.append(f"button lower than {BUTTON_MIN_HEIGHT} px: {name}")
+        # 2026-11-27 user ("글자 겹침. 글자 안보임. 이런거 다 확인해"): a plain one-line
+        # label wider than its room is cut; wrapped text needs its height
+        if type(widget) is QLabel and widget.text() and not widget.text().startswith("<"):
+            fm = widget.fontMetrics()
+            need = max(fm.horizontalAdvance(x) for x in widget.text().splitlines())
+            if not widget.wordWrap() and need > widget.contentsRect().width() + 1:
+                bad.append(f"label text cut ({need} > {widget.contentsRect().width()}): {name}")
+            if widget.wordWrap() and widget.heightForWidth(widget.width()) > widget.height() + 2:
+                bad.append(f"wrapped label cut: {name}")
+    bad += [f"overlap: {a} x {b}" for a, b in _overlaps(window)]
     return bad
+
+
+def _overlaps(window: QWidget) -> list[tuple[str, str]]:
+    """Text-bearing siblings drawn over each other (2026-11-27)."""
+    out = []
+    for parent in [window, *window.findChildren(QWidget)]:
+        kids = [k for k in parent.children() if isinstance(k, QLabel | QPushButton | QCheckBox)
+                and k.isVisible() and not k.isWindow() and k.text()]  # fmt: skip
+        for i, a in enumerate(kids):
+            for b in kids[i + 1 :]:
+                if (
+                    a.geometry()
+                    .adjusted(1, 1, -1, -1)
+                    .intersects(b.geometry().adjusted(1, 1, -1, -1))
+                ):
+                    out.append(
+                        (
+                            f"{type(a).__name__}:{a.text()[:20]}",
+                            f"{type(b).__name__}:{b.text()[:20]}",
+                        )
+                    )
+    return out
 
 
 def blank(window: QWidget, path: Path) -> bool:

@@ -60,3 +60,17 @@ def test_deployer_uses_no_core_code() -> None:
             top = name.split(".")[0]
             ours = name == "agent" or name.startswith("agent.deployer")
             assert ours or top in sys.stdlib_module_names, f"{py.relative_to(ROOT)} imports {name}"
+
+
+def test_only_the_screens_import_the_ui_package() -> None:
+    """2026-11-28 (receiverPC, the frozen node): report.py imported controller.ui, which the
+    frozen node and the Linux package leave out (tools/build.py --exclude-module), so the
+    node exited at start. What the node runs never imports the screens' package."""
+    for top in ("controller", "core", "agent", "modules"):
+        for py in (ROOT / top).rglob("*.py"):
+            if py.is_relative_to(ROOT / "controller" / "ui"):
+                continue
+            bad = {
+                n for n in _imports(py) if n == "controller.ui" or n.startswith("controller.ui.")
+            }
+            assert not bad, f"{py.relative_to(ROOT)} imports {sorted(bad)}"

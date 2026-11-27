@@ -1110,7 +1110,12 @@ def link_event(c: Change) -> Event:
         return Event("ZL-NET-015", "error", f"Link {c.nic} {what}", data=data)
     if c.kind == "up":
         data["clears"] = ["ZL-NET-015"]  # the link is back (02 8, F21)
-        return Event("ZL-INFO", "info", f"Link {c.nic} is up ({_mbps(c.after)})", data=data)
+        # 2026-11-27 R20261127-011120: a Wi-Fi card has no link speed: "(unknown)" said
+        # nothing; its channel and band say where it came back
+        w = c.after.wifi
+        how = (f"Wi-Fi channel {w.channel}, {w.band}" if w is not None and w.channel
+               else _mbps(c.after) if c.after.link_mbps else "speed unknown")  # fmt: skip
+        return Event("ZL-INFO", "info", f"Link {c.nic} is up ({how})", data=data)
     a = c.before.wifi if c.before else None
     b = c.after.wifi
     if c.kind == "roam":

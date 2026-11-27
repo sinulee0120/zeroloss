@@ -822,6 +822,15 @@ class RunController:
                               f"It is {self.state}.", "Stop the test first.")  # fmt: skip
             yield
 
+    def not_in_test(self, what: str) -> None:
+        """Like ``between_tests`` for a change a test reads only at its start (the saved
+        setup): it does not wait for the lock. 2026-11-27: the screen's idle check holds
+        it up to 60 s, and a setup edit (5 s) said "Cannot reach Controller service"
+        although it was saved afterwards. Start takes its plan before it begins."""
+        if self.state not in (RunState.IDLE, RunState.FAULT):
+            raise ZlError("RUN-012", f"{what} is possible only between tests",
+                          f"It is {self.state}.", "Stop the test first.")  # fmt: skip
+
     def status(self) -> dict[str, Any]:
         elapsed = time.monotonic() - self._measure_start if self._measure_start else 0.0
         return {
@@ -2133,7 +2142,8 @@ class RunController:
                     self._note_trouble(w.device.name, str(e.get("code", "")),
                                        e.get("data") or {})  # fmt: skip
                 continue
-            self._note_trouble(w.device.name, str(e.get("code", "")), e.get("data") or {})
+            who = self._hung_on(w.device.name, e.get("data") or {})
+            self._note_trouble(who, str(e.get("code", "")), e.get("data") or {})
             if e.get("code") == "ZL-SND-025" and w.device.name == self._plan.sender:
                 self._advise_sender_wifi({"links": w.links or []}, str(e.get("text", "")))
             clears = (e.get("data") or {}).get("clears")
@@ -2149,7 +2159,7 @@ class RunController:
             elif e.get("code") == "ZL-NET-015" and not self._on_test_nic(w.device.name, e):
                 level, text = "info", f"{text} (not a test network card, only noted)"
             data = {**(e.get("data") or {}), "from_node": True, "run_id": self.run_id or ""}
-            ev = Event(str(e.get("code", "ZL-INFO")), level, text, device=w.device.name, data=data)
+            ev = Event(str(e.get("code", "ZL-INFO")), level, text, device=who, data=data)
             self.bus.publish(ev)
             if level == "error":
                 w.last_error = f"{ev.code} {text}"
@@ -2157,6 +2167,19 @@ class RunController:
                 self._stop_asked = f"disk_low: {w.device.name}"  # F10 automatic stop
             if ev.code == "ZL-RCV-009" and level == "error":  # no file can be written
                 self._stop_asked = f"file_write_failed: {w.device.name}"
+
+    def _hung_on(self, host: str, data: dict[str, Any]) -> str:
+        """The device an event of ``host``'s node is about: a tablet that hangs on it
+        names itself in ``data.device`` (iptv ``TabletReceiver``). 2026-11-27: both
+        tablets' events went under the PC, so one tablet's TAB-019 row on the Problems
+        board took the other's place (one row per code + device)."""
+        d = data.get("device")
+        tablets = getattr(self._plan, "tablets", None)
+        if isinstance(d, str) and isinstance(tablets, dict) and d in tablets:
+            where = tablets[d]
+            if isinstance(where, tuple | list) and where and where[0] == host:
+                return d
+        return host
 
     def _on_test_nic(self, device: str, event: dict[str, Any]) -> bool:
         """09 NET-015: a link event of a NIC the test does not use (the internet Wi-Fi of
@@ -2169,12 +2192,22 @@ class RunController:
     # ---------------------------------------------------------------- trouble windows (05 5.3)
 
     def _note_trouble(self, device: str, code: str, data: dict[str, Any]) -> None:
-        """Open, extend or close this device's trouble windows (Controller time)."""
+        """Open, extend or close this device's trouble windows (Controller time). A
+        module's ``trouble_targets`` may say which receivers a sender event is for (a
+        channel, a primed flow's receiver): its window is kept under each of them, else
+        under the device (the sender's then counts for every receiver)."""
         of = getattr(self._rules, "trouble_of", None)
         if of is None or self._plan is None:
             return
+        targets_of = getattr(self._rules, "trouble_targets", None)
+        targets = targets_of(self._plan, device, data) if targets_of is not None else None
+        for owner in [device] if targets is None else targets:
+            self._note_trouble_of(owner, device, code, data, of)
+
+    def _note_trouble_of(self, owner: str, device: str, code: str, data: dict[str, Any],
+                         of: Any) -> None:  # fmt: skip
         now = time.monotonic()
-        mine = self._windows.setdefault(device, {})
+        mine = self._windows.setdefault(owner, {})
         for cleared in data.get("clears") or []:
             for kind_of, ws in mine.items():
                 for win in ws:
@@ -2191,9 +2224,9 @@ class RunController:
         if need > 1 and not until_cleared:
             # 2026-10-09 (the RealTest reference: a floor counts after 3 windows in a row):
             # a kind the module marks counts only after ``need`` seconds in a row
-            count, last_at = self._runs.get((device, kind), (0, -1e9))
+            count, last_at = self._runs.get((owner, kind), (0, -1e9))
             count = count + 1 if now - last_at <= RUN_STEP_S else 1
-            self._runs[(device, kind)] = (count, now)
+            self._runs[(owner, kind)] = (count, now)
             if count < need:
                 return
         ws = mine.setdefault(kind, [])
@@ -2215,16 +2248,23 @@ class RunController:
             return
         now = time.monotonic()
         t0 = self._run_t0
-        for key, rec in of(self._plan, device, module_data):
-            if t0 is not None:  # D39: this receiver's second e happened at about now
+        got = list(of(self._plan, device, module_data))
+        newest: dict[tuple[str, int], int] = {}
+        for key, rec in got:
+            newest[key] = max(newest.get(key, int(rec["e"])), int(rec["e"]))
+        for key, rec in got:
+            if t0 is not None and int(rec["e"]) == newest[key]:
+                # D39: this receiver's newest second e happened at about now (an older one
+                # in ``recent_1s`` came late: not a sample)
                 samples = self._offsets.setdefault(f"{key[0]}|{key[1]}", [])
                 samples.append(now - t0 - int(rec["e"]))
                 del samples[:-OFFSET_SAMPLES]
             kept = self._seconds.setdefault(key, {})
+            at = now - (newest[key] - int(rec["e"]))  # an older second happened that long ago
             if int(rec["e"]) not in kept:
                 self._note_episode(key, rec)
-                self._note_logger(key[0], rec, now)
-            kept.setdefault(int(rec["e"]), (now, rec))
+                self._note_logger(key[0], rec, at)
+            kept.setdefault(int(rec["e"]), (at, rec))
             if len(kept) > SECONDS_KEPT:
                 for e in sorted(kept)[: len(kept) - SECONDS_KEPT]:
                     del kept[e]
@@ -2255,7 +2295,9 @@ class RunController:
         sender = self._plan.sender if self._plan is not None else None
         for dev, kinds in self._windows.items():
             for kind, ws in kinds.items():
-                if dev != node and not (dev == sender and kind.startswith("sender")):
+                # the receiver's own windows (a sender flow's for it, 2026-11-27 too), its
+                # PC's, and the whole sender's
+                if dev not in (node, device) and not (dev == sender and kind.startswith("sender")):
                     continue
                 if any(a <= end and (b is None or at <= b) for a, b, _ in ws):
                     return False
@@ -2339,7 +2381,10 @@ class RunController:
         sender = getattr(self._plan, "sender", None)
         for owner, kinds in self._windows.items():
             for kind, ws in kinds.items():
-                own = kind in ("receiver_link", "busy", "screen") and owner == device
+                own = (
+                    kind in ("receiver_link", "busy", "screen", "sender", "sender_slow")
+                    and owner == device
+                )  # a sender flow's window for this receiver (2026-11-27)
                 if not own and (kind in ("receiver_link", "screen") or owner != sender):
                     continue  # the sender's windows count for every receiver
                 end = float("inf")  # still open
@@ -2539,6 +2584,8 @@ class RunController:
                 "igmp_note": None,
                 "m2u_note": None,
                 "multicast_path": "lan" if self._lan_sender else (self._path() or {}).get("path"),
+                # 2026-11-27 (R20261127-011120 went primed and its report never said so)
+                "path_note": None if self._lan_sender else (self._path() or {}).get("note"),
                 "through_router": not self._not_via,  # 09 NET-022 (GAP-99 2)
                 "not_through_router_why": "; ".join(self._not_via) or None,
             },
@@ -2679,9 +2726,25 @@ class RunController:
                         f"this Controller goes on from {self.generation}", name)  # fmt: skip
 
     def _step_done(self, step: Any) -> None:
-        """iptv 2.4: a start step finished (a receiver joined at this run time)."""
-        self._event("ZL-INFO", "info", f"{step.device}: {step.path.rsplit('/', 2)[-2]} started",
-                    step.device, step=step.path, ch=step.params.get("ch"))  # fmt: skip
+        """iptv 2.4: a start step finished (a receiver joined at this run time).
+        2026-11-27 R20261127-011120: "t460-rx: tablet started" twice and "sender started"
+        four times, with nothing to tell them apart: the tablet is named (its host PC runs
+        the step), and the channel and primed flow said."""
+        params = step.params if isinstance(step.params, dict) else {}
+        kind = step.path.rsplit("/", 2)[-2]
+        who = params.get("device")
+        who = who if isinstance(who, str) and who and who != step.device else None
+        got = params.get("prime")
+        prime: dict[str, Any] = got if isinstance(got, dict) else {}
+        what = [f"CH{params['ch']}"] if params.get("ch") is not None else []
+        if prime.get("flow") is not None:
+            what.append(
+                f"flow {prime['flow']}" + (f" slot {prime['slot']}" if prime.get("slot") else "")
+            )
+        text = f"{who or step.device}: {kind} started" + (f" on {step.device}" if who else "")
+        text += f" ({', '.join(what)})" if what else ""
+        self._event("ZL-INFO", "info", text, who or step.device, step=step.path,
+                    ch=params.get("ch"))  # fmt: skip
 
     def _log_run_event(self, e: Event) -> None:
         """02 8: the run folder's events.log, every event with the run clock ``run_s``.

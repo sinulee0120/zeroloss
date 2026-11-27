@@ -109,3 +109,31 @@ def test_a_burst_carries_what_this_pc_counted(tmp_path: Path) -> None:
     (b,) = bursts["rx|1"]["list"]
     assert b[1:4] == [2, 9, 1] and b[4] == {"nd": 2, "ne": 0, "ub": 0, "fm": 0, "fu": 950}
     assert bursts["quiet|1"]["count"] == 0
+
+
+def test_the_report_says_how_the_stream_got_through_the_router() -> None:
+    """2026-11-27 R20261127-011120 went primed (no multicast through the router); the
+    report never said so. Its saved summary (no ``path_note`` yet) and a new one."""
+    from controller.report import render_html, render_pdf, router_line
+
+    old = {"dut": {"mode_detected": "NAT", "wan_ip": "100.64.0.100", "wan_ip_way": "dhcp",
+                   "multicast_path": "primed"}}  # fmt: skip
+    assert router_line(old) == ("Router: NAT mode · WAN 100.64.0.100 (dhcp) · primed unicast: "
+                                "no multicast came through the router")  # fmt: skip
+    new = {"dut": {**old["dut"], "path_note": "primed unicast (S-18 On): no IGMP proxy"}}
+    assert str(router_line(new)).endswith("· primed unicast (S-18 On): no IGMP proxy")
+    assert router_line({"dut": {}}) is None and router_line({}) is None
+    r = {"run_id": "R1", "verdict": "PASS", "devices": [], **old}
+    assert "Router: NAT mode" in render_html(r, {})
+    assert render_pdf(r).startswith(b"%PDF")
+
+
+def test_a_report_names_the_test_as_the_screens_do() -> None:
+    """2026-11-27: "tablet test" / "tablet UHD" in the report, the web list and the run
+    line, where the screen's Test type and the Reports window said "IPTV test"."""
+    from controller.report import test_label
+    from controller.web import _test_label
+
+    assert test_label({"test_type": "tablet"}) == "IPTV test" == _test_label("pc")
+    assert test_label({"test_type": "all"}) == "Throughput · All"
+    assert test_label({"test_type": "odd"}) == "odd test" and _test_label(None) == ""

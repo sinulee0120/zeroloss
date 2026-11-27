@@ -15,7 +15,7 @@ two new processes a second, so Wi-Fi is event driven instead: one long-running
 ``iw event`` reports channel switches and (re)connections as they happen; the full
 ``iw dev <nic> link/info`` reading runs only after an event and every 10 s as a safety
 net. RSSI comes every second from /proc/net/wireless (a file read, no process).
-Windows and Android are P1 item V16.
+Windows: the Wi-Fi API every second, in the process (win_link_wifi, 2026-11-28).
 """
 
 from __future__ import annotations
@@ -354,19 +354,34 @@ def wifi_events_supported(sys_root: Path = Path("/sys/class/net")) -> bool:
     return sys_root.is_dir() and any((d / "wireless").exists() for d in sys_root.iterdir())
 
 
+_WIN_WIFI: Any = None  # the Windows reader (its AP frequency cache), made on first use
+
+
 def read_links(
     sys_root: Path = Path("/sys/class/net"),
     ip_of: Any = ipv4_of,
     wifi_of: Any = read_wifi,
 ) -> list[Link]:
     """Physical NICs only (virtual ones have no ``device`` entry). Windows: its own
-    adapter list (win_links, 2026-10-16), no Wi-Fi details."""
+    adapter list (win_links, 2026-10-16) and the Wi-Fi API (win_link_wifi, 2026-11-28)."""
     if sys.platform == "win32" and sys_root == Path("/sys/class/net"):
+        from core.blocks.win_link_wifi import LinkWifi
         from core.blocks.win_links import adapters
 
+        global _WIN_WIFI
+        found = adapters()
+        if any(a["wireless"] and a["up"] for a in found):
+            _WIN_WIFI = _WIN_WIFI or LinkWifi()
+            try:
+                wifi = _WIN_WIFI.read({str(a["description"]): str(a["nic"]) for a in found})
+            except (OSError, ValueError, AttributeError):  # the Wi-Fi service away: no details
+                wifi = {}
+        else:
+            wifi = {}
         return [Link(nic=a["nic"], ip=a["ip"], up=a["up"], link_mbps=a["link_mbps"],
-                     duplex=None, carrier_changes=None, wireless=a["wireless"])
-                for a in adapters()]  # fmt: skip
+                     duplex=None, carrier_changes=None, wireless=a["wireless"],
+                     wifi=wifi.get(a["nic"]) if a["wireless"] and a["up"] else None)
+                for a in found]  # fmt: skip
     links = []
     for d in sorted(sys_root.iterdir()) if sys_root.is_dir() else []:
         if not (d / "device").exists():

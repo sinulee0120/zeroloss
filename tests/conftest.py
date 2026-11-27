@@ -17,6 +17,7 @@ import os
 import sys
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -38,6 +39,19 @@ def no_real_web_port() -> Iterator[None]:
     init.__defaults__ = (*before[:-1], 0)  # any free port
     yield
     init.__defaults__ = before
+
+
+@pytest.fixture(autouse=True)
+def no_real_video_folder(monkeypatch: pytest.MonkeyPatch,
+                         tmp_path_factory: pytest.TempPathFactory) -> None:  # fmt: skip
+    """A node's Windows default video folder (the C: drive's ZeroLoss Media, GAP-195): tests never
+    make it on the PC that runs them. Every node keeps its videos in its own ``<data>/media``
+    as on Ubuntu, where the tests put them (tests/iptv/test_videos.py checks the real rule)."""
+    from modules.iptv.sender import videos
+
+    monkeypatch.setattr(videos, "WINDOWS_DEFAULT", tmp_path_factory.mktemp("Media"))
+    monkeypatch.setattr(videos, "default_folder",
+                        lambda data_dir, platform="": Path(data_dir) / "media")  # fmt: skip
 
 
 @pytest.fixture(autouse=True)

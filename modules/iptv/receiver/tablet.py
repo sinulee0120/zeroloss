@@ -24,7 +24,9 @@ from core.blocks.tablets import TabletError, Tablets, width_from_rate
 from core.events.bus import Event, EventBus, Level, utc_now
 from core.records.recorder import Recorder
 from modules.iptv import record_keys as k
+from modules.iptv.receiver.analyzer import PDV_WINDOW_S
 from modules.iptv.receiver.evidence import MIN_GAP_S, PER_HOUR, trouble
+from modules.iptv.receiver.session import RECENT_1S
 from modules.iptv.sender.prime import prime_payload, stop_payload
 from modules.iptv.summary_rules import make_summarizer, shape
 
@@ -113,6 +115,7 @@ class TabletReceiver:
         self.state = "IDLE"
         self._after = 0  # the app's record seq already taken
         self._e = 0  # our elapsed second, from the first measured record
+        self._delays: list[tuple[int, float, float]] = []  # (e, dlo, dhi), measured only
         self._recorder: Recorder | None = None
         self._summarizer = make_summarizer(cfg.cell_s)
         self._halt = threading.Event()
@@ -360,6 +363,21 @@ class TabletReceiver:
                     self._rise[key] = self._rise.get(key, 0) + up
         self._counted = now
 
+    def _window_from_measuring(self, rec: dict[str, Any]) -> None:
+        """``dpw`` over measured seconds only (2026-11-27 R20261127-011120: the app's
+        10-second window still held the warm-up seconds this side drops, so both tablets'
+        first 7 s said 111/128 ms and coloured cell 0 yellow; the seconds said ~50). The
+        app also starts its window over at a new source: the shorter window is the right
+        one, and over fewer seconds the delay range is never larger, so the smaller value."""
+        lo, hi = rec.get(k.DELAY_LOW_MS), rec.get(k.DELAY_HIGH_MS)
+        if not isinstance(lo, int | float) or not isinstance(hi, int | float):
+            return
+        e = self._e
+        self._delays = [d for d in self._delays if d[0] > e - PDV_WINDOW_S] + [(e, lo, hi)]
+        ours = max(d[2] for d in self._delays) - min(d[1] for d in self._delays)
+        app = rec.get(k.DELAY_WINDOW_MS)
+        rec[k.DELAY_WINDOW_MS] = round(min(ours, app) if isinstance(app, int | float) else ours, 3)
+
     def _take(self, r: dict[str, Any]) -> None:
         """One second from the app. Measuring starts at the first second with packets and
         the PAT seen, and with playback on once it has settled as on a PC (05 2.1-2: "ok"
@@ -380,6 +398,7 @@ class TabletReceiver:
         rec = {"e": self._e, **self._wifi, **rec}
         if int(rec.get(k.WIFI_SCANS) or 0) and int(rec.get(k.LOST) or 0):  # R-25
             rec[k.SCAN_LOST] = int(rec[k.LOST])
+        self._window_from_measuring(rec)
         self._e += 1
         self.lost_total += int(rec.get(k.LOST, 0) or 0)
         assert self._recorder is not None
@@ -480,7 +499,8 @@ class TabletReceiver:
     def status(self) -> dict[str, Any]:
         return {"id": self.cfg.device, "serial": self.cfg.serial, "ch": self.cfg.ch,
                 "state": self.state, "measuring": self.measuring, "away": self._away,
-                "lost_total": self.lost_total, "last_1s": self.last_1s}  # fmt: skip
+                "lost_total": self.lost_total, "last_1s": self.last_1s,
+                "recent_1s": self._recent[-RECENT_1S:]}  # fmt: skip
 
     def _event(self, code: str, level: Level, text: str) -> None:
         self.bus.publish(Event(code, level, text, data={"module": "iptv",

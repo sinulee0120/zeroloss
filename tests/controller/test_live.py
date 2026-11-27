@@ -77,3 +77,42 @@ def test_trouble_stretches_are_kept_for_the_whole_run(tmp_path: Path) -> None:
     assert (second["start_e"], second["seconds"]) == (900, 1)
     assert second["what"] == ["TR 101 290 P1"]
     assert min(r["records"], key=lambda x: x["e"])["e"] > 154  # the seconds themselves are gone
+
+
+def test_no_second_is_lost_between_two_rounds(tmp_path: Path) -> None:
+    """2026-11-27 (R20261127-112905's live page): the round is ~1.1 s and a heartbeat
+    carried only the last second, so one in ~9 never came (2147, 2139, 2132, ...). The
+    recent ones come with each heartbeat; the offset is still from the newest only."""
+    from modules.iptv.run import second_records as records_of
+
+    rc = RunController(DeviceList(tmp_path / "devices.json"), tmp_path / "rep",
+                       REPO / "modules", EventBus())  # fmt: skip
+
+    class Rules:
+        second_records = staticmethod(records_of)
+
+    rc._rules, rc._plan, rc._run_t0 = Rules(), object(), 0.0
+
+    def sec(e: int) -> dict[str, Any]:
+        return {"e": e, "ch": 1, "rx": 950, "lost": 0, "jit": 1.0, "pb": "ok"}
+
+    e = 0
+    for step in [1, 1, 1, 1, 1, 1, 1, 1, 2] * 3:  # a second skipped every ninth round
+        e += step
+        recent = [sec(x) for x in range(max(0, e - 4), e + 1)]
+        rc._keep_seconds("rx", {"receivers": [{"id": "rx", "ch": 1, "last_1s": recent[-1],
+                                               "recent_1s": recent}]})  # fmt: skip
+    kept = rc._seconds[("rx", 1)]
+    assert sorted(kept) == list(range(0, e + 1))  # every second, none twice
+    assert len(rc._offsets["rx|1"]) == 27  # one sample per round, from the newest second
+    old = {"receivers": [{"id": "rx", "ch": 1, "last_1s": sec(e + 1)}]}  # an older node
+    rc._keep_seconds("rx", old)
+    assert e + 1 in rc._seconds[("rx", 1)]
+
+
+def test_a_wifi_pc_says_its_band_and_channel_like_a_tablet() -> None:
+    """2026-11-27 (R20261127-112905): "Receives on: Wi-Fi wlx… 172.30.1.11 · -31 dBm"
+    beside a tablet's "5GHz · ch 153 · 11be · …": the PC's newest second has them too."""
+    html = live_page.page()
+    assert "function wifiBits(" in html
+    assert "cd.wireless&&wifiBits(last,(d.view&&d.view.wifi)||[]).length" in html

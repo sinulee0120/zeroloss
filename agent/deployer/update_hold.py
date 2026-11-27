@@ -12,6 +12,9 @@ a Wi-Fi hold-and-release in a night run. While a test runs ``snap refresh --hold
 (bounded: a Deployer that dies cannot hold them for ever), ``--unhold`` after, only when
 this hold set it; a marker file says so across a Deployer restart. A hold someone else
 set is left alone.
+
+Windows too (2026-11-28, win_update_pause.py): Windows Update paused as Settings does it,
+bounded, taken off after; a pause the person set is left alone.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 APT_DIR = Path("/etc/apt/apt.conf.d")
 FILE = "99zeroloss-test-hold"
@@ -47,17 +51,20 @@ def _run(argv: list[str]) -> tuple[int, str]:
 
 class UpdateHold:
     def __init__(self, apt_dir: Path | None = APT_DIR, state_dir: Path | None = None,
-                 run: Run = _run, snap: bool | None = None) -> None:  # fmt: skip
+                 run: Run = _run, snap: bool | None = None,
+                 win_pause: Any = None) -> None:  # fmt: skip
         self.path = apt_dir / FILE if apt_dir is not None and apt_dir.is_dir() else None
         self._idle_since: float | None = None
         self.error: str | None = None
         self._run = run
         has_snap = shutil.which("snap") is not None if snap is None else snap
         self.marker = state_dir / SNAP_MARKER if state_dir is not None and has_snap else None
+        self.win = win_pause  # WindowsUpdatePause on a Windows node, else None
 
     @property
     def held(self) -> bool:
-        return self.path is not None and self.path.exists()
+        apt = self.path is not None and self.path.exists()
+        return apt or (self.win is not None and self.win.paused)
 
     def clear_leftover(self) -> None:
         """Deployer start: a file from before (power cut) goes; a running test puts it
@@ -82,6 +89,10 @@ class UpdateHold:
     def _write(self, on: bool) -> None:
         self._apt(on)
         self._snap(on)  # after: its error is not wiped by the apt file's success
+        if self.win is not None:
+            err = self.win.set(on)
+            if err:
+                self.error = err
 
     def _apt(self, on: bool) -> None:
         if self.path is None:

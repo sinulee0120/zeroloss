@@ -108,20 +108,32 @@ def reading(packets: list[tuple[bytes, int]], mark_ns: int) -> dict[str, Any] | 
     steps = [b[1] - a[1] for a, b in itertools.pairwise(seqs) if b[1] - a[1] >= 100_000]
     usual = sorted(steps)[len(steps) // 2] / 1e6 if steps else 0.0
     seen: set[int] = {seqs[0][0]}
-    missing: list[dict[str, Any]] = []
+    # each jump past the highest number so far, with the numbers it skipped still not come
+    # (2026-11-27 R20261127-011120 e1338: 51570-51571 came after 51575, and the old
+    # reading, stepping from the last packet, called 51570-51575 lost: none was)
+    gaps: list[tuple[int, set[int], dict[str, Any]]] = []
+    top, t_top = seqs[0]
     dups = back = 0
-    for (s0, t0), (s1, t1) in itertools.pairwise(seqs):
-        d = (s1 - s0) & 0xFFFF
+    for s1, t1 in seqs[1:]:
+        d = (s1 - top) & 0xFFFF
         if s1 in seen:
             dups += 1
         elif d == 0 or d > 0x8000:
             back += 1
-        elif d > 1:
-            gap = (t1 - t0) / 1e6
-            missing.append({"seq": (s0 + 1) & 0xFFFF, "count": d - 1,
-                            "at_s": round((t0 - mark_ns) / NS, 3), "gap_ms": round(gap, 2),
-                            "held": bool(usual and gap >= HELD_FACTOR * usual)})  # fmt: skip
+            for _, skipped, _ in gaps:
+                skipped.discard(s1)
+        else:
+            if d > 1:
+                gap = (t1 - t_top) / 1e6
+                gaps.append(((top + 1) & 0xFFFF, {(top + i) & 0xFFFF for i in range(1, d)},
+                             {"at_s": round((t_top - mark_ns) / NS, 3), "gap_ms": round(gap, 2),
+                              "held": bool(usual and gap >= HELD_FACTOR * usual)}))  # fmt: skip
+            top, t_top = s1, t1
         seen.add(s1)
+    missing: list[dict[str, Any]] = []
+    for start, skipped, how in gaps:
+        for first, count in _runs(skipped, start):
+            missing.append({"seq": first, "count": count, **how})
     lines = []
     for m in missing[:5]:
         n = f"RTP {m['seq']}" + (
@@ -147,6 +159,19 @@ def reading(packets: list[tuple[bytes, int]], mark_ns: int) -> dict[str, Any] | 
     }
 
 
+def _runs(nums: set[int], start: int) -> list[tuple[int, int]]:
+    """Consecutive RTP numbers (mod 2^16) as (first, count), in order from ``start``, the
+    first number the jump skipped (all of them come after it, at most 0x7FFF)."""
+    order = sorted(nums, key=lambda n: (n - start) & 0xFFFF)
+    out: list[tuple[int, int]] = []
+    for n in order:
+        if out and (out[-1][0] + out[-1][1]) & 0xFFFF == n:
+            out[-1] = (out[-1][0], out[-1][1] + 1)
+        else:
+            out.append((n, 1))
+    return out
+
+
 def _checksum(header: bytes) -> int:
     s: int = sum(struct.unpack("!10H", header))
     s = (s & 0xFFFF) + (s >> 16)
@@ -155,16 +180,24 @@ def _checksum(header: bytes) -> int:
 
 
 def pcap_bytes(
-    packets: list[tuple[bytes, int]], group: str, port: int, to_real_ns: int = 0
+    packets: list[tuple[bytes, int]],
+    group: str,
+    port: int,
+    to_real_ns: int = 0,
+    src: str = "0.0.0.0",
+    src_port: int | None = None,
 ) -> bytes:
-    """A nanosecond pcap (LINKTYPE_IPV4) of UDP datagrams to ``group:port``."""
+    """A nanosecond pcap (LINKTYPE_IPV4) of UDP datagrams to ``group:port`` (a primed
+    run: to this PC's address and receive port, from the sender's, iptv 4.5)."""
     dst = bytes(int(x) for x in group.split("."))
+    srcb = bytes(int(x) for x in src.split("."))
+    sport = port if src_port is None else src_port
     out = [struct.pack("<IHHiIII", 0xA1B23C4D, 2, 4, 0, 0, 65535, LINKTYPE_IPV4)]
     for ident, (data, t) in enumerate(packets):
         _breathe(ident)
-        udp = struct.pack("!HHHH", port, port, 8 + len(data), 0) + data
+        udp = struct.pack("!HHHH", sport, port, 8 + len(data), 0) + data
         ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(udp), ident & 0xFFFF, 0, 16, 17,
-                         0, b"\0\0\0\0", dst)  # fmt: skip
+                         0, srcb, dst)  # fmt: skip
         ip = ip[:10] + struct.pack("!H", _checksum(ip)) + ip[12:]
         real = t + to_real_ns
         frame = ip + udp
@@ -196,8 +229,11 @@ class Evidence:
         render: Render | None = None,
         free_mb: Callable[[Path], int] | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
+        sender: tuple[str, int] | None = None,
     ) -> None:
         self.folder, self.run_id, self.ch, self.group, self.port = folder, run_id, ch, group, port
+        # primed (iptv 4.5): the stream came unicast from the sender's (address, port P)
+        self.sender = sender
         self._render = render
         self._free_mb = free_mb or (lambda p: shutil.disk_usage(p).free // (1 << 20))
         self._clock = clock_ns
@@ -278,6 +314,8 @@ class Evidence:
         info: dict[str, Any] = {
             "e": o["e"], "ch": self.ch, "why": o["why"], "packets": len(packets),
             "from_s": -PRE_S - 1, "to_s": POST_S, "group": f"{self.group}:{self.port}",
+            **({"path": "primed unicast", "from": f"{self.sender[0]}:{self.sender[1]}"}
+               if self.sender else {}),
             "pcap": None, "picture": None, "kept_less": None,
             "reading": reading(packets, o["mark"]) if packets else None,
         }  # fmt: skip
@@ -286,7 +324,8 @@ class Evidence:
         if not o["files"]:
             info["kept_less"] = self.skipped[-1] if self.skipped else "limit"
         if files:
-            data = pcap_bytes(packets, self.group, self.port, to_real)
+            src, sport = self.sender or ("0.0.0.0", None)
+            data = pcap_bytes(packets, self.group, self.port, to_real, src, sport)
             if self.pcap_bytes + len(data) <= PCAP_BUDGET_MB * (1 << 20):
                 pcap = self.folder / f"{stem}.pcap"
                 pcap.write_bytes(data)

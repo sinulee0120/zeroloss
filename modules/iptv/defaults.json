@@ -547,6 +547,19 @@
         "group": "Router Logger",
         "help": "The Router Logger program file on this PC (full path of its .exe). It must be running; ZeroLoss finds its window and sends it the start and stop commands (Windows messages, in the background)."
       }
+    },
+    "S-70": {
+      "value": "",
+      "doc": "없음(송신 PC 기본 위치: Ubuntu `/var/lib/zeroloss/media`, Windows `C:\\ZeroLoss\\Media`)",
+      "ui": {
+        "label": "Video folder (sender PC)",
+        "where": "adv",
+        "kind": "text",
+        "lock": true,
+        "available": true,
+        "group": "Sending",
+        "help": "Folder on the sender PC for your movies (put them at its top) and the videos ZeroLoss makes for sending (in generated/ under it; UHD takes several GB a channel). Empty: the default, Ubuntu /var/lib/zeroloss/media and Windows C:\\ZeroLoss\\Media. Example: /data/zeroloss or D:\\ZeroLoss. Made videos move with it on the same disk; from another disk they are made again."
+      }
     }
   }
 }

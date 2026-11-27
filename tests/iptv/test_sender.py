@@ -262,6 +262,40 @@ def test_an_unexpected_error_in_the_watch_is_said_once_and_it_goes_on(tmp_path: 
     assert [x.code for x in got if x.code == "ZL-SND-027"] == ["ZL-SND-027"]
 
 
+class _Rates:
+    def __init__(self, *rates: list[int]) -> None:
+        self.rates = list(rates)
+
+    def new_rates(self) -> list[int]:
+        return self.rates.pop(0) if self.rates else []
+
+    def close(self) -> None:
+        return
+
+
+def test_a_slow_second_is_cleared_when_the_rate_is_right_again(tmp_path: Path) -> None:
+    """2026-11-27 R20261127-011120: one slow second (34.5 of 35 Mb/s) stayed on the
+    Problems board for the rest of the test and the report said "open at the end"."""
+    from controller.problems import ProblemBoard
+
+    got: list[Event] = []
+    board = ProblemBoard()
+    bus = EventBus()
+    bus.subscribe(got.append)
+    bus.subscribe(board)
+    s = SenderSession(cfg(tmp_path / "ch1.ts", 1), tmp_path, bus)
+    log = _Rates([10_000_000], [9_850_000], [9_860_000], [10_000_000], [10_000_000])
+    s._runner, s._log = _Running(), log  # type: ignore[assignment]
+    s._watch_pace = s._watch_shaper = lambda: None  # type: ignore[method-assign]
+    for _ in range(5):
+        assert s._watch_once()
+    codes = [x.code for x in got]
+    assert codes == ["ZL-SND-017", "ZL-SND-017", "ZL-INFO"]  # said once it is over
+    assert got[-1].data["clears"] == ["ZL-SND-016", "ZL-SND-017"]
+    row = next(p for p in board.snapshot()["problems"] if p["code"] == "ZL-SND-017")
+    assert not row["active"] and row["count"] == 2
+
+
 @live
 @settings(max_examples=4, deadline=None)
 @given(ops=st.lists(st.sampled_from(["start", "stop", "wait"]), max_size=6))
@@ -296,3 +330,44 @@ def test_uhd_is_made_with_the_fastest_x265_preset() -> None:
     assert uhd[uhd.index("-preset") + 1] == "ultrafast"
     assert hd[hd.index("-preset") + 1] == "veryfast"
     assert "strict-cbr=1:hrd=1:aq-mode=2:log-level=error" in uhd  # still forced
+
+
+def test_a_primed_flows_events_say_whose_flow(tmp_path: Path) -> None:
+    """2026-11-27: "CH1 sending fell behind" did not say which receiver's flow."""
+    from dataclasses import replace
+
+    got: list[Event] = []
+    bus = EventBus()
+    bus.subscribe(got.append)
+    c = replace(cfg(tmp_path / "ch1.ts", 1), slot=1, label="flow 0 slot 1")
+    SenderSession(c, tmp_path, bus)._event("ZL-SND-025", "warn", "CH1 sending fell behind")
+    assert got[-1].text == "CH1 flow 0 slot 1 sending fell behind"
+    assert got[-1].data["ch"] == 1 and got[-1].data["slot"] == 1
+    SenderSession(cfg(tmp_path / "ch1.ts", 1), tmp_path, bus)._event("ZL-SND-025", "warn", "CH1 x")
+    assert got[-1].text == "CH1 x" and "slot" not in got[-1].data  # multicast: the channel's
+
+
+def test_a_late_second_is_cleared_when_the_pacing_is_on_time_again(tmp_path: Path) -> None:
+    """2026-11-27 R20261127-112905: SND-025 at 6394 s (86 ms late, 27 not sent) stayed
+    on the Problems board and the report said "open at the end"."""
+    from controller.problems import ProblemBoard
+
+    board = ProblemBoard()
+    bus = EventBus()
+    bus.subscribe(board)
+    s = SenderSession(cfg(tmp_path / "ch1.ts", 1), tmp_path, bus)
+
+    class Pace:
+        def __init__(self) -> None:
+            self.lines = [[{"late_us": 86_000, "dropped": 27}], [{"late_us": 300, "dropped": 0}]]
+
+        def new(self) -> list[dict[str, int]]:
+            return self.lines.pop(0) if self.lines else []
+
+    s._pace_log = Pace()  # type: ignore[assignment]
+    s._watch_pace()
+    row = next(p for p in board.snapshot()["problems"] if p["code"] == "ZL-SND-025")
+    assert row["active"]
+    s._watch_pace()
+    row = next(p for p in board.snapshot()["problems"] if p["code"] == "ZL-SND-025")
+    assert not row["active"]

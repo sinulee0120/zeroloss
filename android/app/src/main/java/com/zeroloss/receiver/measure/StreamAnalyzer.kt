@@ -57,12 +57,17 @@ class StreamAnalyzer(val ch: Int, reorderWindowMs: Long = 1000) {
             return
         }
         if (firstPacketNs == null) firstPacketNs = arrivalNs
+        val thrown = seq.stats.duplicates + seq.stats.lateDiscarded
         seq.onPacket(h.seq, h.timestamp, h.ssrc, arrivalNs)
         jitter.onPacket(h.timestamp, h.ssrc, arrivalNs, discontinuity = h.marker)
         transit(h.ssrc, h.timestamp, arrivalNs)
         val last = lastArrivalNs
         if (last != null && arrivalNs - last > STOPPED_NS) ts.resync(arrivalNs) // the stream was gone
-        ts.feed(data, h.payloadOffset, h.payloadEnd, arrivalNs)
+        // a copy the RTP layer threw away is not fed to TS again (2026-11-27: one duplicate
+        // made one CC error, a yellow cell with no loss; same as the PC analyzer)
+        if (seq.stats.duplicates + seq.stats.lateDiscarded == thrown) {
+            ts.feed(data, h.payloadOffset, h.payloadEnd, arrivalNs)
+        }
         lastArrivalNs = arrivalNs
     }
 

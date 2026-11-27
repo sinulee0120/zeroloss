@@ -35,6 +35,7 @@ class CellInput:
     pdv_pp_ms: float | None = None  # transit delay range in the cell (RFC 5481 PDV)
     wireless: bool = False  # the receiver takes the stream over Wi-Fi (its own PDV limit)
     p1_errors: int = 0  # TR 101 290 priority 1, including missing PAT
+    reordered: int = 0  # came out of order but in the window: lost none, the CC still broke
     # 05 5.3 "문제 구간으로 나누기": what happened inside trouble windows (Controller-made)
     sender_s: int = 0  # seconds of this cell inside a sender trouble window (purple)
     sender_lost: int = 0
@@ -131,7 +132,10 @@ def judge_cell(c: CellInput, jitter_warn_ms: float = DEFAULT_JITTER_WARN_MS) -> 
     if c.playback_issue_with_clean_packets:  # 2026-10-10 user (GAP-152): PASS stays
         yellow.append("playback issue with clean packets (receiver side)")
     if p1 > 0:  # pass is jitter and loss only (2026-10-09 user, GAP-132): a warning
-        yellow.insert(0, f"TR 101 290 P1 errors {p1} without packet loss")
+        # 2026-11-27 R20261127-011120: 3 CC errors and no loss were 2 late packets; say
+        # so, or the cell reads like a stream fault
+        why = f", {c.reordered} packet(s) out of order" if c.reordered else ""
+        yellow.insert(0, f"TR 101 290 P1 errors {p1} without packet loss{why}")
     if c.jitter_max_ms > jitter_warn_ms:
         yellow.insert(0, f"jitter {c.jitter_max_ms:.1f} ms > {jitter_warn_ms:.0f} ms warning")
     limit, basis = (PDV_WARN_WIFI_MS, "Wi-Fi") if c.wireless else (PDV_WARN_MS, "DVB")

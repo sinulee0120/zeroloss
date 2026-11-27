@@ -182,3 +182,20 @@ def test_primed_with_tablets_each_receiver_on_its_own_ports() -> None:
     assert [s.device for s in listen] == ["rx-pc"] and len(send) == 1
     assert send[0].params["prime"]["q"] == listen[0].params["prime"]["q"]
     assert listen[0].params["port"] == pc.params["prime"]["flows"][0]["r"]
+
+
+def test_a_primed_flows_sender_trouble_is_its_own_receivers() -> None:
+    """2026-11-27 (R20261127-112905): t460-rx's flow fell 86 ms behind (SND-025, 27 not
+    sent) and the window counted for every receiver: a tablet's own loss then would have
+    been purple. A primed flow's trouble is its receiver's; a channel's, that channel's."""
+    from modules.iptv.run import trouble_targets
+
+    raw = plan(tab("tablet-1", 1, "A1"), tab("tablet-2", 2, "B2"), {"device": "rx-pc", "ch": 1})
+    p = probe_fallback(validate({**raw, "hosts": {"tx": "100.64.0.1"}}))
+    assert p is not None and p.primed
+    slot = {d: p.slot_of(d) for d, _ in p.receivers}
+    assert trouble_targets(p, "tx", {"ch": 1, "slot": slot["rx-pc"]}) == ["rx-pc"]
+    assert trouble_targets(p, "tx", {"ch": 1, "slot": slot["tablet-1"]}) == ["tablet-1"]
+    assert sorted(trouble_targets(p, "tx", {"ch": 1}) or []) == ["rx-pc", "tablet-1"]
+    assert trouble_targets(p, "tx", {}) is None  # the whole sender PC: everyone
+    assert trouble_targets(p, "rx-pc", {"ch": 1}) is None  # not the sender's

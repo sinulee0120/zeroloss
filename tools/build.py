@@ -28,7 +28,9 @@ Usage:
                                              Windows: agent\\, deployer\\, desktop\\, modules\\
   python -m tools.build installer-agent --app DIR --tools DIR [--out DIR]
                                              ZeroLoss-Agent-Setup-<build>.exe: that folder
-                                             and the tools (TSDuck\\, ffmpeg\\, mpv\\ in DIR)
+                                             and the tools (TSDuck\\, ffmpeg\\, mpv\\ in DIR),
+                                             and zeroloss-node-agent-windows-<build>.zlp
+                                             (the same setup for Update PCs, RUN-013)
 """
 
 from __future__ import annotations
@@ -359,7 +361,27 @@ def build_agent_installer(app: Path, tools: Path, out: Path) -> Path:
                        check=True)  # fmt: skip
     finally:
         iss.unlink(missing_ok=True)
-    return out / f"ZeroLoss-Agent-Setup-{build}.exe"
+    setup = out / f"ZeroLoss-Agent-Setup-{build}.exe"
+    print(build_windows_node_zlp(setup), flush=True)
+    return setup
+
+
+def build_windows_node_zlp(setup: Path) -> Path:
+    """``zeroloss-node-agent-windows-<build>.zlp`` (RUN-013, 2026-11-28 user "Run 13도
+    하고"): the Windows setup as a node package; Update PCs sends it to Windows PCs and
+    their Deployer runs it silently (agent/deployer/win_update.py)."""
+    build = read_version()
+    stage = setup.parent / "zlp-stage-windows"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    shutil.copy(setup, stage / setup.name)
+    info = {"schema_version": 1, "kind": "node", "id": "agent", "build": build,
+            "os": "windows", "core_api_min": None, "core_api_max": None}  # fmt: skip
+    try:
+        return build_package(stage, setup.parent / f"zeroloss-node-agent-windows-{build}.zlp",
+                             info)  # fmt: skip
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 ANDROID = Path(os.environ.get("ZEROLOSS_ANDROID", r"C:\Android"))  # jdk17, sdk (06 11.3)
