@@ -15,7 +15,7 @@
     "lock": true,
     "help": "How the router WAN gets its address: from the sender PC like an ISP (default) or set on the router.",
     "available": "Turn the sender's ISP role on with 'zeroloss devices wan' in this build",
-    "group": "Network"
+    "group": "Router"
    }
   },
   "S-20": {
@@ -99,6 +99,23 @@
     "help": "When the Controller PC stops answering (asleep, network down), the PCs in the test go on sending and measuring until the planned end, and the Controller takes the test up again when it is back. Or they stop after 10 s, as before.",
     "available": true,
     "group": "Network"
+   }
+  },
+  "S-71": {
+   "value": "On",
+   "doc": "On",
+   "ui": {
+    "label": "Router description (UPnP)",
+    "where": "adv",
+    "kind": "choice",
+    "choices": [
+     "On",
+     "Off"
+    ],
+    "lock": true,
+    "help": "At Start the Controller reads the router's public UPnP device description once (no login, nothing changed) to put its model and firmware in the report. Off: nothing is asked of the router.",
+    "available": true,
+    "group": "Router"
    }
   },
   "S-43": {

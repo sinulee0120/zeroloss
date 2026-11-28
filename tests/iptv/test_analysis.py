@@ -82,7 +82,7 @@ def test_event_rules() -> None:
 def test_second_rules_wait_for_the_records() -> None:
     r = analyze({"summaries": {"rx": [cell()]}, "events": [], "seconds": None})
     assert missing(r)["R-02"] == NOT_FETCHED and missing(r)["R-05"] == NOT_FETCHED
-    assert missing(r)["R-11"].startswith("later phase")
+    assert missing(r)["R-11"] == "fewer than two wireless receivers in this run"
 
 
 def test_loss_events_on_the_run_clock() -> None:
@@ -391,3 +391,62 @@ def test_loss_right_after_a_beacon_long_hold_is_power_save() -> None:
     wired = {**data, "summaries": {"tab": [cell(2)]}, "seconds": seconds}
     assert "R-26" not in rules(analyze(wired))
     assert missing(analyze({**data, "seconds": None}))["R-26"] == "1-second records not fetched yet"
+
+
+def test_loss_while_the_tablets_other_apps_downloaded_is_r17() -> None:
+    """R-17 (2026-11-28, "안만든거 다 만들어"; it was "later phase"): the tablet's other apps
+    received far more than usual just before its loss seconds (02 7 ``orx``)."""
+
+    def tab(busy: dict[int, int], lost_at: dict[int, int]) -> list[Any]:
+        rows = secs(lost_at, n=120, orx=2_000)  # the usual: 2 kB a second
+        for r in rows:
+            r["orx"] = busy.get(r["e"], 2_000)
+        return rows
+
+    data = {"summaries": {"tab": [cell(4)]}, "events": [], "offsets": {"tab|2": 5.0}}
+    seconds = {"tab|2": tab({58: 900_000, 59: 1_200_000}, {60: 4})}
+    f = next(x for x in analyze({**data, "seconds": seconds})["findings"] if x["rule"] == "R-17")
+    assert f["devices"] == ["tab"] and f["at_s"] == 65.0 and f["category"] == "Environment"
+    assert "9.6 Mbps" in f["text"] and "tab 1 of 1" in f["text"] and f["confidence"] == "low"
+    for spoil in (
+        tab({58: 100_000}, {60: 4}),  # under 1 Mbps
+        tab({50: 1_200_000}, {60: 4}),  # long before the loss
+        tab({64: 1_200_000}, {60: 4}),  # after what the app's delay explains
+        tab({58: 1_200_000}, {}),  # no loss at all
+    ):
+        assert "R-17" not in rules(analyze({**data, "seconds": {"tab|2": spoil}}))
+    late = analyze({**data, "seconds": {"tab|2": tab({63: 1_200_000}, {60: 4})}})
+    assert "R-17" in rules(late)  # counted 3 s late (the app waits until it stayed)
+    old_app = {"tab|2": secs({60: 4}, n=120)}  # an app before 1207 counts nothing
+    assert missing(analyze({**data, "seconds": old_app}))["R-17"].startswith("no tablet counted")
+    assert missing(analyze({**data, "seconds": None}))["R-17"] == "1-second records not fetched yet"
+
+
+def test_more_wireless_receivers_lost_where_fewer_did_not_is_r11() -> None:
+    """R-11 (2026-11-28, "안만든거 다 만들어"; it was "later phase"): this run lost on its 3
+    wireless receivers; an earlier run with 1 at the same quality and path lost none."""
+    wifi = {"rssi_dbm_min": -40}
+    summaries = {"tab-1": [cell(5, wifi=wifi)], "tab-2": [cell(0, wifi=wifi)],
+                 "tab-3": [cell(2, wifi=wifi)], "pc": [cell(0)]}  # fmt: skip
+    one = {"run_id": "R20261127-011120", "quality": "UHD", "multicast_path": "primed",
+           "measured_s": 1800.0, "wireless": ["tab-1"], "lost": 0}  # fmt: skip
+    data = {"summaries": summaries, "events": [], "quality": "UHD",
+            "multicast_path": "primed", "earlier": [one]}  # fmt: skip
+    f = next(x for x in analyze(data)["findings"] if x["rule"] == "R-11")
+    assert f["devices"] == ["tab-1", "tab-2", "tab-3"] and f["category"] == "Router"
+    assert (
+        "With 3 wireless receivers 7 packets" in f["text"]
+        and "R20261127-011120 with 1" in f["text"]
+    )
+    assert "M2U" not in f["text"]  # primed: one stream per receiver, no copying
+    for spoil in (
+        {**one, "lost": 3},  # it lost too
+        {**one, "quality": "HD"},  # another quality
+        {**one, "multicast_path": "igmp"},  # another path
+        {**one, "measured_s": 120.0},  # too short to say "none"
+        {**one, "wireless": ["a", "b", "c"]},  # not fewer
+    ):
+        got = analyze({**data, "earlier": [spoil]})
+        assert "R-11" not in rules(got) and missing(got)["R-11"].startswith("no earlier run")
+    calm = {**summaries, "tab-1": [cell(0, wifi=wifi)], "tab-3": [cell(0, wifi=wifi)]}
+    assert "R-11" not in rules(analyze({**data, "summaries": calm}))  # no loss now

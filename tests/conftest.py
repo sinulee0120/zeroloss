@@ -55,6 +55,15 @@ def no_real_video_folder(monkeypatch: pytest.MonkeyPatch,
 
 
 @pytest.fixture(autouse=True)
+def no_router_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A test run never asks the PC's real networks for the router's UPnP description
+    (controller/dut_info.py; tests/controller/test_dut_info.py checks it with fakes)."""
+    import controller.run
+
+    monkeypatch.setattr(controller.run, "dut_info", lambda hosts: None)
+
+
+@pytest.fixture(autouse=True)
 def no_real_source_search(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     from core.protocol import source_pick
 

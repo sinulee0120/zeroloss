@@ -883,10 +883,10 @@ Starting test…
 - `summary.json`의 `changes_since_previous`(02 10장), CLI `zeroloss report --run <id> --json`에 포함.
 
 ### 완료 기준
-- [ ] 두 회차 사이에 링크 속도·Wi-Fi 채널·설정 하나·도구 버전을 바꿈 → 네 가지가 모두 나오고 다른 것은 안 나옴
-- [ ] 아무것도 안 바꾼 두 회차 → `Nothing changed`
-- [ ] 비교 대상 없음 → `First run for this router`
-- [ ] 무작위로 항목을 바꾼 회차 쌍 200개 → 바꾼 것 = 보인 것(몽키, 플레이북)
+- [x] 두 회차 사이에 링크 속도·Wi-Fi 채널·설정 하나·도구 버전을 바꿈 → 네 가지가 모두 나오고 다른 것은 안 나옴 — 2026-11-28 Wi-Fi 채널·설정·도구 빌드(`tests/controller/test_changes.py`). 링크 속도도 2026-11-28부터(`links_at_start`: 시작 때 유선 카드 속도)
+- [x] 아무것도 안 바꾼 두 회차 → `Nothing changed` (2026-11-28)
+- [x] 비교 대상 없음 → `First run for this router` (2026-11-28)
+- [x] 무작위로 항목을 바꾼 회차 쌍 200개 → 바꾼 것 = 보인 것(몽키, 플레이북) — 2026-11-28 `test_random_pairs_show_what_changed`
 
 ## F25. 측정 신뢰도 (판정보다 먼저 보이는 한 줄, 2026-09-24 채택)
 ### 목적
@@ -911,10 +911,11 @@ Starting test…
 - ✖ 조건: 자체 드롭·CPU 포화·송출 불안정·재생기 미동작·링크 하락 중 하나라도 있음. ⚠ 조건: 무선 변경, user clock, 고정 버전 아님, 캡처 축소, 회색 구간.
 - 시험 중 화면: 상단 막대에 같은 표시(작게), 바뀌면 Problems에도.
 - `summary.json`의 `measurement_trust`(02 10장).
+- **구현 메모(2026-11-28, GAP-202):** 보고서(HTML·PDF) 판정 위 한 줄, HTML은 눌러서 점검 표. 시험 중 상단 막대에 작은 표시(`✔ OK` / `⚠ n` / `✖ Not OK`, 마우스를 올리면 전체 줄; 창 폭 1200 px 미만은 자리가 없어 숨김, Problems 배지가 대신 알림). 표와 다른 두 가지(실제 보고서로 확인): ① 잠깐 늦은 송출(SND-016·017·025, 곧 풀림)은 ✖가 아니라 ⚠(그 손실은 이미 보라) — R20261127-222944에서 1초 느림 하나가 3시간 시험을 "Not trustworthy"로 만듦 ② 태블릿의 user clock은 세지 않음(Android 앱은 커널 시각이 없어 태블릿 시험마다 ⚠) — PC가 user clock이면 ⚠.
 
 ### 완료 기준
 - [ ] 수신 버퍼를 일부러 작게 해 자체 드롭 → ✖, 해당 칸 보라, 판정 규칙은 그대로
 - [ ] 재생기를 안 띄움 → ✖ "Player not playing"
-- [ ] 아무 문제 없는 시험 → ✔
-- [ ] 점검 항목 무작위 조합 500개 → 등급이 규칙표와 같음(표 전체 시험)
+- [x] 아무 문제 없는 시험 → ✔ (2026-11-28 `tests/controller/test_trust.py`, 실제 R20261128-080420)
+- [x] 점검 항목 무작위 조합 500개 → 등급이 규칙표와 같음(표 전체 시험) — 2026-11-28 `test_500_random_combinations_follow_the_rule_table`
 

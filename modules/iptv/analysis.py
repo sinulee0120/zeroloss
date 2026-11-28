@@ -26,6 +26,9 @@ HELD_QUIET = 0.1  # R-23: a second the card got under this share of the usual pa
 HELD_BURST = 2.0  # R-23: ... then over this many times the usual, with the PC's own drops
 HELD_WITHIN_S = 10
 NOT_FETCHED = "1-second records not fetched yet"
+OTHER_MIN_B = 125_000  # R-17: other apps' bytes in a second at least 1 Mbps ...
+OTHER_TIMES = 3  # ... and this many times the tablet's usual
+OTHER_LATE_S = 3  # the app counts traffic up to this late (OtherTraffic.WINDOW - 1)
 HOLD_MS = 60.0  # R-26: a second's delay this far over its 10 s floor: the Wi-Fi held it
 HOLD_WITHIN_S = 2  # ... and a loss counted this soon after (the 1 s reorder window)
 BEACON_MS = 102.4  # 100 TU, the usual Wi-Fi beacon interval
@@ -34,7 +37,7 @@ HOLD_MAX_MS = 2.5 * BEACON_MS  # longer is a stall (a scan, a lost link), not po
 # (iptv 4.5) has none of them, so they are not candidates there
 MULTICAST_ONLY = ("R-02", "R-03", "R-06", "R-13", "R-14", "R-15", "R-21")
 PRIMED = "primed unicast run: no IGMP, snooping or M2U on this path"
-LATER = "later phase (needs two runs or the tablet app)"
+LATER = "later phase (needs two runs to compare)"
 RECEIVER_START = "/receiver/start"
 
 
@@ -374,8 +377,8 @@ def _from_events(out: Out, events: list[dict[str, Any]]) -> None:
 
 def _from_seconds(out: Out, data: dict[str, Any]) -> None:
     seconds, offsets = data.get("seconds"), data.get("offsets") or {}
-    rules = ("R-02", "R-05", "R-05a", "R-06", "R-08", "R-10", "R-19", "R-20", "R-21", "R-24",
-             "R-26")  # fmt: skip
+    rules = ("R-02", "R-05", "R-05a", "R-06", "R-08", "R-10", "R-17", "R-19", "R-20", "R-21",
+             "R-24", "R-26")  # fmt: skip
     if seconds is None:
         for rule in rules:
             out.lack(rule, NOT_FETCHED)
@@ -451,6 +454,7 @@ def _from_seconds(out: Out, data: dict[str, Any]) -> None:
     _igmp_wait(out, lost, events)
     _held_and_released(out, seconds, offsets, events)
     _power_save_hold(out, data, seconds, offsets)
+    _other_traffic(out, seconds, offsets)
     clean = _playback(out, seconds, offsets)
     _periodic(out, lost, clean)
     for rule, codes, window, text in (
@@ -616,6 +620,104 @@ def _power_save_hold(
         f"Loss seconds right after the Wi-Fi held the stream for {min(heights):.0f}~"
         f"{max(heights):.0f} ms, about one beacon interval ({BEACON_MS:g} ms) ({who}): power "
         f"save, {why}. Next: check {check}.",
+        sorted({d for d, *_ in hits}),
+        min(t for _, t, *_ in hits),
+    )
+
+
+COMPARE_MIN_S = 600  # R-11: an earlier run counts when it measured at least 10 minutes
+
+
+def _more_receivers(out: Out, data: dict[str, Any]) -> None:
+    """R-11 (2026-11-28, "안만든거 다 만들어"; it was "later phase"): this run lost packets on
+    its wireless receivers, and a run before it (``earlier``, the Controller's list: the
+    last week) with fewer wireless receivers at the same quality and path lost none. The
+    router's Wi-Fi airtime, or its multicast-to-unicast copying, runs out as receivers
+    are added."""
+    summaries = dict(data.get("summaries") or {})
+    wifi = [d for d, w in _wireless(summaries).items() if w]
+    if len(wifi) < 2:
+        out.lack("R-11", "fewer than two wireless receivers in this run")
+        return
+    lost = sum(_lost(s) for d in wifi for s in summaries.get(d) or [])
+    if not lost:
+        return
+    path = data.get("multicast_path")
+    quality = data.get("quality")
+    fewer = [r for r in data.get("earlier") or []
+             if 1 <= len(r.get("wireless") or []) < len(wifi) and not int(r.get("lost") or 0)
+             and float(r.get("measured_s") or 0) >= COMPARE_MIN_S
+             and r.get("multicast_path") == path
+             and (quality is None or r.get("quality") == quality)]  # fmt: skip
+    if not fewer:
+        out.lack("R-11", "no earlier run this week with fewer wireless receivers and no loss "
+                         "at this quality")  # fmt: skip
+        return
+    best = min(fewer, key=lambda r: len(r["wireless"]))  # the fewest receivers, newest first
+    n, m = len(wifi), len(best["wireless"])
+    why = (
+        "the router's Wi-Fi airtime for one stream per receiver"
+        if path == "primed"
+        else "the router's Wi-Fi airtime or its multicast-to-unicast (M2U) copying"
+    )
+    out.add(
+        "R-11",
+        "Router",
+        "medium",
+        f"With {n} wireless receivers {lost} packets were lost; run {best['run_id']} with "
+        f"{m} lost none at the same quality: {why} may run out as receivers are added. "
+        f"Next: run again with {m} and with {n} receivers to confirm, and check the router's "
+        "Wi-Fi channel width and its multicast settings.",
+        sorted(wifi),
+        None,
+    )
+
+
+def _other_traffic(
+    out: Out, seconds: dict[str, list[dict[str, Any]]], offsets: dict[str, float]
+) -> None:
+    """R-17 (2026-11-28, user "안만든거 다 만들어"; it was "later phase"): a tablet's loss
+    seconds while its other apps received far more than usual (a Play Store update, a
+    cloud sync) share the tablet's Wi-Fi with the stream. The app counts them each second
+    (02 7 ``orx``, from 1207's app); the window is the loss second, the 2 before it (a loss
+    is booked when the stream comes back) and the OTHER_LATE_S after it (the app counts
+    traffic only once it stayed, so a per-app counter that lags is not taken for traffic,
+    R20261128-121753)."""
+    hits: list[tuple[str, float, int, int, int]] = []
+    counted = False
+    for key, lines in seconds.items():
+        device = key.rpartition("|")[0]
+        rows = sorted((x for x in lines if x.get("type") == "s" and isinstance(x.get("e"), int)
+                       and isinstance(x.get("orx"), int)), key=lambda x: x["e"])  # fmt: skip
+        if len(rows) < 30:
+            continue
+        counted = True
+        calm = sorted(int(x["orx"]) for x in rows if not int(x.get("lost") or 0))
+        usual = calm[len(calm) // 2] if calm else 0
+        bar = max(OTHER_MIN_B, OTHER_TIMES * usual)
+        by_e = {int(x["e"]): int(x["orx"]) for x in rows}
+        lost = [x for x in rows if int(x.get("lost") or 0) > 0]
+        busy = [(x, top) for x in lost
+                for top in [max(by_e.get(int(x["e"]) + d, 0) for d in range(-2, OTHER_LATE_S + 1))]
+                if top >= bar]  # fmt: skip
+        if busy:
+            at = float(busy[0][0]["e"]) + offsets.get(key, 0.0)
+            hits.append((device, at, len(busy), len(lost), max(t for _, t in busy)))
+    if not counted:
+        out.lack("R-17", "no tablet counted its other traffic (an app before build 1207)")
+        return
+    if not hits:
+        return
+    who = ", ".join(f"{d} {n} of {m}" for d, _, n, m, _ in hits)
+    top = max(t for *_, t in hits) * 8 / 1e6
+    out.add(
+        "R-17",
+        "Environment",
+        "low",
+        f"Loss seconds while other apps on the tablet received up to {top:.1f} Mbps, far "
+        f"more than usual ({who}): the tablet's own background work (an app update, a "
+        "sync) may have taken its Wi-Fi time. Next: turn off automatic app updates and "
+        "sync on the tablet for tests, then run again.",
         sorted({d for d, *_ in hits}),
         min(t for _, t, *_ in hits),
     )
@@ -810,8 +912,7 @@ def analyze(data: dict[str, Any]) -> dict[str, Any]:
     if held:  # R-23 names the cause of the PC's own drops: not the PC (2026-10-16)
         out.findings = [f for f in out.findings
                         if not (f["rule"] == "R-07" and set(f["devices"]) <= held)]  # fmt: skip
-    for rule in ("R-11", "R-17"):
-        out.lack(rule, LATER)
+    _more_receivers(out, data)
     if data.get("multicast_path") == "primed":  # 2026-11-26 (R20261127-011120: R-02 said
         # "check that the router sends IGMP queries" on a primed unicast run)
         out.findings = [f for f in out.findings if f["rule"] not in MULTICAST_ONLY]

@@ -1596,7 +1596,8 @@ class IptvRun:
         # report's dut.multicast_path in the second pass (the saved plan still says Auto)
         primed = plan is not None and plan.primed
         path = "primed" if primed else data.get("multicast_path")
-        return analyze({**data, "multicast_path": path})
+        quality = plan.quality if plan is not None else data.get("quality")  # R-11 compares it
+        return analyze({**data, "multicast_path": path, "quality": quality})
 
     @staticmethod
     def self_checks() -> list[Check]:  # zeroloss verify (12 2, 20 GAP-81)

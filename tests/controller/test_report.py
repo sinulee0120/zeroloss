@@ -137,3 +137,34 @@ def test_a_report_names_the_test_as_the_screens_do() -> None:
     assert test_label({"test_type": "tablet"}) == "IPTV test" == _test_label("pc")
     assert test_label({"test_type": "all"}) == "Throughput · All"
     assert test_label({"test_type": "odd"}) == "odd test" and _test_label(None) == ""
+
+
+def test_earlier_runs_for_r11(tmp_path: Path) -> None:
+    """R-11's list: finished runs before this one in the last week, newest first, with
+    which receivers were wireless (tablets and Wireless PCs) and what they lost."""
+    import json as _json
+
+    from controller.run import earlier_runs
+
+    def run(name: str, lost: int, wireless_pcs: list[str] | None = None) -> None:
+        d = tmp_path / name
+        d.mkdir()
+        plan = {"devices": {"receivers": [{"device": "pc"}, {"device": "tab", "serial": "X1"}]},
+                **({"wireless_pcs": wireless_pcs} if wireless_pcs else {})}  # fmt: skip
+        summary = {"quality": "UHD", "actual_s": 1800, "dut": {"multicast_path": "primed"},
+                   "devices": [{"device": "pc", "loss_total": 9},
+                               {"device": "tab", "loss_total": lost}]}  # fmt: skip
+        (d / "plan.json").write_text(_json.dumps(plan), encoding="utf-8")
+        (d / "summary.json").write_text(_json.dumps(summary), encoding="utf-8")
+
+    run("R20261120-100000", 0)  # more than a week before: left out
+    run("R20261127-100000", 2, ["pc"])
+    run("R20261127-200000", 0)
+    run("R20261128-090000", 0)  # after this run: left out
+    (tmp_path / "R20261127-210000").mkdir()  # no summary yet: left out
+    got = earlier_runs(tmp_path, "R20261128-080000")
+    assert [r["run_id"] for r in got] == ["R20261127-200000", "R20261127-100000"]
+    assert got[0] == {"run_id": "R20261127-200000", "quality": "UHD", "multicast_path": "primed",
+                      "measured_s": 1800.0, "wireless": ["tab"], "lost": 0}  # fmt: skip
+    assert got[1]["wireless"] == ["pc", "tab"] and got[1]["lost"] == 11  # the Wireless PC's too
+    assert earlier_runs(tmp_path, None) == [] and earlier_runs(tmp_path, "nonsense") == []

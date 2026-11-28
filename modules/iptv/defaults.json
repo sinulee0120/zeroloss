@@ -232,7 +232,7 @@
         "lock": true,
         "help": "Primed unicast for development/SDK routers without IGMP. Auto finds out by itself.",
         "available": true,
-        "group": "Network"
+        "group": "Router"
       }
     },
     "S-21": {

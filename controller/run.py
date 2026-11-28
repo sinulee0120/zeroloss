@@ -30,8 +30,10 @@ from types import SimpleNamespace
 from typing import Any
 
 from controller.baselines import BaselineStore
+from controller.changes import changes_since_previous
 from controller.devices import Device, DeviceList
 from controller.discover import same_network
+from controller.dut_info import dut_info
 from controller.judge import in_plan, judge_run
 from controller.links import LinkJudge, precheck
 from controller.precheck import (
@@ -53,6 +55,7 @@ from controller.precheck import (
 from controller.precheck import Step as PrecheckStep
 from controller.report import write_report
 from controller.router_logger import RouterLogger
+from controller.trust import measurement_trust
 from controller.wan_route import WAN_B, ensure_wan_route, manual_fix
 from controller.wifi_store import WifiConfig
 from core.blocks.link_monitor import nic_of, read_links
@@ -270,6 +273,7 @@ class RunController:
                     self._runs = {}
                     self._episodes, self._trouble_cols = {}, None
                     self._write_state("running")
+                    self._look_up_router()  # F14 DUT info, in the background
                     self._event("ZL-INFO", "info", f"Run {self.run_id} starting")
                     stages = (
                         self._rules.start_steps(self._plan, skip_send=True)
@@ -697,7 +701,9 @@ class RunController:
         )
         result["recovered"] = True
         events = read_jsonl(run_dir / "events.log")  # what the crashed service had written
-        data = {"summaries": summaries, "events": events, "seconds": None, "offsets": {}}
+        data = {"summaries": summaries, "events": events, "seconds": None, "offsets": {},
+                "multicast_path": (result.get("dut") or {}).get("multicast_path"),
+                "earlier": earlier_runs(self.reports_dir, run_id)}  # fmt: skip
         result.update(analysis_fields(rules, plan, data, "report"))
         if missing:
             why = f"data not collected from: {', '.join(missing)}"
@@ -971,6 +977,8 @@ class RunController:
             self._baseline = chosen == BASELINE  # 05 4.6.3
             self.run_id = cl.run_id = run_id
             infos = self._open_devices()
+            self._versions_seen = _versions_of(infos, self._raw_plan)  # 02 10 versions (F24)
+            self._links_seen = _links_of(infos)  # 02 10 links_at_start (F24)
             self._fill_test_cards(infos)  # GAP-99 2: before the plan is used anywhere
             self._use_broadcast(str(plan.get("module", "")))
             s.detail = ", ".join(sorted(self._watch))
@@ -2535,6 +2543,10 @@ class RunController:
         )
         assert self._run_dir is not None
         result.update(self._first_analysis())
+        result["changes_since_previous"] = self._changes(result)  # F24
+        tablets = {str(r.get("device")) for r in ((self._raw_plan or {}).get("devices") or {})
+                   .get("receivers") or [] if r.get("serial")}  # fmt: skip
+        result["measurement_trust"] = measurement_trust(result, self._summaries, tablets)  # F25
         try:
             write_report(self._run_dir, result, self._raw_plan)
         except Exception as e:  # 09 CTL-007 (2026-11-21 review): the run stayed REPORTING
@@ -2573,9 +2585,10 @@ class RunController:
         return {
             **problems,
             "recovered": False,  # a recovery report after a crash sets it (F10, CTL-003)
-            "dut": {  # F14 input fields come with the settings screen (P3)
-                "model": None,
-                "firmware_build": None,
+            "dut": {  # F14: from the router's UPnP description (dut_info.py), else null
+                "model": self._router().get("model"),
+                "firmware_build": self._router().get("firmware_build"),
+                "upnp": self._router() or None,
                 "mode_user": None,
                 "mode_detected": self._mode_detected(),
                 "wan_ip": self._wan_ip,
@@ -2602,13 +2615,13 @@ class RunController:
             "receiver_side_issues": sum(
                 d["colors"].get("purple", 0) for d in result.get("devices", [])
             ),
-            "measurement_trust": None,  # F25 (P3)
-            "changes_since_previous": None,  # F24 (P3)
+            "measurement_trust": None,  # F25: set just before the report is written
+            "changes_since_previous": None,  # F24: set just before the report is written
+            "links_at_start": getattr(self, "_links_seen", None),
             "versions": {
                 "controller": self.build,
                 "agents": {n: w.build for n, w in self._watch.items()},
-                "app": None,
-                "tools": None,
+                **getattr(self, "_versions_seen", {"app": None, "tools": None}),
             },
         }
 
@@ -2766,6 +2779,48 @@ class RunController:
             except OSError:
                 pass  # the report still has everything in memory
 
+    def _look_up_router(self) -> None:
+        """F14 "DUT 정보": the router under test's UPnP description (controller/dut_info.py),
+        read once per run in the background; the report waits a little for it. S-71 Off:
+        nothing is asked of the router (12 4-2, 20 GAP-205)."""
+        self._dut_done, self._dut_info = None, None
+        chosen = ((self._raw_plan or {}).get("settings") or {}).get("S-71", CORE_DEFAULTS["S-71"])
+        if chosen == "Off":
+            return
+        hosts = []
+        for r in ((self._raw_plan or {}).get("devices") or {}).get("receivers") or []:
+            name = str(r.get("host") or r.get("device") or "")
+            try:
+                hosts.append(str(self.devices.get(name).host))
+            except (KeyError, ZlError, AttributeError):
+                continue
+        done = self._dut_done = threading.Event()
+
+        def run() -> None:
+            try:
+                self._dut_info = dut_info(hosts)
+            except Exception:  # never a reason to fail a test
+                self._dut_info = None
+            finally:
+                done.set()
+
+        threading.Thread(target=run, name="dut-info", daemon=True).start()
+
+    def _router(self) -> dict[str, Any]:
+        done = getattr(self, "_dut_done", None)
+        if done is not None:
+            done.wait(DUT_INFO_WAIT_S)
+        return getattr(self, "_dut_info", None) or {}
+
+    def _changes(self, result: dict[str, Any]) -> dict[str, Any] | None:
+        """F24: never stops a report (a run folder that cannot be read is left out)."""
+        assert self._run_dir is not None
+        try:
+            return changes_since_previous(self._run_dir, result, self._raw_plan or {},
+                                          self._summaries)  # fmt: skip
+        except Exception:  # the report goes on without the line
+            return None
+
     def _first_analysis(self) -> dict[str, Any]:
         """iptv 2.4 first pass (5-minute summaries and events), timeline.json for the
         second pass after the records come. Never changes the verdict."""
@@ -2773,7 +2828,11 @@ class RunController:
         offsets = {k: round(statistics.median(v), 3) for k, v in self._offsets.items() if v}
         _atomic_json(self._run_dir / "timeline.json", offsets)
         data = {"summaries": self._summaries, "events": list(self._run_events), "seconds": None,
-                "offsets": offsets}  # fmt: skip
+                "offsets": offsets,
+                # 2026-11-28: the first pass had no path, so a primed run's report listed the
+                # multicast-only rules until the records came (the second pass had it)
+                "multicast_path": "lan" if self._lan_sender else (self._path() or {}).get("path"),
+                "earlier": earlier_runs(self.reports_dir, self.run_id)}  # R-11  # fmt: skip
         with self._run_log_lock:
             self._run_t0 = None  # the run's events end with its report
         return analysis_fields(self._rules, self._plan, data, "report")
@@ -2926,8 +2985,79 @@ def _wait_idle(client: NodeClient, limit_s: float = 30.0) -> None:
     raise ZlError("DSC-014", "The node did not finish stopping", "It stayed busy for 30 s.")
 
 
+def _versions_of(infos: dict[str, dict[str, Any]], plan: dict[str, Any]) -> dict[str, Any]:
+    """02 10 ``versions`` ``app`` and ``tools`` (2026-11-28: both were always null, so F24 could
+    not see a tool or app change): each device's tools from its Start ``/v1/info`` ({tool:
+    version}), and the tablets' app build each PC with tablets carries (Start installs it on
+    them, TAB ensure_app)."""
+    tools = {name: {t: (v or {}).get("version") for t, v in sorted((i.get("tools") or {}).items())
+                    if isinstance(v, dict) and v.get("path")}
+             for name, i in sorted(infos.items())}  # fmt: skip
+    hosts = {str(r.get("host")) for r in (plan.get("devices") or {}).get("receivers") or []
+             if r.get("serial") and r.get("host")}  # fmt: skip
+    app = {h: infos[h].get("tablet_app") for h in sorted(hosts) if h in infos}
+    return {"app": app or None, "tools": {n: t for n, t in tools.items() if t} or None}
+
+
+def _links_of(infos: dict[str, dict[str, Any]]) -> dict[str, dict[str, int]] | None:
+    """02 10 ``links_at_start`` (F24 "링크: NIC별 시작 속도"): each device's wired cards that
+    were up at Start with their negotiated speed (Mbps), from its ``/v1/info``."""
+    out = {name: {str(x["nic"]): int(x["link_mbps"]) for x in i.get("links") or []
+                  if x.get("up") and isinstance(x.get("link_mbps"), int) and x.get("nic")}
+           for name, i in sorted(infos.items())}  # fmt: skip
+    return {n: v for n, v in out.items() if v} or None
+
+
+DUT_INFO_WAIT_S = 6.0  # the report waits this long at most for the router's description
 RUN_EVENTS_MAX = 100_000  # events kept for the analysis (100 h, bounded, 11-ui 1.4)
 OFFSET_SAMPLES = 600  # heartbeat samples per receiver for its clock offset (D39)
+
+
+EARLIER_RUNS = 30  # R-11: the runs before this one it compares with, newest first ...
+EARLIER_DAYS = 7  # ... from the last week (the same router, most likely)
+
+
+def earlier_runs(reports_dir: Path, run_id: str | None) -> list[dict[str, Any]]:
+    """iptv R-11 (2026-11-28, "안만든거 다 만들어"; it was "later phase"): the finished runs
+    before this one, newest first: quality, path, which receivers were wireless and what
+    they lost. Run ids sort by time (R<date>-<time>); a folder that cannot be read is
+    left out."""
+    if not run_id:
+        return []
+    try:
+        now = datetime.strptime(run_id[1:16], "%Y%m%d-%H%M%S")
+    except ValueError:
+        return []
+    out: list[dict[str, Any]] = []
+    for d in sorted(reports_dir.glob("R*-*"), reverse=True):
+        if d.name >= run_id:
+            continue
+        try:
+            when = datetime.strptime(d.name[1:16], "%Y%m%d-%H%M%S")
+        except ValueError:
+            continue
+        if (now - when).total_seconds() > EARLIER_DAYS * 86400:
+            break
+        try:
+            summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+            plan = json.loads((d / "plan.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        rx = (plan.get("devices") or {}).get("receivers") or []
+        wireless = {str(r.get("device")) for r in rx if r.get("serial")} | {
+            str(x) for x in plan.get("wireless_pcs") or []}  # fmt: skip
+        devices = [x for x in summary.get("devices") or [] if isinstance(x, dict)]
+        out.append({
+            "run_id": d.name, "quality": summary.get("quality"),
+            "multicast_path": (summary.get("dut") or {}).get("multicast_path"),
+            "measured_s": float(summary.get("actual_s") or 0),
+            "wireless": sorted(wireless),
+            "lost": sum(int(x.get("loss_total") or 0) for x in devices
+                        if str(x.get("device")) in wireless),
+        })  # fmt: skip
+        if len(out) >= EARLIER_RUNS:
+            break
+    return out
 
 
 def analysis_fields(rules: Any, plan: Any, data: dict[str, Any], stage: str) -> dict[str, Any]:

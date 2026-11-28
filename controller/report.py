@@ -13,9 +13,11 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from controller.changes import line as changes_line
 from controller.pdf import MARGIN, Pdf, width
 from controller.report_page import MAIL_SECTION, page_data, section
 from controller.report_page import STYLE as PAGE_STYLE
+from controller.trust import line as trust_line
 from controller.words import TEST_LABELS, hms, reason_text  # no Qt: the node's reports
 from core.ui_schema.design import COLORS as DESIGN
 from core.ui_schema.design import ICONS  # one place for the shapes (11-ui 1.7)
@@ -106,6 +108,10 @@ def render_pdf(r: dict[str, Any]) -> bytes:
     verdict = str(r.get("verdict"))
     doc.para("ZeroLoss test report", 18, bold=True)
     doc.gap(4)
+    trust = trust_line(r.get("measurement_trust"))  # F25: above the verdict
+    if trust:
+        doc.para(trust, 10, bold=True)
+        doc.gap(2)
     doc.room(30)
     label = verdict + (" (with warnings)" if r.get("with_warnings") else "")
     doc.rect(MARGIN, doc.y, width(label, 16) + 20, 26, VERDICT_COLORS.get(verdict, "#616161"))
@@ -118,6 +124,9 @@ def render_pdf(r: dict[str, Any]) -> bytes:
     router = router_line(r)
     if router:
         doc.para(router, 9)
+    changed = changes_line(r.get("changes_since_previous"))  # F24
+    if changed:
+        doc.para(changed, 9)
     for d in r.get("verdict_details") or []:
         doc.para(f"- {d}", 9)
     for w in cell_whys(r):
@@ -222,7 +231,9 @@ td, th {{ border-bottom: 1px solid #ddd; padding: 8px; text-align: left; vertica
 {PAGE_STYLE}
 </style></head><body>
 <h1>ZeroLoss test report</h1>
-<div class="verdict">{e(verdict)}{" (with warnings)" if r.get("with_warnings") else ""}</div>{
+{_trust(r)}<div class="verdict">{e(verdict)}{
+        " (with warnings)" if r.get("with_warnings") else ""
+    }</div>{
         "<p><strong>⚠ Not through the router under test: "
         + e(str((r.get("dut") or {}).get("not_through_router_why")))
         + "</strong></p>"
@@ -234,7 +245,7 @@ td, th {{ border-bottom: 1px solid #ddd; padding: 8px; text-align: left; vertica
 measured {e(_span(r.get("actual_s")))} of {e(_span(r.get("planned_s")))} ·
 reason: {e(reason_text(r.get("verdict_reason")))}{
         " · Baseline test (no router, 05 4.6.3)" if r.get("test_network") == "baseline" else ""
-    }</p>{f"<p>{e(router_line(r) or '')}</p>" if router_line(r) else ""}
+    }</p>{f"<p>{e(router_line(r) or '')}</p>" if router_line(r) else ""}{_changes(r)}
 <ul>{details}</ul>{
         "<h2>How it was measured</h2><ul>"
         + "".join(f"<li>{e(str(x))}</li>" for x in r.get("method") or [])
@@ -254,6 +265,43 @@ reason: {e(reason_text(r.get("verdict_reason")))}{
 {MAIL_SECTION}
 </body></html>
 """
+
+
+def _trust(r: dict[str, Any]) -> str:
+    """F25 above the verdict, with every check when opened."""
+    t = r.get("measurement_trust")
+    text = trust_line(t)
+    if not text:
+        return ""
+    rows = "".join(
+        f"<tr><td>{'✔' if c.get('ok') else '✖' if c.get('level') == 'bad' else '⚠'}</td>"
+        f"<td>{html.escape(str(c.get('text')))}</td></tr>"
+        for c in (t or {}).get("checks") or []
+    )
+    return (
+        f"<details class='trust'><summary><strong>{html.escape(text)}</strong></summary>"
+        f"<table>{rows}</table></details>"
+    )
+
+
+def _changes(r: dict[str, Any]) -> str:
+    """F24 under the verdict: one line, and the whole before/after table when opened."""
+    ch = r.get("changes_since_previous")
+    text = changes_line(ch)
+    if not text:
+        return ""
+    items = (ch or {}).get("items") or []
+    if not items:
+        return f"<p>{html.escape(text)}</p>"
+    rows = "".join(
+        f"<tr><td>{html.escape(str(x['name']))}</td><td>{html.escape(str(x['before']))}</td>"
+        f"<td>{html.escape(str(x['after']))}{' ⚠' if x.get('worse') else ''}</td></tr>"
+        for x in items
+    )
+    return (
+        f"<details><summary>{html.escape(text)}</summary><div class='wide'><table>"
+        f"<tr><th>What</th><th>Before</th><th>Now</th></tr>{rows}</table></div></details>"
+    )
 
 
 def _analysis(r: dict[str, Any]) -> str:

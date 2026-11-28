@@ -155,6 +155,7 @@ from controller.ui.view import (
     tablets_behind,
     tablets_present,
     ticks_change,
+    trust_mark,
 )
 from controller.web import WEB_PORT
 from core.settings import CORE_DEFAULTS
@@ -353,6 +354,7 @@ STATE_BADGE = {
     "STOPPING": ("Stopping", "blue"), "REPORTING": ("Making the report", "blue"),
     "SAFE_STOP": ("Stopping", "amber"), "FAULT": ("Fault", "red"), "OFFLINE": ("Offline", "grey"),
 }  # fmt: skip
+TRUST_MIN_W = 1200  # F25's mark in the header from this window width
 BADGE_BG = {"grey": "#eef0f3", "blue": "#e6effb", "green": "#e3f4ea", "amber": "#fbf1d9",
             "red": "#fbe6e6"}  # fmt: skip
 BADGE_FG = {"grey": "#3f4652", "blue": "#174a94", "green": "#0b5c37", "amber": "#6b4c00",
@@ -1533,6 +1535,10 @@ class MainWindow(QMainWindow):
         self.l_time.setObjectName("muted")
         self.l_time.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         top.addWidget(self.l_time)
+        self.l_trust = QLabel()  # F25 while a test runs: can this measurement be trusted
+        self.l_trust.setObjectName("trust")
+        self.l_trust.setVisible(False)
+        top.addWidget(self.l_trust)
         top.addSpacing(GRID)
         top.addWidget(self.l_run, 1)  # after the time: on a wide screen it stays near the badge
         self.l_broadcast = QLabel()  # F18 banner, with its button; only while on
@@ -1865,6 +1871,19 @@ class MainWindow(QMainWindow):
         )
         if self.l_state.styleSheet() != style:
             self.l_state.setStyleSheet(style)
+        mark = trust_mark(st) if st.connected else None
+        # a header under TRUST_MIN_W has no room for it (the Problems badge says it there;
+        # 2026-11-28 the size sweep: at 1093 px it cut the time beside it)
+        roomy = self.width() >= TRUST_MIN_W and not getattr(self, "narrow", False)
+        self.l_trust.setVisible(mark is not None and roomy)
+        if mark is not None:
+            text, tone, tip = mark
+            _set_text(self.l_trust, text)
+            self.l_trust.setToolTip(tip)
+            look = (f"QLabel#trust {{ color:{BADGE_FG[tone]}; background:{BADGE_BG[tone]}; "
+                    "border-radius:8px; padding:1px 8px; }")  # fmt: skip
+            if self.l_trust.styleSheet() != look:
+                self.l_trust.setStyleSheet(look)
         got = st.run.get("plan")
         plan: dict[str, Any] = got if isinstance(got, dict) else {}
         bits = [str(st.run.get("run_id") or "")] if state != "IDLE" else []
@@ -3173,6 +3192,8 @@ class MainWindow(QMainWindow):
         for w in (self.l_brand, self.l_run, self.l_state):
             if w.isHidden() != narrow:
                 w.setVisible(not narrow)
+        if self.l_trust.isVisible() and (narrow or self.width() < TRUST_MIN_W):
+            self.l_trust.setVisible(False)  # F25's mark: the next status shows it if there is room
         if narrow == self.narrow:
             return
         if narrow:

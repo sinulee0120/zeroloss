@@ -38,6 +38,7 @@ WIFI_BAND = "wbd"
 WIFI_CH_CHANGED = "wcc"  # 1: channel, width or band differ from the second before
 WIFI_BSSID_CHANGED = "wbc"  # 1: another access point
 WIFI_SCANS = "wsc"  # Wi-Fi scans this receiver made this second (tablet app, TAB-018)
+OTHER_RX_BYTES = "orx"  # bytes other apps on the tablet received this second (R-17)
 SCAN_LOST = "sl"  # of lost, lost in a second this receiver scanned (iptv R-25, node-made)
 # Receiving card and host counters, per-second deltas, absent when not read (02 7, GAP-148)
 NIC_PACKETS = "np"

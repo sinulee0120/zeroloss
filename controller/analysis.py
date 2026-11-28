@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from controller.report import write_report
-from controller.run import analysis_fields
+from controller.run import analysis_fields, earlier_runs
 from core.modules.registry import load_run_entry
 from core.protocol.envelope import ZlError
 from core.records.jsonl import read_jsonl
@@ -60,7 +60,8 @@ def reanalyze(run_dir: Path, modules_dir: Path) -> bool:
         offsets = {}
     data = {"summaries": summaries, "events": read_jsonl(run_dir / "events.log"),
             "seconds": seconds, "offsets": offsets,
-            "multicast_path": (summary.get("dut") or {}).get("multicast_path")}  # fmt: skip
+            "multicast_path": (summary.get("dut") or {}).get("multicast_path"),
+            "earlier": earlier_runs(run_dir.parent, run_dir.name)}  # R-11  # fmt: skip
     fields = analysis_fields(rules, plan, data, "records")
     before = {k: summary.get(k) for k in KEYS}
     summary.update(fields)

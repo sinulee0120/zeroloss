@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from controller.precheck import IDLE_STEPS, is_wireless
+from controller.trust import line as trust_line
+from controller.trust import measurement_trust
 from controller.ui.store import Status
 from controller.ui.texts import TEXT
 from controller.words import TEST_LABELS
@@ -225,6 +227,22 @@ def _link_status(status: Status) -> tuple[str, str] | None:
             if worst is None or cand[0] > worst[0]:
                 worst = cand
     return (worst[1], worst[2]) if worst else None
+
+
+def trust_mark(status: Status) -> tuple[str, str, str] | None:
+    """F25 in the top bar while a test runs (small, 2026-11-28): (mark, color, tooltip) from
+    the live problems, the same rules as the report's line (controller/trust.py)."""
+    if str(status.run.get("state")) not in ("RUNNING", "STOPPING"):
+        return None
+    rows = [p for p in (status.problems or {}).get("problems") or [] if isinstance(p, dict)]
+    t = measurement_trust({"problems": rows}, {})
+    failed = [c["text"] for c in t["checks"] if not c["ok"]]
+    tip = trust_line(t) or ""
+    if t["level"] == "bad":
+        return "✖ Not OK", "red", tip
+    if t["level"] == "warn":
+        return f"⚠ {len(failed)}", "amber", tip
+    return "✔ OK", "green", tip
 
 
 def _alarmed(status: Status) -> set[str]:

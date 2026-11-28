@@ -75,6 +75,10 @@ Source: "{#Src}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs create
 Source: "{#Tools}\TSDuck\*"; DestDir: "{autopf}\ZeroLoss\Tools\TSDuck"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#Tools}\ffmpeg\*"; DestDir: "{autopf}\ZeroLoss\Tools\ffmpeg"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#Tools}\mpv\*"; DestDir: "{autopf}\ZeroLoss\Tools\mpv"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 06 11.5 (2026-11-28): this setup stays as the installed one, so even the first update over
+; 10991 can go back to it if it fails (Linux: the SSH install keeps current.deb). An update or
+; a rollback runs the setup from this folder, and it puts itself here again
+Source: "{srcexe}"; DestDir: "{commonappdata}\ZeroLoss\Agent\data\deployer\packages"; DestName: "current.exe"; Flags: external ignoreversion
 
 [Registry]
 ; 06 4.2: version, role and install path only

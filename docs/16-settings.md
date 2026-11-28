@@ -85,6 +85,7 @@
 | S-68 | Router Logger record time | Adv | 30 s | 1~3600 s (문제 뒤 기록하고 stop을 누를 때까지) | 🔒 | 13 4 |
 | S-69 | Router Logger program | Adv | 없음 | 이 PC의 프로그램 파일 전체 경로(.exe), 이 PC에만 저장. 그 프로그램이 켜져 있어야 함 | 🔒 | 13 4 |
 | S-70 | Video folder (sender PC) | Adv | 없음(송신 PC 기본 위치: Ubuntu `/var/lib/zeroloss/media`, Windows `C:\ZeroLoss\Media`) | 송신 PC의 영상 폴더 전체 경로. 사용자 영화는 그 맨 위, ZeroLoss가 만든 영상은 `generated/`. 그 PC가 기억함(2026-11-27, 20장 GAP-195) | 🔒 | iptv 1-1 |
+| S-71 | Router description (UPnP) | Adv | On | On / Off — 시작 때 Controller가 공유기의 공개 UPnP 장치 설명(XML)을 한 번 읽어 모델·펌웨어를 보고서에(03 F14 "DUT 정보"). 로그인·변경 없음. Off면 공유기에 아무것도 묻지 않음(2026-11-28, 20장 GAP-205) | 🔒 | 03 F14, 12 4-2 |
 
 ### 1.5 바꿀 수 없음 (Fixed, 원칙)
 | 항목 | 값 | 이유 |

@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
 import com.zeroloss.receiver.measure.Iperf3Client
+import com.zeroloss.receiver.measure.OtherTraffic
 import com.zeroloss.receiver.measure.RtpHeader
 import com.zeroloss.receiver.measure.StreamAnalyzer
 import com.zeroloss.receiver.play.ChannelPlayer
@@ -358,6 +359,12 @@ class ReceiverService : Service() {
             }
             thread(name = "zl-tick", isDaemon = true) {
                 var next = SystemClock.elapsedRealtimeNanos() + NS_PER_S
+                // other apps' bytes this second (02 7 `orx`, iptv R-17): kernel counters, no rights
+                val others = OtherTraffic(
+                    { android.net.TrafficStats.getTotalRxBytes() },
+                    { android.net.TrafficStats.getUidRxBytes(Process.myUid()) },
+                )
+                others.second()
                 while (!stopped) {
                     val wait = (next - SystemClock.elapsedRealtimeNanos()) / 1_000_000
                     if (wait > 0) Thread.sleep(wait)
@@ -365,6 +372,7 @@ class ReceiverService : Service() {
                     wifiNow?.invoke()?.let { (rssi, mbps, freq) -> wifi.put(r, rssi, mbps, freq) }
                     val scans = wifiScans.getAndSet(0)
                     if (scans > 0) r.put("wsc", scans) // the tablet scanned: radio off channel (TAB-018)
+                    others.second()?.let { r.put("orx", it) }
                     if (pipe != null) monitor.second(next)?.let { pb -> pb.keys().forEach { k -> r.put(k, pb.get(k)) } }
                     keep(r)
                     next += NS_PER_S
